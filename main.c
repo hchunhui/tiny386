@@ -5,6 +5,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <errno.h>
 #include <signal.h>
 
 #include "i8259.h"
@@ -128,7 +129,10 @@ typedef struct {
 
 	int excno;
 	uword excerr;
-	int hardirq;
+
+	bool intr;
+	void *pic;
+	int (*pic_read_irq)(void *);
 
 	void *io;
 	u8 (*io_read)(void *, int);
@@ -3426,6 +3430,13 @@ void call_isr(CPUI386 *cpu, int no, bool pusherr)
 
 void cpu_step(CPUI386 *cpu, int stepcount)
 {
+	if ((cpu->flags & IF) && cpu->intr) {
+		cpu->intr = false;
+		int no = cpu->pic_read_irq(cpu->pic);
+		cpu->ip = cpu->next_ip;
+		call_isr(cpu, no, false);
+	}
+
 	if (!cpu_exec1(cpu, stepcount)) {
 		bool pusherr = false;
 		switch (cpu->excno) {
@@ -3435,15 +3446,7 @@ void cpu_step(CPUI386 *cpu, int stepcount)
 		}
 		cpu->next_ip = cpu->ip;
 		call_isr(cpu, cpu->excno, pusherr);
-	} else if ((cpu->flags & IF) && cpu->hardirq != -1) {
-//		if (cpu->hardirq != 32)
-//			fprintf(stderr, "handle irq %d\n", cpu->hardirq);
-		int no = cpu->hardirq;
-		cpu->hardirq = -1;
-		cpu->ip = cpu->next_ip;
-		call_isr(cpu, no, false);
 	}
-
 }
 
 CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size,
@@ -3491,7 +3494,10 @@ CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size,
 
 	cpu->ifetch.lpgno = -1;
 
-	cpu->hardirq = -1;
+	cpu->intr = false;
+	cpu->pic = NULL;
+	cpu->pic_read_irq = NULL;
+
 	cpu->io = io;
 	cpu->io_read = io_read;
 	cpu->io_write = io_write;
@@ -3499,17 +3505,14 @@ CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size,
 }
 
 /* sysprog21/semu */
-#define U8250_INT_THRE 1
 typedef struct {
 	u8 dll, dlh;
 	u8 lcr;
 	u8 ier;
-	u8 current_int, pending_ints; /**< interrupt status */
 	u8 mcr;
-
+	u8 ioready;
 	int out_fd;
 	u8 in;
-	bool in_ready;
 } U8250;
 
 U8250 *u8250_init()
@@ -3530,27 +3533,8 @@ typedef struct {
 
 void u8250_update_interrupts(PC *pc, U8250 *uart)
 {
-	/* Some interrupts are level-generated. */
-	/* TODO: does it also generate an LSR change interrupt? */
-	if (uart->in_ready)
-		uart->pending_ints |= 1;
-	else
-		uart->pending_ints &= ~1;
-
-	/* Prevent generating any disabled interrupts in the first place */
-	uart->pending_ints &= uart->ier;
-
-	/* Update current interrupt (higher bits -> more priority) */
-	if (uart->pending_ints) {
-		int k = 0;
-		int temp = uart->pending_ints;
-		while(temp) {
-			temp >>= 1;
-			k++;
-		}
-		uart->current_int = k - 1;
+	if (uart->ier & uart->ioready) {
 		i8259_set_irq(pc->pic, 4, 1);
-		i8259_set_irq(pc->pic, 4, 0);
 	} else {
 		i8259_set_irq(pc->pic, 4, 0);
 	}
@@ -3566,7 +3550,7 @@ static u8 u8250_reg_read(PC *pc, U8250 *uart, int off)
 			break;
 		}
 		val = uart->in;
-		uart->in_ready = false;
+		uart->ioready &= ~1;
 		u8250_update_interrupts(pc, uart);
 		break;
 	case 1:
@@ -3577,10 +3561,7 @@ static u8 u8250_reg_read(PC *pc, U8250 *uart, int off)
 		val = uart->ier;
 		break;
 	case 2:
-		val = (uart->current_int << 1) | (uart->pending_ints ? 0 : 1);
-		if (uart->current_int == U8250_INT_THRE) {
-			uart->pending_ints &= ~(1 << uart->current_int);
-		}
+		val = (uart->ier & uart->ioready) ? 0 : 1;
 		break;
 	case 3:
 		val = uart->lcr;
@@ -3590,7 +3571,7 @@ static u8 u8250_reg_read(PC *pc, U8250 *uart, int off)
 		break;
 	case 5:
 		/* LSR = no error, TX done & ready */
-		val = 0x60 | (uint8_t) uart->in_ready;
+		val = 0x60 | (uart->ioready & 1);
 		break;
 	case 6:
 		/* MSR = carrier detect, no ring, data ready, clear to send. */
@@ -3611,8 +3592,10 @@ static void u8250_reg_write(PC *pc, U8250 *uart, int off, u8 val)
 			uart->dll = val;
 			break;
 		} else {
-			write(uart->out_fd, &val, 1);
-			uart->pending_ints |= 1 << U8250_INT_THRE;
+			ssize_t r;
+			do {
+				r = write(uart->out_fd, &val, 1);
+			} while (r == -1 && errno == EINTR);
 		}
 		break;
 	case 1:
@@ -3621,6 +3604,11 @@ static void u8250_reg_write(PC *pc, U8250 *uart, int off, u8 val)
 			break;
 		} else {
 			uart->ier = val;
+			if (uart->ier & 2)
+				uart->ioready |= 2;
+			else
+				uart->ioready &= ~2;
+			u8250_update_interrupts(pc, uart);
 		}
 		break;
 	case 3:
@@ -3717,7 +3705,7 @@ static int ReadKBByte()
 	if( rread > 0 ) // Tricky: getchar can't be used with arrow keys.
 		return rxchar;
 	else
-		return -1;
+		abort();
 }
 
 static int IsKBHit()
@@ -3733,12 +3721,14 @@ void pc_step(PC *pc)
 		timer_irq = false;
 		i8259_set_irq(pc->pic, 0, 1);
 		i8259_set_irq(pc->pic, 0, 0);
-	} else if (IsKBHit()) {
-		if (!pc->serial->in_ready) {
-			pc->serial->in = ReadKBByte();
-			pc->serial->in_ready = true;
+	} else {
+		if (IsKBHit()) {
+			if (!(pc->serial->ioready & 1)) {
+				pc->serial->in = ReadKBByte();
+				pc->serial->ioready |= 1;
+				u8250_update_interrupts(pc, pc->serial);
+			}
 		}
-		u8250_update_interrupts(pc, pc->serial);
 	}
 	cpu_step(pc->cpu, 1000);
 }
@@ -3746,9 +3736,13 @@ void pc_step(PC *pc)
 static void raise_irq(void *o, PicState2 *s)
 {
 	CPUI386 *cpu = o;
-	cpu->hardirq = i8259_read_irq(s);
-//	if (cpu->hardirq != 32)
-//		fprintf(stderr, "set irq %d\n", cpu->hardirq);
+	cpu->intr = true;
+}
+
+static int read_irq(void *o)
+{
+	PicState2 *s = o;
+	return i8259_read_irq(s);
 }
 
 PC *pc_new()
@@ -3759,6 +3753,8 @@ PC *pc_new()
 	memset(mem, 0, mem_size);
 	pc->cpu = cpu386_new(mem, mem_size, pc, pc_io_read, pc_io_write);
 	pc->pic = i8259_init(raise_irq, pc->cpu);
+	pc->cpu->pic = pc->pic;
+	pc->cpu->pic_read_irq = read_irq;
 	pc->serial = u8250_init();
 	pc->phys_mem = mem;
 	pc->phys_mem_size = mem_size;
