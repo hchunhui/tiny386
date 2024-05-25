@@ -1859,59 +1859,31 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define SARw(...) SAR_helper(16, __VA_ARGS__)
 #define SARd(...) SAR_helper(32, __VA_ARGS__)
 
-#define IMUL2w(a, b, la, sa, lb, sb) \
-	cpu->cc.src1 = sext16(la(a)); \
-	cpu->cc.src2 = sext16(lb(b)); \
+#define IMUL2_helper(BIT, a, b, la, sa, lb, sb)	\
+	cpu->cc.src1 = sext ## BIT(la(a)); \
+	cpu->cc.src2 = sext ## BIT(lb(b)); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
 	cpu->cc.dst2 = 0; \
-	cpu->cc.op = CC_IMUL16; \
+	cpu->cc.op = CC_IMUL ## BIT; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sa(a, cpu->cc.dst);
 
-#define IMUL2d(a, b, la, sa, lb, sb) \
-	cpu->cc.src1 = sext32(la(a)); \
-	cpu->cc.src2 = sext32(lb(b)); \
+#define IMUL2w(...) IMUL2_helper(16, __VA_ARGS__)
+#define IMUL2d(...) IMUL2_helper(32, __VA_ARGS__)
+
+#define IMUL2I_helper(BIT, BITI, a, b, c, la, sa, lb, sb) \
+	cpu->cc.src1 = sext ## BIT(lb(b)); \
+	cpu->cc.src2 = sext ## BITI(c); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
 	cpu->cc.dst2 = 0; \
-	cpu->cc.op = CC_IMUL32; \
+	cpu->cc.op = CC_IMUL ## BIT; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sa(a, cpu->cc.dst);
 
-#define IMUL2wIb(a, b, c, la, sa, lb, sb) \
-	cpu->cc.src1 = sext16(lb(b)); \
-	cpu->cc.src2 = sext8(c); \
-	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
-	cpu->cc.op = CC_IMUL16; \
-	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
-	sa(a, cpu->cc.dst);
-
-#define IMUL2wIw(a, b, c, la, sa, lb, sb) \
-	cpu->cc.src1 = sext16(lb(b)); \
-	cpu->cc.src2 = sext16(c); \
-	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
-	cpu->cc.op = CC_IMUL16; \
-	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
-	sa(a, cpu->cc.dst);
-
-#define IMUL2dIb(a, b, c, la, sa, lb, sb) \
-	cpu->cc.src1 = sext32(lb(b)); \
-	cpu->cc.src2 = sext8(c); \
-	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
-	cpu->cc.op = CC_IMUL32; \
-	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
-	sa(a, cpu->cc.dst);
-
-#define IMUL2dId(a, b, c, la, sa, lb, sb) \
-	cpu->cc.src1 = sext32(lb(b)); \
-	cpu->cc.src2 = sext32(c); \
-	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
-	cpu->cc.op = CC_IMUL32; \
-	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
-	sa(a, cpu->cc.dst);
+#define IMUL2wIb(...) IMUL2I_helper(16, 8, __VA_ARGS__)
+#define IMUL2wIw(...) IMUL2I_helper(16, 16, __VA_ARGS__)
+#define IMUL2dIb(...) IMUL2I_helper(32, 8, __VA_ARGS__)
+#define IMUL2dId(...) IMUL2I_helper(32, 32, __VA_ARGS__)
 
 #define IMULb(a, la, sa) \
 	cpu->cc.src1 = sext8(lreg8(0)); \
@@ -2015,8 +1987,8 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	sreg32(0, src1 / src2); \
 	sreg32(2, src1 % src2);
 
-#define BTw(a, b, la, sa, lb, sb) \
-	int bb = lb(b) % 16; \
+#define BT_helper(BIT, a, b, la, sa, lb, sb) \
+	int bb = lb(b) % BIT; \
 	bool bit = (la(a) >> bb) & 1; \
 	cpu->cc.mask &= ~CF; \
 	if (bit) { \
@@ -2025,9 +1997,13 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		cpu->flags &= ~CF; \
 	}
 
-#define BTd(a, b, la, sa, lb, sb) \
-	int bb = lb(b) % 32; \
+#define BTw(...) BT_helper(16, __VA_ARGS__)
+#define BTd(...) BT_helper(32, __VA_ARGS__)
+
+#define BTX_helper(BIT, OP, a, b, la, sa, lb, sb) \
+	int bb = lb(b) % BIT; \
 	bool bit = (la(a) >> bb) & 1; \
+	sa(a, la(a) OP (1 << bb)); \
 	cpu->cc.mask &= ~CF; \
 	if (bit) { \
 		cpu->flags |= CF; \
@@ -2035,75 +2011,16 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		cpu->flags &= ~CF; \
 	}
 
-#define BTSw(a, b, la, sa, lb, sb) \
-	int bb = lb(b) % 16; \
-	bool bit = (la(a) >> bb) & 1; \
-	sa(a, la(a) | (1 << bb)); \
-	cpu->cc.mask &= ~CF; \
-	if (bit) { \
-		cpu->flags |= CF; \
-	} else { \
-		cpu->flags &= ~CF; \
-	}
+#define BTSw(...) BTX_helper(16, |, __VA_ARGS__)
+#define BTSd(...) BTX_helper(32, |, __VA_ARGS__)
+#define BTRw(...) BTX_helper(16, & ~, __VA_ARGS__)
+#define BTRd(...) BTX_helper(32, & ~, __VA_ARGS__)
+#define BTCw(...) BTX_helper(16, ^, __VA_ARGS__)
+#define BTCd(...) BTX_helper(32, ^, __VA_ARGS__)
 
-#define BTSd(a, b, la, sa, lb, sb) \
-	int bb = lb(b) % 32; \
-	bool bit = (la(a) >> bb) & 1; \
-	sa(a, la(a) | (1 << bb)); \
-	cpu->cc.mask &= ~CF; \
-	if (bit) { \
-		cpu->flags |= CF; \
-	} else { \
-		cpu->flags &= ~CF; \
-	}
-
-#define BTRw(a, b, la, sa, lb, sb) \
-	int bb = lb(b) % 16 ; \
-	bool bit = (la(a) >> bb) & 1; \
-	sa(a, la(a) & ~(1 << bb)); \
-	cpu->cc.mask &= ~CF; \
-	if (bit) { \
-		cpu->flags |= CF; \
-	} else { \
-		cpu->flags &= ~CF; \
-	}
-
-#define BTRd(a, b, la, sa, lb, sb) \
-	int bb = lb(b) % 32 ; \
-	bool bit = (la(a) >> bb) & 1; \
-	sa(a, la(a) & ~(1 << bb)); \
-	cpu->cc.mask &= ~CF; \
-	if (bit) { \
-		cpu->flags |= CF; \
-	} else { \
-		cpu->flags &= ~CF; \
-	}
-
-#define BTCw(a, b, la, sa, lb, sb) \
-	int bb = lb(b) % 16; \
-	bool bit = (la(a) >> bb) & 1; \
-	sa(a, la(a) ^ (1 << bb)); \
-	cpu->cc.mask &= ~CF; \
-	if (bit) { \
-		cpu->flags |= CF; \
-	} else { \
-		cpu->flags &= ~CF; \
-	}
-
-#define BTCd(a, b, la, sa, lb, sb) \
-	int bb = lb(b) % 32; \
-	bool bit = (la(a) >> bb) & 1; \
-	sa(a, la(a) ^ (1 << bb)); \
-	cpu->cc.mask &= ~CF; \
-	if (bit) { \
-		cpu->flags |= CF; \
-	} else { \
-		cpu->flags &= ~CF; \
-	}
-
-#define BSFw(a, b, la, sa, lb, sb) \
-	u16 src = lb(b); \
-	u16 temp = 0; \
+#define BSF_helper(BIT, a, b, la, sa, lb, sb) \
+	u ## BIT src = lb(b); \
+	u ## BIT temp = 0; \
 	cpu->cc.mask = 0; \
 	if (src == 0) { \
 		cpu->flags |= ZF; \
@@ -2116,24 +2033,12 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		sa(a, temp); \
 	}
 
-#define BSFd(a, b, la, sa, lb, sb) \
-	u32 src = lb(b); \
-	u32 temp = 0; \
-	cpu->cc.mask = 0; \
-	if (src == 0) { \
-		cpu->flags |= ZF; \
-	} else { \
-		cpu->flags &= ~ZF; \
-		while ((src & 1) == 0) { \
-			temp++; \
-			src >>= 1; \
-		} \
-		sa(a, temp); \
-	}
+#define BSFw(...) BSF_helper(16, __VA_ARGS__)
+#define BSFd(...) BSF_helper(32, __VA_ARGS__)
 
-#define BSRw(a, b, la, sa, lb, sb) \
-	s16 src = lb(b); \
-	u16 temp = 15; \
+#define BSR_helper(BIT, a, b, la, sa, lb, sb) \
+	s ## BIT src = lb(b); \
+	u ## BIT temp = BIT - 1; \
 	cpu->cc.mask = 0; \
 	if (src == 0) { \
 		cpu->flags |= ZF; \
@@ -2146,20 +2051,8 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		sa(a, temp); \
 	}
 
-#define BSRd(a, b, la, sa, lb, sb) \
-	s32 src = lb(b); \
-	u32 temp = 31; \
-	cpu->cc.mask = 0; \
-	if (src == 0) { \
-		cpu->flags |= ZF; \
-	} else { \
-		cpu->flags &= ~ZF; \
-		while (src >= 0) { \
-			temp--; \
-			src <<= 1; \
-		} \
-		sa(a, temp); \
-	}
+#define BSRw(...) BSR_helper(16, __VA_ARGS__)
+#define BSRd(...) BSR_helper(32, __VA_ARGS__)
 
 #define MOVb(a, b, la, sa, lb, sb) sa(a, lb(b))
 #define MOVw(a, b, la, sa, lb, sb) sa(a, lb(b))
