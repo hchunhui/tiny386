@@ -9,13 +9,9 @@
 #include <signal.h>
 
 #include "i8259.h"
+#include "i8254.h"
 
 #include <time.h>
-volatile bool timer_irq;
-void on_timer(int signum)
-{
-	timer_irq = true;
-}
 
 typedef uint32_t u32;
 typedef uint16_t u16;
@@ -82,7 +78,7 @@ typedef struct {
 	uword gpr[8];
 	uword ip, next_ip;
 	uword flags;
-	int cpl;
+	bool halt;
 
 	struct {
 		uword sel;
@@ -2279,7 +2275,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	cpu->flags |= 0x2; \
 	cpu->cc.mask = 0;
 
-#define HLT()
+#define HLT() cpu->halt = true; return true;
 #define NOP()
 
 #define LAHF() \
@@ -3432,9 +3428,15 @@ void cpu_step(CPUI386 *cpu, int stepcount)
 {
 	if ((cpu->flags & IF) && cpu->intr) {
 		cpu->intr = false;
+		cpu->halt = false;
 		int no = cpu->pic_read_irq(cpu->pic);
 		cpu->ip = cpu->next_ip;
 		call_isr(cpu, no, false);
+	}
+
+	if (cpu->halt) {
+		usleep(1);
+		return;
 	}
 
 	if (!cpu_exec1(cpu, stepcount)) {
@@ -3461,7 +3463,7 @@ CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size,
 	cpu->ip = 0;
 	cpu->next_ip = cpu->ip;
 	cpu->flags = 0x2;
-	cpu->cpl = 0;
+	cpu->halt = false;
 
 	for (int i = 0; i < 8; i++) {
 		cpu->seg[i].sel = 0;
@@ -3526,6 +3528,7 @@ U8250 *u8250_init()
 typedef struct {
 	CPUI386 *cpu;
 	PicState2 *pic;
+	PITState *pit;
 	U8250 *serial;
 	char *phys_mem;
 	long phys_mem_size;
@@ -3633,8 +3636,16 @@ u8 pc_io_read(void *o, int addr)
 	case 0x3fc: case 0x3fd: case 0x3fe: case 0x3ff:
 		val = u8250_reg_read(pc, pc->serial, addr - 0x3f8);
 		return val;
-	case 0x40:
+	case 0x2f8: case 0x2f9: case 0x2fa: case 0x2fb:
+	case 0x2fc: case 0x2fd: case 0x2fe: case 0x2ff:
+	case 0x2e8: case 0x2e9: case 0x2ea: case 0x2eb:
+	case 0x2ec: case 0x2ed: case 0x2ee: case 0x2ef:
+	case 0x3e8: case 0x3e9: case 0x3ea: case 0x3eb:
+	case 0x3ec: case 0x3ed: case 0x3ee: case 0x3ef:
 		return 0;
+	case 0x40: case 0x41: case 0x42: case 0x43:
+		val = i8254_ioport_read(pc->pit, addr);
+		return val;
 	default:
 		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0);
 		return 0;
@@ -3652,15 +3663,17 @@ void pc_io_write(void *o, int addr, u8 val)
 	case 0x3fc: case 0x3fd: case 0x3fe: case 0x3ff:
 		u8250_reg_write(pc, pc->serial, addr - 0x3f8, val);
 		return;
+	case 0x2f8: case 0x2f9: case 0x2fa: case 0x2fb:
+	case 0x2fc: case 0x2fd: case 0x2fe: case 0x2ff:
+	case 0x2e8: case 0x2e9: case 0x2ea: case 0x2eb:
+	case 0x2ec: case 0x2ed: case 0x2ee: case 0x2ef:
+	case 0x3e8: case 0x3e9: case 0x3ea: case 0x3eb:
+	case 0x3ec: case 0x3ed: case 0x3ee: case 0x3ef:
+		return;
 	case 0x80:
 		return;
-	case 0x40:
-		if (val == 0x2e) {
-			ualarm(10*1000, 10*1000);
-			timer_irq = true;
-		}
-		return;
-	case 0x43:
+	case 0x40: case 0x41: case 0x42: case 0x43:
+		i8254_ioport_write(pc->pit, addr, val);
 		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
@@ -3717,20 +3730,15 @@ static int IsKBHit()
 
 void pc_step(PC *pc)
 {
-	if (timer_irq) {
-		timer_irq = false;
-		i8259_set_irq(pc->pic, 0, 1);
-		i8259_set_irq(pc->pic, 0, 0);
-	} else {
-		if (IsKBHit()) {
-			if (!(pc->serial->ioready & 1)) {
-				pc->serial->in = ReadKBByte();
-				pc->serial->ioready |= 1;
-				u8250_update_interrupts(pc, pc->serial);
-			}
+	i8254_update_irq(pc->pit);
+	if (IsKBHit()) {
+		if (!(pc->serial->ioready & 1)) {
+			pc->serial->in = ReadKBByte();
+			pc->serial->ioready |= 1;
+			u8250_update_interrupts(pc, pc->serial);
 		}
 	}
-	cpu_step(pc->cpu, 1000);
+	cpu_step(pc->cpu, 20000);
 }
 
 static void raise_irq(void *o, PicState2 *s)
@@ -3745,6 +3753,12 @@ static int read_irq(void *o)
 	return i8259_read_irq(s);
 }
 
+static void set_irq(void *o, int irq, int level)
+{
+	PicState2 *s = o;
+	return i8259_set_irq(s, irq, level);
+}
+
 PC *pc_new()
 {
 	PC *pc = malloc(sizeof(PC));
@@ -3755,6 +3769,8 @@ PC *pc_new()
 	pc->pic = i8259_init(raise_irq, pc->cpu);
 	pc->cpu->pic = pc->pic;
 	pc->cpu->pic_read_irq = read_irq;
+
+	pc->pit = i8254_init(0, pc->pic, set_irq);
 	pc->serial = u8250_init();
 	pc->phys_mem = mem;
 	pc->phys_mem_size = mem_size;
@@ -3775,10 +3791,14 @@ static int load(PC *pc, const char *file, uword addr)
 
 int main(int argc, char *argv[])
 {
+	const char *vmlinux = "vmlinux.bin";
+	if (argc > 1)
+		vmlinux = argv[1];
+
 	PC *pc = pc_new();
 
 	load(pc, "linuxstart.bin", 0x0010000);
-	load(pc, "vmlinux.bin", 0x00100000);
+	load(pc, vmlinux, 0x00100000);
 	int initrd_size = load(pc, "root.bin", 0x00400000);
 
 	uword start_addr = 0x10000;
@@ -3790,12 +3810,6 @@ int main(int argc, char *argv[])
 	pc->cpu->gpr[0] = pc->phys_mem_size;
 	pc->cpu->gpr[3] = initrd_size;
 	pc->cpu->gpr[1] = cmdline_addr;
-
-	struct sigaction act;
-	act.sa_handler = on_timer;
-	sigemptyset(&act.sa_mask);
-	act.sa_flags = 0;
-	sigaction(SIGALRM, &act, NULL);
 
 	CaptureKeyboardInput();
 
