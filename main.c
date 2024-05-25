@@ -11,8 +11,6 @@
 #include "i8259.h"
 #include "i8254.h"
 
-#include <time.h>
-
 typedef uint32_t u32;
 typedef uint16_t u16;
 typedef uint8_t u8;
@@ -133,6 +131,10 @@ typedef struct {
 	void *io;
 	u8 (*io_read)(void *, int);
 	void (*io_write)(void *, int, u8);
+	u16 (*io_read16)(void *, int);
+	void (*io_write16)(void *, int, u16);
+	u32 (*io_read32)(void *, int);
+	void (*io_write32)(void *, int, u32);
 } CPUI386;
 #define REGi(x) (cpu->gpr[x])
 #define SEGi(x) (cpu->seg[x].sel)
@@ -1091,13 +1093,42 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	TRY(fetch8(cpu, &imm8)); \
 	INST(0, imm8, lreg8, sreg8, limm, 0)
 
+#define AXIb(rwm, INST) \
+	if (opsz16) { \
+		u8 imm8; \
+		TRY(fetch8(cpu, &imm8)); \
+		INST ## w(0, imm8, lreg16, sreg16, limm, 0) \
+	} else { \
+		u8 imm8; \
+		TRY(fetch8(cpu, &imm8)); \
+		INST ## d(0, imm8, lreg32, sreg32, limm, 0) \
+	}
+
 #define IbAL(rwm, INST) \
 	u8 imm8; \
 	TRY(fetch8(cpu, &imm8)); \
 	INST(imm8, 0, limm, 0, lreg8, sreg8)
 
+#define IbAX(rwm, INST) \
+	if (opsz16) { \
+		u8 imm8; \
+		TRY(fetch8(cpu, &imm8)); \
+		INST ## w(imm8, 0, limm, 0, lreg16, sreg16) \
+	} else { \
+		u8 imm8; \
+		TRY(fetch8(cpu, &imm8)); \
+		INST ## d(imm8, 0, limm, 0, lreg32, sreg32) \
+	}
+
 #define DXAL(rwm, INST) \
 	INST(2, 0, lreg16, sreg16, lreg8, sreg8)
+
+#define DXAX(rwm, INST) \
+	if (opsz16) { \
+		INST ## w(2, 0, lreg16, sreg16, lreg16, sreg16)	\
+	} else { \
+		INST ## d(2, 0, lreg16, sreg16, lreg32, sreg32) \
+	}
 
 #define ALDX(rwm, INST) \
 	INST(0, 2, lreg8, sreg8, lreg16, sreg16)
@@ -1800,8 +1831,10 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	int reg = (modrm >> 3) & 7; \
 	int rm = modrm & 7; \
 	if (reg == 0) { \
-		cpu->cr0 = lreg32(rm); \
-		tlb_clear(cpu); \
+		u32 new_cr0 = lreg32(rm); \
+		if ((new_cr0 ^ cpu->cr0) & CR0_PG) \
+			tlb_clear(cpu); \
+		cpu->cr0 = new_cr0; \
 	} else if (reg == 2) { \
 		cpu->cr2 = lreg32(rm); \
 	} else if (reg == 3) { \
@@ -2470,15 +2503,20 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define INb(a, b, la, sa, lb, sb) \
 	sa(a, cpu->io_read(cpu->io, lb(b)));
 
-// TODO
 #define INw(a, b, la, sa, lb, sb) \
-	sa(a, 0);
-// TODO
+	sa(a, cpu->io_read16(cpu->io, lb(b)));
+
 #define INd(a, b, la, sa, lb, sb) \
-	sa(a, 0);
+	sa(a, cpu->io_read32(cpu->io, lb(b)));
 
 #define OUTb(a, b, la, sa, lb, sb) \
 	cpu->io_write(cpu->io, la(a), lb(b));
+
+#define OUTw(a, b, la, sa, lb, sb) \
+	cpu->io_write16(cpu->io, la(a), lb(b));
+
+#define OUTd(a, b, la, sa, lb, sb) \
+	cpu->io_write32(cpu->io, la(a), lb(b));
 
 #define CLTS() \
 	cpu->cr0 &= ~(1 << 3);
@@ -2988,11 +3026,11 @@ void call_isr(CPUI386 *cpu, int no, bool pusherr)
 	uword base = cpu->idt.base;
 	int off = no * 8;
 	if (!translate_slow(cpu, &meml, 1, base + off, 4)) {
-		abort();
+		cpu_abort(cpu, -100);
 	}
 	uword w1 = load32(cpu, &meml);
 	if (!translate_slow(cpu, &meml, 1, base + off + 4, 4)) {
-		abort();
+		cpu_abort(cpu, -101);
 	}
 	uword w2 = load32(cpu, &meml);
 	int newcs = w1 >> 16;
@@ -3000,11 +3038,11 @@ void call_isr(CPUI386 *cpu, int no, bool pusherr)
 	int gt = (w2 >> 8) & 0xf;
 
 	if (!ex_push_helper(cpu, newcs & 3, pusherr)) {
-		abort();
+		cpu_abort(cpu, -102);
 	}
 
 	if (!set_seg(cpu, SEG_CS, newcs)) {
-		abort();
+		cpu_abort(cpu, -103);
 	}
 	cpu->next_ip = newip;
 	cpu->ip = newip;
@@ -3039,10 +3077,7 @@ void cpu_step(CPUI386 *cpu, int stepcount)
 	}
 }
 
-CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size,
-		    void *io,
-		    u8 (*io_read)(void *, int),
-		    void (*io_write)(void *, int, u8))
+CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size)
 {
 	CPUI386 *cpu = malloc(sizeof(CPUI386));
 	for (int i = 0; i < 8; i++) {
@@ -3063,7 +3098,7 @@ CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size,
 	cpu->seg[1].flags = (1 << 22);
 
 	cpu->idt.base = 0;
-	cpu->idt.limit = 0;
+	cpu->idt.limit = 0x3ff;
 	cpu->gdt.base = 0;
 	cpu->gdt.limit = 0;
 
@@ -3088,10 +3123,25 @@ CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size,
 	cpu->pic = NULL;
 	cpu->pic_read_irq = NULL;
 
-	cpu->io = io;
-	cpu->io_read = io_read;
-	cpu->io_write = io_write;
+	cpu->io = NULL;
+	cpu->io_read = NULL;
+	cpu->io_write = NULL;
+	cpu->io_read16 = NULL;
+	cpu->io_write16 = NULL;
+	cpu->io_read32 = NULL;
+	cpu->io_write32 = NULL;
 	return cpu;
+}
+
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <time.h>
+static uint32_t get_uticks()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ((uint32_t) ts.tv_sec * 1000000 +
+	    (uint32_t) ts.tv_nsec / 1000);
 }
 
 /* sysprog21/semu */
@@ -3156,6 +3206,7 @@ typedef struct {
 	CMOS *cmos;
 	char *phys_mem;
 	long phys_mem_size;
+	int64_t boot_start_time;
 } PC;
 
 void u8250_update_interrupts(PC *pc, U8250 *uart)
@@ -3293,6 +3344,19 @@ u8 pc_io_read(void *o, int addr)
 	}
 }
 
+u16 pc_io_read16(void *o, int addr)
+{
+	return 0;
+}
+
+u32 pc_io_read32(void *o, int addr)
+{
+	PC *pc = o;
+	if (addr == 0x3cc)
+		return (get_uticks() - pc->boot_start_time) / 1000;
+	return 0;
+}
+
 void pc_io_write(void *o, int addr, u8 val)
 {
 	PC *pc = o;
@@ -3325,8 +3389,13 @@ void pc_io_write(void *o, int addr, u8 val)
 	}
 }
 
-#include <sys/ioctl.h>
-#include <termios.h>
+void pc_io_write16(void *o, int addr, u16 val)
+{
+}
+
+void pc_io_write32(void *o, int addr, u32 val)
+{
+}
 
 static void CtrlC()
 {
@@ -3382,7 +3451,7 @@ void pc_step(PC *pc)
 			u8250_update_interrupts(pc, pc->serial);
 		}
 	}
-	cpu_step(pc->cpu, 20000);
+	cpu_step(pc->cpu, 16384);
 }
 
 static void raise_irq(void *o, PicState2 *s)
@@ -3409,7 +3478,8 @@ PC *pc_new()
 	long mem_size = 8 * 1024 * 1024;
 	char *mem = malloc(mem_size);
 	memset(mem, 0, mem_size);
-	pc->cpu = cpu386_new(mem, mem_size, pc, pc_io_read, pc_io_write);
+	pc->cpu = cpu386_new(mem, mem_size);
+
 	pc->pic = i8259_init(raise_irq, pc->cpu);
 	pc->cpu->pic = pc->pic;
 	pc->cpu->pic_read_irq = read_irq;
@@ -3417,8 +3487,19 @@ PC *pc_new()
 	pc->pit = i8254_init(0, pc->pic, set_irq);
 	pc->serial = u8250_init();
 	pc->cmos = cmos_init();
+
 	pc->phys_mem = mem;
 	pc->phys_mem_size = mem_size;
+
+	pc->cpu->io = pc;
+	pc->cpu->io_read = pc_io_read;
+	pc->cpu->io_write = pc_io_write;
+	pc->cpu->io_read16 = pc_io_read16;
+	pc->cpu->io_write16 = pc_io_write16;
+	pc->cpu->io_read32 = pc_io_read32;
+	pc->cpu->io_write32 = pc_io_write32;
+
+	pc->boot_start_time = 0;
 	return pc;
 }
 
@@ -3458,6 +3539,7 @@ int main(int argc, char *argv[])
 
 	CaptureKeyboardInput();
 
+	pc->boot_start_time = get_uticks();
 	for (;;) {
 		pc_step(pc);
 	}

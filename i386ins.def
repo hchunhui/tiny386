@@ -88,8 +88,8 @@ I(C(0x6a), Ib,     0, PUSHb)
 I(C(0x6b), GvEvIb, 1, IMUL2)
 /*I(C(0x6c), YbDX,   0, INSb)*/
 /*I(C(0x6d), YvDX,   0, INS)*/
-/*I(C(0x6e), DXXb,   0, OUTb)*/
-/*I(C(0x6f), DXXv,   0, OUT)*/
+/*I(C(0x6e), DXXb,   0, OUTSb)*/
+/*I(C(0x6f), DXXv,   0, OUTS)*/
 
 I(C(0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
     0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f), Jb, 0, JCCb)
@@ -172,9 +172,9 @@ I(C(0xe1), Jb,     0, LOOPEb)
 I(C(0xe2), Jb,     0, LOOPb)
 I(C(0xe3), Jb,     0, JCXZb)
 I(C(0xe4), ALIb,   0, INb)
-/*I(C(0xe5), AXIb,   0, IN)*/
+I(C(0xe5), AXIb,   0, IN)
 I(C(0xe6), IbAL,   0, OUTb)
-/*I(C(0xe7), IbAX,   0, OUT)*/
+I(C(0xe7), IbAX,   0, OUT)
 I(C(0xe8), Av,     0, CALL)
 I(C(0xe9), Jv,     0, JMP)
 I(C(0xea), _/*Ap*/,    0, JMPFAR)
@@ -182,7 +182,7 @@ I(C(0xeb), Jb,     0, JMPb)
 I(C(0xec), ALDX,   0, INb)
 I(C(0xed), AXDX,   0, IN)
 I(C(0xee), DXAL,   0, OUTb)
-/*I(C(0xef), DXAX,   0, OUT)*/
+I(C(0xef), DXAX,   0, OUT)
 
 //  0xf0   LOCK
 //  0xf2   REPNE
