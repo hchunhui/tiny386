@@ -852,116 +852,54 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
  */
 #define _(rwm, inst) inst()
 
-#define Eb(rwm, inst) \
+#define E_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst(rm, lreg8, sreg8); \
+		INST ## SUFFIX(rm, lreg ## BIT, sreg ## BIT) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-		inst(&meml, laddr8, saddr8); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, laddr ## BIT, saddr ## BIT) \
 	}
 
-#define Ev_w(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## w(rm, lreg16, sreg16); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, laddr16, saddr16); \
-	}
+#define Eb(...) E_helper(8, , __VA_ARGS__)
+#define Ev(...) if (opsz16) { E_helper(16, w, __VA_ARGS__) } else { E_helper(32, d, __VA_ARGS__) }
 
-#define Ev_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## d(rm, lreg32, sreg32); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, laddr32, saddr32); \
-	}
-
-#define Ev(rwm, inst) if (opsz16) { Ev_w(rwm, inst); } else { Ev_d(rwm, inst); }
-
-#define EbGb(rwm, inst)	\
+#define EG_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst(rm, reg, lreg8, sreg8, lreg8, sreg8); \
+		INST ## SUFFIX(rm, reg, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-		inst(&meml, reg, laddr8, saddr8, lreg8, sreg8); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, reg, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT) \
 	}
 
-#define EvGv_w(rwm, inst) \
+#define EbGb(...) EG_helper(8, , __VA_ARGS__)
+#define EvGv(...) if (opsz16) { EG_helper(16, w, __VA_ARGS__) } else { EG_helper(32, d, __VA_ARGS__) }
+
+#define BTEG_helper(BIT, BYTE, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst ## w(rm, reg, lreg16, sreg16, lreg16, sreg16); \
+		INST ## SUFFIX(rm, reg, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, reg, laddr16, saddr16, lreg16, sreg16); \
+		addr += lreg ## BIT(reg) / BIT * BYTE; \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, reg, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT) \
 	}
 
-#define EvGv_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## d(rm, reg, lreg32, sreg32, lreg32, sreg32); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, reg, laddr32, saddr32, lreg32, sreg32); \
-	}
+#define BTEvGv(...) if (opsz16) { BTEG_helper(16, 2, w, __VA_ARGS__) } else { BTEG_helper(32, 4, d, __VA_ARGS__) }
 
-#define EvGv(rwm, inst) if (opsz16) { EvGv_w(rwm, inst); } else { EvGv_d(rwm, inst); }
-
-#define BTEvGv_w(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## w(rm, reg, lreg16, sreg16, lreg16, sreg16); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		addr += lreg16(reg) / 16 * 2; \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, reg, laddr16, saddr16, lreg16, sreg16); \
-	}
-
-#define BTEvGv_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## d(rm, reg, lreg32, sreg32, lreg32, sreg32); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		addr += lreg32(reg) / 32 * 4; \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, reg, laddr32, saddr32, lreg32, sreg32); \
-	}
-
-#define BTEvGv(rwm, inst) if (opsz16) { BTEvGv_w(rwm, inst); } else { BTEvGv_d(rwm, inst); }
-
-#define EvGvIb_w(rwm, inst) \
+#define EGIb_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
@@ -969,567 +907,309 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	u8 imm8; \
 	if (mod == 3) { \
 		TRY(fetch8(cpu, &imm8)); \
-		inst ## w(rm, reg, imm8, lreg16, sreg16, lreg16, sreg16, limm, 0); \
+		INST ## SUFFIX(rm, reg, imm8, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
 		TRY(fetch8(cpu, &imm8)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, reg, imm8, laddr16, saddr16, lreg16, sreg16, limm, 0); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, reg, imm8, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
 	}
 
-#define EvGvIb_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	u8 imm8; \
-	if (mod == 3) { \
-		TRY(fetch8(cpu, &imm8)); \
-		inst ## d(rm, reg, imm8, lreg32, sreg32, lreg32, sreg32, limm, 0); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(fetch8(cpu, &imm8)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, reg, imm8, laddr32, saddr32, lreg32, sreg32, limm, 0); \
-	}
+#define EvGvIb(...) if (opsz16) { EGIb_helper(16, w, __VA_ARGS__) } else { EGIb_helper(32, d, __VA_ARGS__) }
 
-#define EvGvIb(rwm, inst) if (opsz16) { EvGvIb_w(rwm, inst); } else { EvGvIb_d(rwm, inst); }
-
-#define EvGvCL_w(rwm, inst) \
+#define EGCL_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst ## w(rm, reg, 1, lreg16, sreg16, lreg16, sreg16, lreg8, sreg8); \
+		INST ## SUFFIX(rm, reg, 1, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT, lreg8, sreg8) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, reg, 1, laddr16, saddr16, lreg16, sreg16, lreg8, sreg8); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, reg, 1, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT, lreg8, sreg8) \
 	}
 
-#define EvGvCL_d(rwm, inst) \
+#define EvGvCL(...) if (opsz16) { EGCL_helper(16, w, __VA_ARGS__) } else { EGCL_helper(32, d, __VA_ARGS__) }
+
+#define EI_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
+	u ## BIT imm ## BIT; \
 	if (mod == 3) { \
-		inst ## d(rm, reg, 1, lreg32, sreg32, lreg32, sreg32, lreg8, sreg8); \
+		TRY(fetch ## BIT(cpu, &imm ## BIT)); \
+		INST ## SUFFIX(rm, imm ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, reg, 1, laddr32, saddr32, lreg32, sreg32, lreg8, sreg8); \
+		TRY(fetch ## BIT(cpu, &imm ## BIT)); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, imm ## BIT, laddr ## BIT, saddr ## BIT, limm, 0) \
 	}
 
-#define EvGvCL(rwm, inst) if (opsz16) { EvGvCL_w(rwm, inst); } else { EvGvCL_d(rwm, inst); }
+#define EbIb(...) EI_helper(8, , __VA_ARGS__)
+#define EvIv(...) if (opsz16) { EI_helper(16, w, __VA_ARGS__) } else { EI_helper(32, d, __VA_ARGS__) }
 
-#define EbIb(rwm, inst) \
+#define EIb_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	u8 imm8; \
+	u ## BIT imm ## BIT; \
 	if (mod == 3) { \
 		TRY(fetch8(cpu, &imm8)); \
-		inst(rm, imm8, lreg8, sreg8, limm, 0); \
+		imm ## BIT = (s ## BIT) ((s8) imm8); \
+		INST ## SUFFIX(rm, imm ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
 		TRY(fetch8(cpu, &imm8)); \
-		TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-		inst(&meml, imm8, laddr8, saddr8, limm, 0); \
+		imm ## BIT = (s ## BIT) ((s8) imm8); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, imm ## BIT, laddr ## BIT, saddr ## BIT, limm, 0) \
 	}
 
-#define EvIv_w(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	u16 imm16; \
-	if (mod == 3) { \
-		TRY(fetch16(cpu, &imm16)); \
-		inst ## w(rm, imm16, lreg16, sreg16, limm, 0); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(fetch16(cpu, &imm16)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, imm16, laddr16, saddr16, limm, 0); \
-	}
+#define EvIb(...) if (opsz16) { EIb_helper(16, w, __VA_ARGS__) } else { EIb_helper(32, d, __VA_ARGS__) }
 
-#define EvIv_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	u32 imm32; \
-	if (mod == 3) { \
-		TRY(fetch32(cpu, &imm32)); \
-		inst ## d(rm, imm32, lreg32, sreg32, limm, 0); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(fetch32(cpu, &imm32)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, imm32, laddr32, saddr32, limm, 0); \
-	}
-
-#define EvIv(rwm, inst) if (opsz16) { EvIv_w(rwm, inst); } else { EvIv_d(rwm, inst); }
-
-#define EvIb_w(rwm, inst) \
+#define BTEIb_helper(BIT, BYTE, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	u8 imm8; \
-	u16 imm16; \
+	u ## BIT imm ## BIT; \
 	if (mod == 3) { \
 		TRY(fetch8(cpu, &imm8)); \
-		imm16 = (s16) ((s8) imm8); \
-		inst ## w(rm, imm16, lreg16, sreg16, limm, 0); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(fetch8(cpu, &imm8)); \
-		imm16 = (s16) ((s8) imm8); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, imm16, laddr16, saddr16, limm, 0); \
-	}
-
-#define EvIb_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	u8 imm8; \
-	u32 imm32; \
-	if (mod == 3) { \
-		TRY(fetch8(cpu, &imm8)); \
-		imm32 = (s32) ((s8) imm8); \
-		inst ## d(rm, imm32, lreg32, sreg32, limm, 0); \
+		imm ## BIT = (s ## BIT) ((s8) imm8); \
+		INST ## SUFFIX(rm, imm ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
 		TRY(fetch8(cpu, &imm8)); \
-		imm32 = (s32) ((s8) imm8); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, imm32, laddr32, saddr32, limm, 0); \
+		imm ## BIT = (s ## BIT) ((s8) imm8); \
+		addr += imm ## BIT / BIT * BYTE; \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, imm ## BIT, laddr ## BIT, saddr ## BIT, limm, 0) \
 	}
 
-#define EvIb(rwm, inst) if (opsz16) { EvIb_w(rwm, inst); } else { EvIb_d(rwm, inst); }
+#define BTEvIb(...) if (opsz16) { BTEIb_helper(16, 2, w, __VA_ARGS__) } else { BTEIb_helper(32, 4, d, __VA_ARGS__) }
 
-#define BTEvIb_w(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	u8 imm8; \
-	u16 imm16; \
-	if (mod == 3) { \
-		TRY(fetch8(cpu, &imm8)); \
-		imm16 = (s16) ((s8) imm8); \
-		inst ## w(rm, imm16, lreg16, sreg16, limm, 0); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(fetch8(cpu, &imm8)); \
-		imm16 = (s16) ((s8) imm8); \
-		addr += imm16 / 16 * 2; \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, imm16, laddr16, saddr16, limm, 0); \
-	}
-
-#define BTEvIb_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	u8 imm8; \
-	u32 imm32; \
-	if (mod == 3) { \
-		TRY(fetch8(cpu, &imm8)); \
-		imm32 = (s32) ((s8) imm8); \
-		inst ## d(rm, imm32, lreg32, sreg32, limm, 0); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(fetch8(cpu, &imm8)); \
-		imm32 = (s32) ((s8) imm8); \
-		addr += imm32 / 32 * 4; \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, imm32, laddr32, saddr32, limm, 0); \
-	}
-
-#define BTEvIb(rwm, inst) if (opsz16) { BTEvIb_w(rwm, inst); } else { BTEvIb_d(rwm, inst); }
-
-#define Eb1(rwm, inst) \
+#define E1_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst(rm, 1, lreg8, sreg8, limm, 0); \
+		INST ## SUFFIX(rm, 1, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-		inst(&meml, 1, laddr8, saddr8, limm, 0); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, 1, laddr ## BIT, saddr ## BIT, limm, 0) \
 	}
 
-#define Ev1_w(rwm, inst) \
+#define Eb1(...) E1_helper(8, , __VA_ARGS__)
+#define Ev1(...) if (opsz16) { E1_helper(16, w, __VA_ARGS__) } else { E1_helper(32, d, __VA_ARGS__) }
+
+#define ECL_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst ## w(rm, 1, lreg16, sreg16, limm, 0); \
+		INST ## SUFFIX(rm, 1, lreg ## BIT, sreg ## BIT, lreg8, sreg8) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, 1, laddr16, saddr16, limm, 0); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(&meml, 1, laddr ## BIT, saddr ## BIT, lreg8, sreg8) \
 	}
 
-#define Ev1_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## d(rm, 1, lreg32, sreg32, limm, 0); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, 1, laddr32, saddr32, limm, 0); \
-	}
+#define EbCL(...) ECL_helper(8, , __VA_ARGS__)
+#define EvCL(...) if (opsz16) { ECL_helper(16, w, __VA_ARGS__) } else { ECL_helper(32, d, __VA_ARGS__) }
 
-#define Ev1(rwm, inst) if (opsz16) { Ev1_w(rwm, inst); } else { Ev1_d(rwm, inst); }
-
-#define EbCL(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst(rm, 1, lreg8, sreg8, lreg8, sreg8); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-		inst(&meml, 1, laddr8, saddr8, lreg8, sreg8); \
-	}
-
-#define EvCL_w(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## w(rm, 1, lreg16, sreg16, lreg8, sreg8); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, 1, laddr16, saddr16, lreg8, sreg8); \
-	}
-
-#define EvCL_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## d(rm, 1, lreg32, sreg32, lreg8, sreg8); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, 1, laddr32, saddr32, lreg8, sreg8); \
-	}
-
-#define EvCL(rwm, inst) if (opsz16) { EvCL_w(rwm, inst); } else { EvCL_d(rwm, inst); }
-
-#define GbEb(rwm, inst) \
+#define GE_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst(reg, rm, lreg8, sreg8, lreg8, sreg8); \
+		INST ## SUFFIX(reg, rm, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-		inst(reg, &meml, lreg8, sreg8, laddr8, saddr8); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX(reg, &meml, lreg ## BIT, sreg ## BIT, laddr ## BIT, saddr ## BIT) \
 	}
 
-#define GvEv_w(rwm, inst) \
+#define GbEb(...) GE_helper(8, , __VA_ARGS__)
+#define GvEv(...) if (opsz16) { GE_helper(16, w, __VA_ARGS__) } else { GE_helper(32, d, __VA_ARGS__) }
+
+#define GvM(rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst ## w(reg, rm, lreg16, sreg16, lreg16, sreg16); \
+		INST ## d(reg, rm, lreg32, sreg32, lreg32, sreg32) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(reg, &meml, lreg16, sreg16, laddr16, saddr16); \
-	}
-
-#define GvEv_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## d(reg, rm, lreg32, sreg32, lreg32, sreg32); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(reg, &meml, lreg32, sreg32, laddr32, saddr32); \
-	}
-
-#define GvEv(rwm, inst) if (opsz16) { GvEv_w(rwm, inst); } else { GvEv_d(rwm, inst); }
-
-#define GvM(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## d(reg, rm, lreg32, sreg32, lreg32, sreg32); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		inst ## d(reg, addr, lreg32, sreg32, limm32, 0); \
+		INST ## d(reg, addr, lreg32, sreg32, limm32, 0) \
 	}
 #define GvMp GvM
 
-#define GvEb_w(rwm, inst) \
+#define GE_helper2(BIT, SUFFIX, BIT2, SUFFIX2, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst ## wb(reg, rm, lreg16, sreg16, lreg8, sreg8); \
+		INST ## SUFFIX ## SUFFIX2(reg, rm, lreg ## BIT, sreg ## BIT, lreg ## BIT2, sreg ## BIT2) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## wb(reg, &meml, lreg16, sreg16, laddr8, saddr8); \
+		TRY(translate ## BIT2(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX ## SUFFIX2(reg, &meml, lreg ## BIT, sreg ## BIT, laddr ## BIT2, saddr ## BIT2) \
 	}
 
-#define GvEb_d(rwm, inst) \
+#define GvEb(...) if (opsz16) { GE_helper2(16, w, 8, b, __VA_ARGS__) } else { GE_helper2(32, d, 8, b, __VA_ARGS__) }
+#define GvEw(...) if (opsz16) { GE_helper2(16, w, 16, w, __VA_ARGS__) } else { GE_helper2(32, d, 16, w, __VA_ARGS__) }
+
+#define GEI_helperI2(BIT, SUFFIX, BIT2, SUFFIX2, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst ## db(reg, rm, lreg32, sreg32, lreg8, sreg8); \
+		u ## BIT2 imm ## BIT2; \
+		TRY(fetch ## BIT2(cpu, &imm ## BIT2)); \
+		INST ## SUFFIX ## I ## SUFFIX2(reg, rm, imm ## BIT2, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## db(reg, &meml, lreg32, sreg32, laddr8, saddr8); \
+		u ## BIT2 imm ## BIT2; \
+		TRY(fetch ## BIT2(cpu, &imm ## BIT2)); \
+		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
+		INST ## SUFFIX ## I ## SUFFIX2(reg, &meml, imm ## BIT2, lreg ## BIT, sreg ## BIT, laddr ## BIT, saddr ## BIT) \
 	}
 
-#define GvEb(rwm, inst) if (opsz16) { GvEb_w(rwm, inst); } else { GvEb_d(rwm, inst); }
+#define GvEvIb(...) if (opsz16) { GEI_helperI2(16, w, 8, b, __VA_ARGS__) } else { GEI_helperI2(32, d, 8, b, __VA_ARGS__) }
+#define GvEvIv(...) if (opsz16) { GEI_helperI2(16, w, 16, w, __VA_ARGS__) } else { GEI_helperI2(32, d, 32, d, __VA_ARGS__) }
 
-#define GvEw_w(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## ww(reg, rm, lreg16, sreg16, lreg16, sreg16); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## ww(reg, &meml, lreg16, sreg16, laddr16, saddr16); \
-	}
-
-#define GvEw_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst ## dw(reg, rm, lreg32, sreg32, lreg16, sreg16); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## dw(reg, &meml, lreg32, sreg32, laddr16, saddr16); \
-	}
-
-#define GvEw(rwm, inst) if (opsz16) { GvEw_w(rwm, inst); } else { GvEw_d(rwm, inst); }
-
-#define GvEvIb_w(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		u8 imm8; \
-		TRY(fetch8(cpu, &imm8)); \
-		inst ## wIb(reg, rm, imm8, lreg16, sreg16, lreg16, sreg16); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		u8 imm8; \
-		TRY(fetch8(cpu, &imm8)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## wIb(reg, &meml, imm8, lreg16, sreg16, laddr16, saddr16); \
-	}
-
-#define GvEvIb_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		u8 imm8; \
-		TRY(fetch8(cpu, &imm8)); \
-		inst ## dIb(reg, rm, imm8, lreg32, sreg32, lreg32, sreg32); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		u8 imm8; \
-		TRY(fetch8(cpu, &imm8)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## dIb(reg, &meml, imm8, lreg32, sreg32, laddr32, saddr32); \
-	}
-
-#define GvEvIb(rwm, inst) if (opsz16) { GvEvIb_w(rwm, inst); } else { GvEvIb_d(rwm, inst); }
-
-#define GvEvIv_w(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		u16 imm16; \
-		TRY(fetch16(cpu, &imm16)); \
-		inst ## wIw(reg, rm, imm16, lreg16, sreg16, lreg16, sreg16); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		u16 imm16; \
-		TRY(fetch16(cpu, &imm16)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## wIw(reg, &meml, imm16, lreg16, sreg16, laddr16, saddr16); \
-	}
-
-#define GvEvIv_d(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		u32 imm32; \
-		TRY(fetch32(cpu, &imm32)); \
-		inst ## dId(reg, rm, imm32, lreg32, sreg32, lreg32, sreg32); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		u32 imm32; \
-		TRY(fetch32(cpu, &imm32)); \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## dId(reg, &meml, imm32, lreg32, sreg32, laddr32, saddr32); \
-	}
-
-#define GvEvIv(rwm, inst) if (opsz16) { GvEvIv_w(rwm, inst); } else { GvEvIv_d(rwm, inst); }
-
-#define ALIb(rwm, inst) \
+#define ALIb(rwm, INST) \
 	u8 imm8; \
 	TRY(fetch8(cpu, &imm8)); \
-	inst(0, imm8, lreg8, sreg8, limm, 0);
+	INST(0, imm8, lreg8, sreg8, limm, 0)
 
-#define IbAL(rwm, inst) \
+#define IbAL(rwm, INST) \
 	u8 imm8; \
 	TRY(fetch8(cpu, &imm8)); \
-	inst(imm8, 0, limm, 0, lreg8, sreg8);
+	INST(imm8, 0, limm, 0, lreg8, sreg8)
 
-#define DXAL(rwm, inst) \
-	inst(2, 0, lreg16, sreg16, lreg8, sreg8);
+#define DXAL(rwm, INST) \
+	INST(2, 0, lreg16, sreg16, lreg8, sreg8)
 
-#define ALDX(rwm, inst) \
-	inst(0, 2, lreg8, sreg8, lreg16, sreg16);
+#define ALDX(rwm, INST) \
+	INST(0, 2, lreg8, sreg8, lreg16, sreg16)
 
-#define AXDX(rwm, inst) \
+#define AXDX(rwm, INST) \
 	if (opsz16) { \
-		inst ## w(0, 2, lreg16, sreg16, lreg16, sreg16); \
+		INST ## w(0, 2, lreg16, sreg16, lreg16, sreg16) \
 	} else { \
-		inst ## d(0, 2, lreg32, sreg32, lreg16, sreg16); \
+		INST ## d(0, 2, lreg32, sreg32, lreg16, sreg16) \
 	}
 
-#define AXIv(rwm, inst) \
+#define AXIv(rwm, INST) \
 	if (opsz16) { \
 		u16 imm16; \
 		TRY(fetch16(cpu, &imm16)); \
-		inst ## w(0, imm16, lreg16, sreg16, limm, 0); \
+		INST ## w(0, imm16, lreg16, sreg16, limm, 0) \
 	} else { \
 		u32 imm32; \
 		TRY(fetch32(cpu, &imm32)); \
-		inst ## d(0, imm32, lreg32, sreg32, limm, 0); \
+		INST ## d(0, imm32, lreg32, sreg32, limm, 0) \
 	}
 
-#define ALOb(rwm, inst) \
+#define ALOb(rwm, INST) \
 	TRY(fetch32(cpu, &addr)); \
 	TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-	inst(0, &meml, lreg8, sreg8, laddr8, saddr8);
+	INST(0, &meml, lreg8, sreg8, laddr8, saddr8)
 
-#define AXOv(rwm, inst) \
+#define AXOv(rwm, INST) \
 	TRY(fetch32(cpu, &addr)); \
 	if (opsz16) { \
 		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(0, &meml, lreg16, sreg16, laddr16, saddr16); \
+		INST ## w(0, &meml, lreg16, sreg16, laddr16, saddr16) \
 	} else { \
 		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(0, &meml, lreg32, sreg32, laddr32, saddr32); \
+		INST ## d(0, &meml, lreg32, sreg32, laddr32, saddr32) \
 	}
 
-#define ObAL(rwm, inst) \
+#define ObAL(rwm, INST) \
 	TRY(fetch32(cpu, &addr)); \
 	TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
-	inst(&meml, 0, laddr8, saddr8, lreg8, sreg8);
+	INST(&meml, 0, laddr8, saddr8, lreg8, sreg8)
 
-#define OvAX(rwm, inst) \
+#define OvAX(rwm, INST) \
 	TRY(fetch32(cpu, &addr)); \
 	if (opsz16) { \
 		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## w(&meml, 0, laddr16, saddr16, lreg16, sreg16); \
+		INST ## w(&meml, 0, laddr16, saddr16, lreg16, sreg16) \
 	} else { \
 		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
-		inst ## d(&meml, 0, laddr32, saddr32, lreg32, sreg32); \
+		INST ## d(&meml, 0, laddr32, saddr32, lreg32, sreg32) \
 	}
 
-#define PlusRegv(rwm, inst) \
+#define PlusRegv(rwm, INST) \
 	if (opsz16) { \
-		inst ## w((b1 & 7), lreg16, sreg16); \
+		INST ## w((b1 & 7), lreg16, sreg16) \
 	} else { \
-		inst ## d((b1 & 7), lreg32, sreg32); \
+		INST ## d((b1 & 7), lreg32, sreg32) \
 	}
 
-#define PlusRegIb(rwm, inst) \
+#define PlusRegIb(rwm, INST) \
 	u8 imm8; \
 	TRY(fetch8(cpu, &imm8)); \
-	inst((b1 & 7), imm8, lreg8, sreg8, limm, 0);
+	INST((b1 & 7), imm8, lreg8, sreg8, limm, 0)
 
-#define PlusRegIv(rwm, inst) \
+#define PlusRegIv(rwm, INST) \
 	if (opsz16) { \
 		u16 imm16; \
 		TRY(fetch16(cpu, &imm16)); \
-		inst ## w((b1 & 7), imm16, lreg16, sreg16, limm, 0); \
+		INST ## w((b1 & 7), imm16, lreg16, sreg16, limm, 0) \
 	} else { \
 		u32 imm32; \
 		TRY(fetch32(cpu, &imm32)); \
-		inst ## d((b1 & 7), imm32, lreg32, sreg32, limm, 0); \
+		INST ## d((b1 & 7), imm32, lreg32, sreg32, limm, 0) \
 	}
 
-#define Ib(rwm, inst) \
+#define Ib(rwm, INST) \
 	u8 imm8; \
 	TRY(fetch8(cpu, &imm8)); \
-	inst(imm8, limm, 0);
+	INST(imm8, limm, 0)
 #define Jb Ib
 
-#define Iw(rwm, inst) \
+#define Iw(rwm, INST) \
 	u16 imm16; \
 	TRY(fetch16(cpu, &imm16)); \
-	inst(imm16, limm, 0);
+	INST(imm16, limm, 0)
 
-#define IwIb(rwm, inst) \
+#define IwIb(rwm, INST) \
 	u16 imm16; \
 	TRY(fetch16(cpu, &imm16)); \
 	u8 imm8; \
 	TRY(fetch8(cpu, &imm8)); \
-	inst(imm16, imm8, limm, 0, limm, 0);
+	INST(imm16, imm8, limm, 0, limm, 0)
 
-#define Iv(rwm, inst) \
+#define Iv(rwm, INST) \
 	if (opsz16) { \
 		u16 imm16; \
 		TRY(fetch16(cpu, &imm16)); \
-		inst ## w(imm16, limm, 0); \
+		INST ## w(imm16, limm, 0) \
 	} else { \
 		u32 imm32; \
 		TRY(fetch32(cpu, &imm32)); \
-		inst ## d(imm32, limm, 0); \
+		INST ## d(imm32, limm, 0) \
 	}
 
 // adsz
-#define Jv(rwm, inst) \
+#define Jv(rwm, INST) \
 	u32 imm32; \
 	TRY(fetch32(cpu, &imm32)); \
-	inst ## d(imm32, limm, 0);
+	INST ## d(imm32, limm, 0)
 #define Av Jv
 
-#define Ms(rwm, inst) \
+#define Ms(rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
@@ -1538,45 +1218,45 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		return false; \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
-		inst(addr); \
+		INST(addr) \
 	}
 
-#define Ew(rwm, inst) \
+#define Ew(rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst(rm, lreg16, sreg16); \
+		INST(rm, lreg16, sreg16) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
 		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst(&meml, laddr16, saddr16); \
+		INST(&meml, laddr16, saddr16) \
 	}
 
-#define EwSw(rwm, inst) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		inst(rm, reg, lreg16, sreg16, lseg, 0); \
-	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
-		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst(&meml, reg, laddr16, saddr16, lseg, 0); \
-	}
-
-#define SwEw(rwm, inst) \
+#define EwSw(rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		inst(reg, rm, lseg, 0, lreg16, sreg16); \
+		INST(rm, reg, lreg16, sreg16, lseg, 0) \
 	} else { \
 		TRY(modsib(cpu, mod, rm, &addr)); \
 		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
-		inst(reg, &meml,lseg, 0, laddr16, saddr16); \
+		INST(&meml, reg, laddr16, saddr16, lseg, 0) \
+	}
+
+#define SwEw(rwm, INST) \
+	TRY(fetch8(cpu, &modrm)); \
+	int reg = (modrm >> 3) & 7; \
+	int mod = modrm >> 6; \
+	int rm = modrm & 7; \
+	if (mod == 3) { \
+		INST(reg, rm, lseg, 0, lreg16, sreg16) \
+	} else { \
+		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
+		INST(reg, &meml,lseg, 0, laddr16, saddr16) \
 	}
 
 #define limm(i) i
@@ -1680,9 +1360,9 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define DECb(...) INCDEC_helper(DEC,  8, -, __VA_ARGS__)
 #define DECw(...) INCDEC_helper(DEC, 16, -, __VA_ARGS__)
 #define DECd(...) INCDEC_helper(DEC, 32, -, __VA_ARGS__)
-#define NOTb(a, la, sa) sa(a, ~la(a))
-#define NOTw(a, la, sa) sa(a, ~la(a))
-#define NOTd(a, la, sa) sa(a, ~la(a))
+#define NOTb(a, la, sa) sa(a, ~la(a));
+#define NOTw(a, la, sa) sa(a, ~la(a));
+#define NOTd(a, la, sa) sa(a, ~la(a));
 #define NEGb(...) NEG_helper(8,  __VA_ARGS__)
 #define NEGw(...) NEG_helper(16, __VA_ARGS__)
 #define NEGd(...) NEG_helper(32, __VA_ARGS__)
@@ -2054,23 +1734,23 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define BSRw(...) BSR_helper(16, __VA_ARGS__)
 #define BSRd(...) BSR_helper(32, __VA_ARGS__)
 
-#define MOVb(a, b, la, sa, lb, sb) sa(a, lb(b))
-#define MOVw(a, b, la, sa, lb, sb) sa(a, lb(b))
-#define MOVd(a, b, la, sa, lb, sb) sa(a, lb(b))
-#define MOVSeg(a, b, la, sa, lb, sb) TRY(set_seg(cpu, a, lb(b)))
-#define MOVZXdb(a, b, la, sa, lb, sb) sa(a, lb(b))
-#define MOVZXwb(a, b, la, sa, lb, sb) sa(a, lb(b))
-#define MOVZXww(a, b, la, sa, lb, sb) sa(a, lb(b))
-#define MOVZXdw(a, b, la, sa, lb, sb) sa(a, lb(b))
-#define MOVSXdb(a, b, la, sa, lb, sb) sa(a, sext8(lb(b)))
-#define MOVSXwb(a, b, la, sa, lb, sb) sa(a, sext8(lb(b)))
-#define MOVSXww(a, b, la, sa, lb, sb) sa(a, lb(b))
-#define MOVSXdw(a, b, la, sa, lb, sb) sa(a, sext16(lb(b)))
+#define MOVb(a, b, la, sa, lb, sb) sa(a, lb(b));
+#define MOVw(a, b, la, sa, lb, sb) sa(a, lb(b));
+#define MOVd(a, b, la, sa, lb, sb) sa(a, lb(b));
+#define MOVSeg(a, b, la, sa, lb, sb) TRY(set_seg(cpu, a, lb(b)));
+#define MOVZXdb(a, b, la, sa, lb, sb) sa(a, lb(b));
+#define MOVZXwb(a, b, la, sa, lb, sb) sa(a, lb(b));
+#define MOVZXww(a, b, la, sa, lb, sb) sa(a, lb(b));
+#define MOVZXdw(a, b, la, sa, lb, sb) sa(a, lb(b));
+#define MOVSXdb(a, b, la, sa, lb, sb) sa(a, sext8(lb(b)));
+#define MOVSXwb(a, b, la, sa, lb, sb) sa(a, sext8(lb(b)));
+#define MOVSXww(a, b, la, sa, lb, sb) sa(a, lb(b));
+#define MOVSXdw(a, b, la, sa, lb, sb) sa(a, sext16(lb(b)));
 
 #define XCHG(a, b, la, sa, lb, sb) \
 	uword tmp = lb(b); \
 	sb(b, la(a)); \
-	sa(a, tmp)
+	sa(a, tmp);
 #define XCHGb XCHG
 #define XCHGw XCHG
 #define XCHGd XCHG
@@ -2090,7 +1770,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define LEAd(a, b, la, sa, lb, sb) \
 	if (mod == 3) cpu_abort(cpu, 0); \
-	sa(a, b)
+	sa(a, b);
 
 #define CBW_CWDE() \
 	if (opsz16) sreg16(0, sext8(lreg8(0))); \
@@ -2839,7 +2519,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define XADDw(...) XADD_helper(16, __VA_ARGS__)
 #define XADDd(...) XADD_helper(32, __VA_ARGS__)
 
-#define INVLPG(addr) tlb_clear(cpu)
+#define INVLPG(addr) tlb_clear(cpu);
 
 #define BSWAPw(a, la, sa) \
 	cpu->excno = EX_UD; \
