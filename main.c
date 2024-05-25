@@ -1927,7 +1927,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define IMULd(a, la, sa) \
 	cpu->cc.src1 = sext32(lreg32(0)); \
 	cpu->cc.src2 = sext32(la(a)); \
-	int64_t res = (int64_t) cpu->cc.src1 * (int64_t) cpu->cc.src2; \
+	int64_t res = (int64_t) (s32) cpu->cc.src1 * (int64_t) (s32) cpu->cc.src2; \
 	cpu->cc.dst = res; \
 	cpu->cc.dst2 = res >> 32; \
 	cpu->cc.op = CC_IMUL32; \
