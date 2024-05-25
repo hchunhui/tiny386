@@ -3526,10 +3526,46 @@ U8250 *u8250_init()
 }
 
 typedef struct {
+	u8 data[128];
+	int index;
+} CMOS;
+
+static int bin2bcd(int a)
+{
+	return ((a / 10) << 4) | (a % 10);
+}
+
+CMOS *cmos_init()
+{
+	CMOS *c = malloc(sizeof(CMOS));
+	memset(c, 0, sizeof(CMOS));
+
+	struct tm tm;
+	time_t ti;
+
+	ti = time(NULL);
+	gmtime_r(&ti, &tm);
+	c->data[0] = bin2bcd(tm.tm_sec);
+	c->data[2] = bin2bcd(tm.tm_min);
+	c->data[4] = bin2bcd(tm.tm_hour);
+	c->data[6] = bin2bcd(tm.tm_wday);
+	c->data[7] = bin2bcd(tm.tm_mday);
+	c->data[8] = bin2bcd(tm.tm_mon + 1);
+	c->data[9] = bin2bcd(tm.tm_year % 100);
+	c->data[0x32] = bin2bcd((tm.tm_year / 100) + 19);
+	c->data[10] = 0x26;
+	c->data[11] = 0x02;
+	c->data[12] = 0x00;
+	c->data[13] = 0x80;
+	return c;
+}
+
+typedef struct {
 	CPUI386 *cpu;
 	PicState2 *pic;
 	PITState *pit;
 	U8250 *serial;
+	CMOS *cmos;
 	char *phys_mem;
 	long phys_mem_size;
 } PC;
@@ -3623,6 +3659,20 @@ static void u8250_reg_write(PC *pc, U8250 *uart, int off, u8 val)
 	}
 }
 
+static u8 cmos_ioport_read(CMOS *cmos, int addr)
+{
+	if (addr == 0x70)
+		return 0xff;
+	u8 val = cmos->data[cmos->index];
+	return val;
+}
+
+static void cmos_ioport_write(CMOS *cmos, int addr, u8 val)
+{
+	if (addr == 0x70)
+		cmos->index = val & 0x7f;
+}
+
 u8 pc_io_read(void *o, int addr)
 {
 	PC *pc = o;
@@ -3645,6 +3695,9 @@ u8 pc_io_read(void *o, int addr)
 		return 0;
 	case 0x40: case 0x41: case 0x42: case 0x43:
 		val = i8254_ioport_read(pc->pit, addr);
+		return val;
+	case 0x70: case 0x71:
+		val = cmos_ioport_read(pc->cmos, addr);
 		return val;
 	default:
 		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0);
@@ -3674,6 +3727,9 @@ void pc_io_write(void *o, int addr, u8 val)
 		return;
 	case 0x40: case 0x41: case 0x42: case 0x43:
 		i8254_ioport_write(pc->pit, addr, val);
+		return;
+	case 0x70: case 0x71:
+		cmos_ioport_write(pc->cmos, addr, val);
 		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
@@ -3772,6 +3828,7 @@ PC *pc_new()
 
 	pc->pit = i8254_init(0, pc->pic, set_irq);
 	pc->serial = u8250_init();
+	pc->cmos = cmos_init();
 	pc->phys_mem = mem;
 	pc->phys_mem_size = mem_size;
 	return pc;
