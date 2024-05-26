@@ -7,9 +7,11 @@
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
+#include <fcntl.h>
 
 #include "i8259.h"
 #include "i8254.h"
+#include "ide.h"
 
 typedef uint32_t u32;
 typedef uint16_t u16;
@@ -129,8 +131,8 @@ typedef struct {
 	int (*pic_read_irq)(void *);
 
 	void *io;
-	u8 (*io_read)(void *, int);
-	void (*io_write)(void *, int, u8);
+	u8 (*io_read8)(void *, int);
+	void (*io_write8)(void *, int, u8);
 	u16 (*io_read16)(void *, int);
 	void (*io_write16)(void *, int, u16);
 	u32 (*io_read32)(void *, int);
@@ -2241,6 +2243,56 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define MOVS() if (opsz16) { MOVS_helper(16) } else { MOVS_helper(32) }
 #define CMPS() if (opsz16) { CMPS_helper(16) } else { CMPS_helper(32) }
 
+#define indxstdi(BIT) \
+	TRY(translate ## BIT(cpu, &meml, 2, SEG_ES, REGi(7))); \
+	ax = cpu->io_read ## BIT(cpu->io, lreg16(2)); \
+	saddr ## BIT(&meml, ax); \
+	REGi(7) += dir;
+
+#define INS_helper(BIT) \
+	xdir ## BIT \
+	u ## BIT ax; \
+	if (rep == 0) { \
+		indxstdi(BIT) \
+	} else { \
+		if (rep != 1) { \
+			cpu->excno = EX_UD; \
+			return false; \
+		} \
+		while (REGi(1)) { \
+			indxstdi(BIT) \
+			REGi(1)--; \
+		} \
+	}
+
+#define INSb() INS_helper(8)
+#define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
+
+#define ldsioutdx(BIT) \
+	TRY(translate ## BIT(cpu, &meml, 1, curr_seg, REGi(6))); \
+	ax = laddr ## BIT(&meml); \
+	cpu->io_write ## BIT(cpu->io, lreg16(2), ax); \
+	REGi(6) += dir;
+
+#define OUTS_helper(BIT) \
+	xdir ## BIT \
+	u ## BIT ax; \
+	if (rep == 0) { \
+		ldsioutdx(BIT) \
+	} else { \
+		if (rep != 1) { \
+			cpu->excno = EX_UD; \
+			return false; \
+		} \
+		while (REGi(1)) { \
+			ldsioutdx(BIT) \
+			REGi(1)--; \
+		} \
+	}
+
+#define OUTSb() OUTS_helper(8)
+#define OUTS() if (opsz16) { OUTS_helper(16) } else { OUTS_helper(32) }
+
 #define JCXZb(i, li, _) \
 	sword d = sext8(li(i)); \
 	if (opsz16) { \
@@ -2501,7 +2553,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	return false;
 
 #define INb(a, b, la, sa, lb, sb) \
-	sa(a, cpu->io_read(cpu->io, lb(b)));
+	sa(a, cpu->io_read8(cpu->io, lb(b)));
 
 #define INw(a, b, la, sa, lb, sb) \
 	sa(a, cpu->io_read16(cpu->io, lb(b)));
@@ -2510,7 +2562,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	sa(a, cpu->io_read32(cpu->io, lb(b)));
 
 #define OUTb(a, b, la, sa, lb, sb) \
-	cpu->io_write(cpu->io, la(a), lb(b));
+	cpu->io_write8(cpu->io, la(a), lb(b));
 
 #define OUTw(a, b, la, sa, lb, sb) \
 	cpu->io_write16(cpu->io, la(a), lb(b));
@@ -3124,8 +3176,8 @@ CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size)
 	cpu->pic_read_irq = NULL;
 
 	cpu->io = NULL;
-	cpu->io_read = NULL;
-	cpu->io_write = NULL;
+	cpu->io_read8 = NULL;
+	cpu->io_write8 = NULL;
 	cpu->io_read16 = NULL;
 	cpu->io_write16 = NULL;
 	cpu->io_read32 = NULL;
@@ -3204,6 +3256,7 @@ typedef struct {
 	PITState *pit;
 	U8250 *serial;
 	CMOS *cmos;
+	struct ide_controller *ide;
 	char *phys_mem;
 	long phys_mem_size;
 	int64_t boot_start_time;
@@ -3338,6 +3391,13 @@ u8 pc_io_read(void *o, int addr)
 	case 0x70: case 0x71:
 		val = cmos_ioport_read(pc->cmos, addr);
 		return val;
+	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
+	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
+		val = ide_read8(pc->ide, addr - 0x1f0);
+		return val;
+	case 0x3f6:
+		val = ide_read8(pc->ide, 8);
+		return val;
 	default:
 		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0);
 		return 0;
@@ -3346,7 +3406,18 @@ u8 pc_io_read(void *o, int addr)
 
 u16 pc_io_read16(void *o, int addr)
 {
-	return 0;
+	PC *pc = o;
+	u16 val;
+
+	switch(addr) {
+	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
+	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
+		val = ide_read16(pc->ide, addr - 0x1f0);
+		return val;
+	default:
+		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0);
+		return 0;
+	}
 }
 
 u32 pc_io_read32(void *o, int addr)
@@ -3354,6 +3425,7 @@ u32 pc_io_read32(void *o, int addr)
 	PC *pc = o;
 	if (addr == 0x3cc)
 		return (get_uticks() - pc->boot_start_time) / 1000;
+	fprintf(stderr, "ind 0x%x <= 0x%x\n", addr, 0);
 	return 0;
 }
 
@@ -3383,6 +3455,13 @@ void pc_io_write(void *o, int addr, u8 val)
 	case 0x70: case 0x71:
 		cmos_ioport_write(pc->cmos, addr, val);
 		return;
+	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
+	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
+		ide_write8(pc->ide, addr - 0x1f0, val);
+		return;
+	case 0x3f6:
+		ide_write8(pc->ide, 8, val);
+		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
 		return;
@@ -3391,10 +3470,21 @@ void pc_io_write(void *o, int addr, u8 val)
 
 void pc_io_write16(void *o, int addr, u16 val)
 {
+	PC *pc = o;
+	switch(addr) {
+	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
+	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
+		ide_write16(pc->ide, addr - 0x1f0, val);
+		return;
+	default:
+		fprintf(stderr, "outw 0x%x => 0x%x\n", val, addr);
+		return;
+	}
 }
 
 void pc_io_write32(void *o, int addr, u32 val)
 {
+	fprintf(stderr, "outd 0x%x => 0x%x\n", val, addr);
 }
 
 static void CtrlC()
@@ -3420,7 +3510,7 @@ static void CaptureKeyboardInput()
 
 	struct termios term;
 	tcgetattr(0, &term);
-	term.c_lflag &= ~(ICANON | ECHO); // Disable echo as well
+	term.c_lflag &= ~(ICANON | ECHO | ISIG); // Disable echo as well
 	tcsetattr(0, TCSANOW, &term);
 }
 
@@ -3487,13 +3577,19 @@ PC *pc_new()
 	pc->pit = i8254_init(0, pc->pic, set_irq);
 	pc->serial = u8250_init();
 	pc->cmos = cmos_init();
-
+	pc->ide = ide_allocate("ide", 14, pc->pic, set_irq);
+	int idefd = open("disk20mb", O_RDWR);
+	if (idefd >= 0) {
+		int ret = ide_attach(pc->ide, 0, idefd);
+		assert(ret == 0);
+		ide_reset_begin(pc->ide);
+	}
 	pc->phys_mem = mem;
 	pc->phys_mem_size = mem_size;
 
 	pc->cpu->io = pc;
-	pc->cpu->io_read = pc_io_read;
-	pc->cpu->io_write = pc_io_write;
+	pc->cpu->io_read8 = pc_io_read;
+	pc->cpu->io_write8 = pc_io_write;
 	pc->cpu->io_read16 = pc_io_read16;
 	pc->cpu->io_write16 = pc_io_write16;
 	pc->cpu->io_read32 = pc_io_read32;
