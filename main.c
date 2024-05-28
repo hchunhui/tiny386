@@ -531,6 +531,7 @@ static bool translate_slow(CPUI386 *cpu, OptAddr *res, int rwm, uword laddr, int
 
 static bool translate(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr, int size)
 {
+	assert(seg != -1);
 	uword laddr = cpu->seg[seg].base + addr;
 	if (laddr & 3)
 		return translate_slow(cpu, res, rwm, laddr, size);
@@ -567,6 +568,7 @@ static bool translate(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr, 
 
 static bool translate8(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr)
 {
+	assert(seg != -1);
 	uword laddr = cpu->seg[seg].base + addr;
 	if (cpu->cr0 & CR0_PG) {
 		uword lpgno = laddr >> 12;
@@ -748,7 +750,7 @@ static bool fetch32(CPUI386 *cpu, u32 *val)
 	return true;
 }
 
-static bool modsib(CPUI386 *cpu, int mod, int rm, uword *addr)
+static bool modsib(CPUI386 *cpu, int mod, int rm, uword *addr, int *seg)
 {
 	if (rm == 4) {
 		u8 sib;
@@ -758,6 +760,9 @@ static bool modsib(CPUI386 *cpu, int mod, int rm, uword *addr)
 			TRY(fetch32(cpu, addr));
 		} else {
 			*addr = REGi(b);
+			// sp bp as base register
+			if ((b == 4 || b == 5) && *seg == -1)
+				*seg = SEG_SS;
 		}
 		int i = (sib >> 3) & 7;
 		if (i != 4)
@@ -766,6 +771,9 @@ static bool modsib(CPUI386 *cpu, int mod, int rm, uword *addr)
 		TRY(fetch32(cpu, addr));
 	} else {
 		*addr = REGi(rm);
+		// bp as base register
+		if (rm == 5 && *seg == -1)
+			*seg = SEG_SS;
 	}
 	if (mod == 1) {
 		u8 imm8;
@@ -776,6 +784,8 @@ static bool modsib(CPUI386 *cpu, int mod, int rm, uword *addr)
 		TRY(fetch32(cpu, &imm32));
 		*addr += (s32) imm32;
 	}
+	if (*seg == -1)
+		*seg = SEG_DS;
 	return true;
 }
 
@@ -863,7 +873,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST ## SUFFIX(rm, lreg ## BIT, sreg ## BIT) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, laddr ## BIT, saddr ## BIT) \
 	}
@@ -879,7 +889,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST ## SUFFIX(rm, reg, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, reg, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT) \
 	}
@@ -895,7 +905,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST ## SUFFIX(rm, reg, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		addr += lreg ## BIT(reg) / BIT * BYTE; \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, reg, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT) \
@@ -913,7 +923,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		TRY(fetch8(cpu, &imm8)); \
 		INST ## SUFFIX(rm, reg, imm8, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(fetch8(cpu, &imm8)); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, reg, imm8, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
@@ -929,7 +939,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST ## SUFFIX(rm, reg, 1, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT, lreg8, sreg8) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, reg, 1, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT, lreg8, sreg8) \
 	}
@@ -945,7 +955,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		TRY(fetch ## BIT(cpu, &imm ## BIT)); \
 		INST ## SUFFIX(rm, imm ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(fetch ## BIT(cpu, &imm ## BIT)); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, imm ## BIT, laddr ## BIT, saddr ## BIT, limm, 0) \
@@ -965,7 +975,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		imm ## BIT = (s ## BIT) ((s8) imm8); \
 		INST ## SUFFIX(rm, imm ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(fetch8(cpu, &imm8)); \
 		imm ## BIT = (s ## BIT) ((s8) imm8); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
@@ -985,7 +995,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		imm ## BIT = (s ## BIT) ((s8) imm8); \
 		INST ## SUFFIX(rm, imm ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(fetch8(cpu, &imm8)); \
 		imm ## BIT = (s ## BIT) ((s8) imm8); \
 		addr += imm ## BIT / BIT * BYTE; \
@@ -1002,7 +1012,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST ## SUFFIX(rm, 1, lreg ## BIT, sreg ## BIT, limm, 0) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, 1, laddr ## BIT, saddr ## BIT, limm, 0) \
 	}
@@ -1017,7 +1027,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST ## SUFFIX(rm, 1, lreg ## BIT, sreg ## BIT, lreg8, sreg8) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, 1, laddr ## BIT, saddr ## BIT, lreg8, sreg8) \
 	}
@@ -1033,7 +1043,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST ## SUFFIX(reg, rm, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(reg, &meml, lreg ## BIT, sreg ## BIT, laddr ## BIT, saddr ## BIT) \
 	}
@@ -1049,9 +1059,10 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST ## d(reg, rm, lreg32, sreg32, lreg32, sreg32) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		INST ## d(reg, addr, lreg32, sreg32, limm32, 0) \
 	}
+// TODO
 #define GvMp GvM
 
 #define GE_helper2(BIT, SUFFIX, BIT2, SUFFIX2, rwm, INST) \
@@ -1062,7 +1073,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST ## SUFFIX ## SUFFIX2(reg, rm, lreg ## BIT, sreg ## BIT, lreg ## BIT2, sreg ## BIT2) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate ## BIT2(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX ## SUFFIX2(reg, &meml, lreg ## BIT, sreg ## BIT, laddr ## BIT2, saddr ## BIT2) \
 	}
@@ -1080,7 +1091,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		TRY(fetch ## BIT2(cpu, &imm ## BIT2)); \
 		INST ## SUFFIX ## I ## SUFFIX2(reg, rm, imm ## BIT2, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		u ## BIT2 imm ## BIT2; \
 		TRY(fetch ## BIT2(cpu, &imm ## BIT2)); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
@@ -1127,7 +1138,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define DXAX(rwm, INST) \
 	if (opsz16) { \
-		INST ## w(2, 0, lreg16, sreg16, lreg16, sreg16)	\
+		INST ## w(2, 0, lreg16, sreg16, lreg16, sreg16) \
 	} else { \
 		INST ## d(2, 0, lreg16, sreg16, lreg32, sreg32) \
 	}
@@ -1155,11 +1166,13 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define ALOb(rwm, INST) \
 	TRY(fetch32(cpu, &addr)); \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
 	INST(0, &meml, lreg8, sreg8, laddr8, saddr8)
 
 #define AXOv(rwm, INST) \
 	TRY(fetch32(cpu, &addr)); \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	if (opsz16) { \
 		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## w(0, &meml, lreg16, sreg16, laddr16, saddr16) \
@@ -1170,11 +1183,13 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define ObAL(rwm, INST) \
 	TRY(fetch32(cpu, &addr)); \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	TRY(translate8(cpu, &meml, rwm, curr_seg, addr)); \
 	INST(&meml, 0, laddr8, saddr8, lreg8, sreg8)
 
 #define OvAX(rwm, INST) \
 	TRY(fetch32(cpu, &addr)); \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	if (opsz16) { \
 		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## w(&meml, 0, laddr16, saddr16, lreg16, sreg16) \
@@ -1250,7 +1265,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		cpu->excno = EX_UD; \
 		return false; \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		INST(addr) \
 	}
 
@@ -1261,7 +1276,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST(rm, lreg16, sreg16) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
 		INST(&meml, laddr16, saddr16) \
 	}
@@ -1274,7 +1289,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST(rm, reg, lreg16, sreg16, lseg, 0) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
 		INST(&meml, reg, laddr16, saddr16, lseg, 0) \
 	}
@@ -1287,7 +1302,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		INST(reg, rm, lseg, 0, lreg16, sreg16) \
 	} else { \
-		TRY(modsib(cpu, mod, rm, &addr)); \
+		TRY(modsib(cpu, mod, rm, &addr, &curr_seg)); \
 		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
 		INST(reg, &meml,lseg, 0, laddr16, saddr16) \
 	}
@@ -1980,7 +1995,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		sreg16(rm, src); \
 	} else { \
-		if (!modsib(cpu, mod, rm, &addr) || \
+		if (!modsib(cpu, mod, rm, &addr, &curr_seg) || \
 		    !translate16(cpu, &meml, 2, curr_seg, addr)) { \
 			sreg32(4, sp); \
 			return false; \
@@ -2000,7 +2015,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (mod == 3) { \
 		sreg32(rm, src); \
 	} else { \
-		if (!modsib(cpu, mod, rm, &addr) || \
+		if (!modsib(cpu, mod, rm, &addr, &curr_seg) || \
 		    !translate32(cpu, &meml, 2, curr_seg, addr)) { \
 			sreg32(4, sp); \
 			return false; \
@@ -2109,7 +2124,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	REGi(6) += dir;
 
 #define lddi(BIT) \
-	TRY(translate ## BIT(cpu, &meml, 1, curr_seg, REGi(7))); \
+	TRY(translate ## BIT(cpu, &meml, 1, SEG_ES, REGi(7))); \
 	ax = laddr ## BIT(&meml); \
 	REGi(7) += dir;
 
@@ -2124,7 +2139,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define ldsilddi(BIT) \
 	TRY(translate ## BIT(cpu, &meml, 1, curr_seg, REGi(6))); \
 	ax0 = laddr ## BIT(&meml); \
-	TRY(translate ## BIT(cpu, &meml, 1, curr_seg, REGi(7))); \
+	TRY(translate ## BIT(cpu, &meml, 1, SEG_ES, REGi(7))); \
 	ax = laddr ## BIT(&meml); \
 	REGi(6) += dir; \
 	REGi(7) += dir;
@@ -2134,6 +2149,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define xdir32 int dir = (cpu->flags & DF) ? -4 : 4;
 
 #define STOS_helper(BIT) \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	xdir ## BIT \
 	u ## BIT ax = REGi(0); \
 	if (rep == 0) { \
@@ -2150,6 +2166,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	}
 
 #define LODS_helper(BIT) \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	xdir ## BIT \
 	u ## BIT ax; \
 	if (rep == 0) { \
@@ -2168,6 +2185,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	}
 
 #define SCAS_helper(BIT) \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	xdir ## BIT \
 	u ## BIT ax0 = REGi(0); \
 	u ## BIT ax; \
@@ -2193,6 +2211,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	}
 
 #define MOVS_helper(BIT) \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	xdir ## BIT \
 	u ## BIT ax; \
 	if (rep == 0) { \
@@ -2209,6 +2228,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	}
 
 #define CMPS_helper(BIT) \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	xdir ## BIT \
 	u ## BIT ax0, ax; \
 	if (rep == 0) { \
@@ -2269,6 +2289,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
 
 #define ldsioutdx(BIT) \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	TRY(translate ## BIT(cpu, &meml, 1, curr_seg, REGi(6))); \
 	ax = laddr ## BIT(&meml); \
 	cpu->io_write ## BIT(cpu->io, lreg16(2), ax); \
@@ -2679,7 +2700,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 	bool opsz16 = false;
 	int rep = 0;
 	bool lock = false;
-	int curr_seg = SEG_DS;
+	int curr_seg = -1;
 	for (;;) {
 		if (b1 == 0x26) {
 			curr_seg = SEG_ES;
