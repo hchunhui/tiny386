@@ -1257,6 +1257,12 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	INST ## d(imm32, limm, 0)
 #define Av Jv
 
+#define Ap(rwm, INST) \
+	u16 seg; \
+	TRY(fetch32(cpu, &addr)); \
+	TRY(fetch16(cpu, &seg)); \
+	INST(addr, seg)
+
 #define Ms(rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
@@ -1356,7 +1362,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	LOP0_helper(NAME1, BIT, OP, a, b, la, sa, lb, sb) \
 	sa(a, cpu->cc.dst);
 
-#define INCDEC_helper(NAME, BIT, OP, a, la, sa)	\
+#define INCDEC_helper(NAME, BIT, OP, a, la, sa) \
 	int cf = get_CF(cpu); \
 	cpu->cc.dst = sext ## BIT(la(a)) OP 1; \
 	cpu->cc.op = CC_ ## NAME; \
@@ -1587,7 +1593,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define SARw(...) SAR_helper(16, __VA_ARGS__)
 #define SARd(...) SAR_helper(32, __VA_ARGS__)
 
-#define IMUL2_helper(BIT, a, b, la, sa, lb, sb)	\
+#define IMUL2_helper(BIT, a, b, la, sa, lb, sb) \
 	cpu->cc.src1 = sext ## BIT(la(a)); \
 	cpu->cc.src2 = sext ## BIT(lb(b)); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
@@ -2033,13 +2039,15 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	sreg32(4, sp - 4); \
 	saddr32(&meml, cpu->flags);
 
+#define EFLAGS_MASK_386 0x37fd7
+#define EFLAGS_MASK_486 0x77fd7
 //opsz
 #define POPF() \
 	uword sp = lreg32(4); \
 	TRY(translate32(cpu, &meml, 1, SEG_SS, sp)); \
 	sreg32(4, sp + 4); \
 	cpu->flags = laddr32(&meml); \
-	cpu->flags &= /*0x37fd7*/ 0x77fd7;   \
+	cpu->flags &= EFLAGS_MASK_486; \
 	cpu->flags |= 0x2; \
 	cpu->cc.mask = 0;
 
@@ -2434,13 +2442,9 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define JMPABSd(i, li, _) \
 	cpu->next_ip = li(i);
 
-#define JMPFAR() \
-	u32 newip; \
-	u16 newseg; \
-	TRY(fetch32(cpu, &newip)); \
-	TRY(fetch16(cpu, &newseg)); \
-	TRY(set_seg(cpu, SEG_CS, newseg)); \
-	cpu->next_ip = newip;
+#define JMPFAR(addr, seg) \
+	TRY(set_seg(cpu, SEG_CS, seg)); \
+	cpu->next_ip = addr;
 
 #define CALLd(i, li, _) \
 	sword d = sext32(li(i)); \
