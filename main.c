@@ -1629,8 +1629,8 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	sreg16(0, cpu->cc.dst);
 
 #define IMULw(a, la, sa) \
-	cpu->cc.src1 = sext32(lreg16(0)); \
-	cpu->cc.src2 = sext32(la(a)); \
+	cpu->cc.src1 = sext16(lreg16(0)); \
+	cpu->cc.src2 = sext16(la(a)); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
 	cpu->cc.dst2 = 0; \
 	cpu->cc.op = CC_IMUL16; \
