@@ -12,6 +12,7 @@
 #include "i8259.h"
 #include "i8254.h"
 #include "ide.h"
+#include "vga.h"
 
 typedef uint32_t u32;
 typedef uint16_t u16;
@@ -3282,9 +3283,14 @@ typedef struct {
 	U8250 *serial;
 	CMOS *cmos;
 	struct ide_controller *ide;
+	VGAState *vga;
+	FBDevice *fb_dev;
 	char *phys_mem;
 	long phys_mem_size;
 	int64_t boot_start_time;
+
+	SimpleFBDrawFunc *redraw;
+	void *redraw_data;
 } PC;
 
 void u8250_update_interrupts(PC *pc, U8250 *uart)
@@ -3487,6 +3493,10 @@ void pc_io_write(void *o, int addr, u8 val)
 	case 0x3f6:
 		ide_write8(pc->ide, 8, val);
 		return;
+
+	case 0x3d4: case 0x3d5:
+		vga_ioport_write(pc->vga, addr, val);
+		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
 		return;
@@ -3500,6 +3510,10 @@ void pc_io_write16(void *o, int addr, u16 val)
 	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
 	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
 		ide_write16(pc->ide, addr - 0x1f0, val);
+		return;
+	case 0x3d4:
+		vga_ioport_write(pc->vga, addr, val & 0xff);
+		vga_ioport_write(pc->vga, addr + 1, (val >> 8) & 0xff);
 		return;
 	default:
 		fprintf(stderr, "outw 0x%x => 0x%x\n", val, addr);
@@ -3566,7 +3580,8 @@ void pc_step(PC *pc)
 			u8250_update_interrupts(pc, pc->serial);
 		}
 	}
-	cpu_step(pc->cpu, 16384);
+	pc->fb_dev->refresh(pc->fb_dev, pc->redraw, pc->redraw_data);
+	cpu_step(pc->cpu, 4096);
 }
 
 static void raise_irq(void *o, PicState2 *s)
@@ -3587,7 +3602,7 @@ static void set_irq(void *o, int irq, int level)
 	return i8259_set_irq(s, irq, level);
 }
 
-PC *pc_new()
+PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data)
 {
 	PC *pc = malloc(sizeof(PC));
 	long mem_size = 8 * 1024 * 1024;
@@ -3621,6 +3636,13 @@ PC *pc_new()
 	pc->cpu->io_write32 = pc_io_write32;
 
 	pc->boot_start_time = 0;
+
+	FBDevice *fb_dev = malloc(sizeof(FBDevice));
+	memset(fb_dev, 0, sizeof(FBDevice));
+	pc->vga = vga_init(fb_dev, 720, 400, NULL, 0, mem + 0xa0000);
+	pc->fb_dev = fb_dev;
+	pc->redraw = redraw;
+	pc->redraw_data = redraw_data;
 	return pc;
 }
 
@@ -3636,26 +3658,67 @@ static int load(PC *pc, const char *file, uword addr)
 	return len;
 }
 
+#if 1
+#include "SDL.h"
+typedef struct {
+	int width, height;
+	SDL_Surface *screen;
+} Screen;
+
+Screen *screen_init()
+{
+	Screen *s = malloc(sizeof(Screen));
+	s->width = 720;
+	s->height = 400;
+	SDL_Init(SDL_INIT_VIDEO);
+	s->screen = SDL_SetVideoMode(s->width, s->height, 32, 0);
+	return s;
+}
+
+static void redraw(FBDevice *fb_dev, void *opaque,
+		   int x, int y, int w, int h)
+{
+	Screen *s = opaque;
+	memcpy(s->screen->pixels, fb_dev->fb_data, s->width * s->height * 4);
+	SDL_Flip(s->screen);
+	SDL_PumpEvents();
+}
+#else
+typedef struct {
+} Screen;
+
+Screen *screen_init()
+{
+	return NULL;
+}
+
+static void redraw(FBDevice *fb_dev, void *opaque,
+		   int x, int y, int w, int h)
+{
+}
+#endif
+
 int main(int argc, char *argv[])
 {
 	const char *vmlinux = "vmlinux.bin";
 	if (argc > 1)
 		vmlinux = argv[1];
 
-	PC *pc = pc_new();
+	Screen *screen = screen_init();
+	PC *pc = pc_new(redraw, screen);
 
 	load(pc, "linuxstart.bin", 0x0010000);
 	load(pc, vmlinux, 0x00100000);
-	int initrd_size = load(pc, "root.bin", 0x00400000);
+//	int initrd_size = load(pc, "root.bin", 0x00400000);
 
 	uword start_addr = 0x10000;
 	uword cmdline_addr = 0xf800;
 	strcpy(pc->cpu->phys_mem + cmdline_addr,
-	       "console=ttyS0 root=/dev/ram0 rw init=/sbin/init notsc=1");
+	       "console=ttyS0 root=/dev/hda rw init=/sbin/init notsc=1");
 
 	pc->cpu->next_ip = start_addr;
 	pc->cpu->gpr[0] = pc->phys_mem_size;
-	pc->cpu->gpr[3] = initrd_size;
+	pc->cpu->gpr[3] = 0;//initrd_size;
 	pc->cpu->gpr[1] = cmdline_addr;
 
 	CaptureKeyboardInput();
