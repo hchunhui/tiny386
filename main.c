@@ -369,7 +369,7 @@ static int get_OF(CPUI386 *cpu)
 		case CC_SAR:
 			return 0;
 		case CC_SHL:
-			return (cpu->cc.dst >> (sizeof(uword) * 8 - 1)) ^ (cpu->cc.dst2 & 1);
+			return (cpu->cc.src1 >> (sizeof(uword) * 8 - 1)) ^ (cpu->cc.dst2 & 1);
 		case CC_SHR:
 			return (cpu->cc.src1 >> (sizeof(uword) * 8 - 1));
 		case CC_SHLD:
@@ -813,7 +813,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	uword w2 = load32(cpu, &meml);
 	cpu->seg[seg].sel = sel;
 	cpu->seg[seg].base = (w1 >> 16) | ((w2 & 0xff) << 16) | (w2 & 0xff000000);
-	if (w2 & 0x008000)
+	if (w2 & 0x00800000)
 		cpu->seg[seg].limit = ((w1 & 0xffff) << 12) | 0xfff;
 	else
 		cpu->seg[seg].limit = w1 & 0xffff;
