@@ -152,7 +152,7 @@ I(C(0xc7), EvIv,   2, MOV)
 I(C(0xc8), IwIb,   0, ENTER)
 I(C(0xc9), _,   0, LEAVE)
 /*I(C(0xca), Iw,     0, RETFARw)*/
-/*I(C(0xcb), _,      0, RETFAR)*/
+I(C(0xcb), _,      0, RETFAR)
 I(C(0xcc), _,      0, INT3)
 I(C(0xcd), Ib,     0, INT)
 I(C(0xce), _,      0, INTO)
