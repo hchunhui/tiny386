@@ -114,7 +114,7 @@ I(C(0x90), _,      0, NOP)
 I(C(0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97), _, 0, XCHGAX)
 I(C(0x98), _,      0, CBW_CWDE)
 I(C(0x99), _,      0, CWD_CDQ)
-/*I(C(0x9a), Ap,     0, CALLFAR)*/
+I(C(0x9a), Ap,     0, CALLFAR)
 I(C(0x9b), _,      0, WAIT)
 I(C(0x9c), _,      0, PUSHF)
 I(C(0x9d), _,      0, POPF)
@@ -151,7 +151,7 @@ I(C(0xc6), EbIb,   2, MOVb)
 I(C(0xc7), EvIv,   2, MOV)
 I(C(0xc8), IwIb,   0, ENTER)
 I(C(0xc9), _,   0, LEAVE)
-/*I(C(0xca), Iw,     0, RETFARw)*/
+I(C(0xca), Iw,     0, RETFARw)
 I(C(0xcb), _,      0, RETFAR)
 I(C(0xcc), _,      0, INT3)
 I(C(0xcd), Ib,     0, INT)
@@ -162,9 +162,9 @@ I(C(0xcf), _,      0, IRET)
 //  0xd1   GRP2 Ev1
 //  0xd2   GRP2 EbCL
 //  0xd3   GRP2 EvCL
-/*I(C(0xd4), _,      0, AAM)*/
-/*I(C(0xd5), _,      0, AAD)*/
-/*I(C(0xd7), _,      0, XLAT)*/
+I(C(0xd4), Ib,     0, AAM)
+I(C(0xd5), Ib,     0, AAD)
+I(C(0xd7), _,      0, XLAT)
 I(C(0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf), _, 0, ESC)
 
 I(C(0xe0), Jb,     0, LOOPNEb)
@@ -340,9 +340,9 @@ IG4(C(0x01), Eb, 3, DECb)
 IG5(C(0x00), Ev, 3, INC)
 IG5(C(0x01), Ev, 3, DEC)
 IG5(C(0x02), Ev, 1, CALLABS)
-/*IG5(C(0x03), Ep, CALLFAR)*/
+IG5(C(0x03), Ep, 1, CALLFAR)
 IG5(C(0x04), Ev, 1, JMPABS)
-/*IG5(C(0x05), Ep, JMPFAR)*/
+IG5(C(0x05), Ep, 1, JMPFAR)
 IG5(C(0x06), Ev, 1, PUSH)
 
 /*IG6(C(0x00), Ew, 2, SLDT)*/

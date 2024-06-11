@@ -77,6 +77,7 @@ enum {
 
 enum {
 	SEG_D_BIT = 4,
+	SEG_B_BIT = 4,
 };
 
 typedef struct {
@@ -833,12 +834,15 @@ static bool modsib16(CPUI386 *cpu, int mod, int rm, uword *addr, int *seg)
 			*addr += imm16;
 		}
 		*addr &= 0xffff;
-		if ((rm == 2 || rm == 3) && *seg == -1) {
-			*seg = SEG_SS;
-		}
 	}
-	if (*seg == -1)
-		*seg = SEG_DS;
+	if (*seg == -1) {
+		if (rm == 2 || rm == 3)
+			*seg = SEG_SS;
+		else if (mod != 0 && rm == 6)
+			*seg = SEG_SS;
+		else
+			*seg = SEG_DS;
+	}
 	return true;
 }
 
@@ -1366,6 +1370,32 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	TRY(fetch16(cpu, &seg)); \
 	INST(addr, seg)
 
+#define Ep(rwm, INST) \
+	TRY(fetch8(cpu, &modrm)); \
+	int mod = modrm >> 6; \
+	int rm = modrm & 7; \
+	if (mod == 3) { \
+		cpu->excno = EX_UD; \
+		return false; \
+	} else { \
+		u16 seg; \
+		u32 off; \
+		OptAddr moff, mseg; \
+		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
+		if (opsz16) { \
+			TRY(translate16(cpu, &moff, rwm, curr_seg, addr)); \
+			TRY(translate16(cpu, &mseg, rwm, curr_seg, addr + 2)); \
+			off = laddr16(&moff); \
+			seg = laddr16(&mseg); \
+		} else { \
+			TRY(translate32(cpu, &moff, rwm, curr_seg, addr)); \
+			TRY(translate16(cpu, &mseg, rwm, curr_seg, addr + 4)); \
+			off = laddr32(&moff); \
+			seg = laddr16(&mseg); \
+		} \
+		INST(off, seg) \
+	}
+
 #define Ms(rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
@@ -1420,11 +1450,11 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define lreg8(i) ((u8) ((i) > 3 ? REGi((i) - 4) >> 8 : REGi((i))))
 #define sreg8(i, v) ((i) > 3 ? \
 		     (REGi((i) - 4) = REGi((i) - 4) & (wordmask ^ 0xff00) | ((v) & 0xff) << 8) : \
-		     (REGi((i)) = REGi((i)) & (wordmask ^ 0xff) | v & 0xff))
+		     (REGi((i)) = REGi((i)) & (wordmask ^ 0xff) | (v) & 0xff))
 #define lreg16(i) ((u16) REGi((i)))
-#define sreg16(i, v) (REGi((i)) = REGi((i)) & (wordmask ^ 0xffff) | v & 0xffff)
+#define sreg16(i, v) (REGi((i)) = REGi((i)) & (wordmask ^ 0xffff) | (v) & 0xffff)
 #define lreg32(i) ((u32) REGi((i)))
-#define sreg32(i, v) (REGi((i)) = REGi((i)) & (wordmask ^ 0xffffffff) | v & 0xffffffff)
+#define sreg32(i, v) (REGi((i)) = REGi((i)) & (wordmask ^ 0xffffffff) | (v) & 0xffffffff)
 #define laddr8(addr) load8(cpu, addr)
 #define saddr8(addr, v) store8(cpu, addr, v)
 #define laddr16(addr) load16(cpu, addr)
@@ -1432,6 +1462,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define laddr32(addr) load32(cpu, addr)
 #define saddr32(addr, v) store32(cpu, addr, v)
 #define lseg(i) ((u16) SEGi((i)))
+#define set_sp(v, mask) (sreg32(4, (v) & mask | lreg32(4) & ~mask))
 
 /*
  * instructions
@@ -1993,24 +2024,24 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		OptAddr meml1, meml2, meml3, meml4, meml5; \
 		int p0 = cpu->seg[SEG_CS].sel; \
 		uword sp = lreg32(4); \
-		/* ip */ TRY(translate32(cpu, &meml1, 1, SEG_SS, sp)); \
+		/* ip */ TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
 		uword newip = laddr32(&meml1); \
-		/* cs */ TRY(translate32(cpu, &meml2, 1, SEG_SS, sp + 4)); \
+		/* cs */ TRY(translate32(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask)); \
 		int p1 = laddr32(&meml2); \
 		bool ptrans = (p1 & 3) != (p0 & 3); \
-		/* flags */ TRY(translate32(cpu, &meml3, 1, SEG_SS, sp + 8)); \
+		/* flags */ TRY(translate32(cpu, &meml3, 1, SEG_SS, (sp + 8) & sp_mask)); \
 		if (ptrans) { \
-			/* sp */ TRY(translate32(cpu, &meml4, 1, SEG_SS, sp + 12)); \
-			/* ss */ TRY(translate32(cpu, &meml5, 1, SEG_SS, sp + 16)); \
+			/* sp */ TRY(translate32(cpu, &meml4, 1, SEG_SS, (sp + 12) & sp_mask)); \
+			/* ss */ TRY(translate32(cpu, &meml5, 1, SEG_SS, (sp + 16) & sp_mask)); \
 			uword newsp = laddr32(&meml4); \
 			uword newss = laddr32(&meml5); \
 			TRY(set_seg(cpu, SEG_CS, p1)); \
 			TRY(set_seg(cpu, SEG_SS, newss)); \
-			cpu->gpr[4] = newsp; \
+			set_sp(newsp, sp_mask); \
 			cpu->next_ip = newip; \
 		} else { \
 			TRY(set_seg(cpu, SEG_CS, p1)); \
-			cpu->gpr[4] = sp + 12; \
+			set_sp(sp + 12, sp_mask); \
 			cpu->next_ip = newip; \
 		} \
 		cpu->flags = laddr32(&meml3); \
@@ -2021,34 +2052,47 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		if (!opsz16) cpu_abort(cpu, -201); \
 		OptAddr meml1, meml2, meml3; \
 		uword sp = lreg32(4); \
-		/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp)); \
+		/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
 		uword newip = laddr16(&meml1); \
-		/* cs */ TRY(translate16(cpu, &meml2, 1, SEG_SS, sp + 2)); \
+		/* cs */ TRY(translate16(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask)); \
 		int p1 = laddr16(&meml2); \
-		/* flags */ TRY(translate16(cpu, &meml3, 1, SEG_SS, sp + 4)); \
+		/* flags */ TRY(translate16(cpu, &meml3, 1, SEG_SS, (sp + 4) & sp_mask)); \
 		TRY(set_seg(cpu, SEG_CS, p1)); \
-		cpu->gpr[4] = sp + 6; \
+		set_sp(sp + 6, sp_mask); \
 		cpu->next_ip = newip; \
 		cpu->flags = (cpu->flags & 0xffff0000) | laddr16(&meml3); \
 		cpu->flags |= 0x2; \
 		cpu->cc.mask = 0; \
 	}
 
-#define RETFAR() \
+#define RETFARw(i, li, _) \
 	if (cpu->cr0 & 1) { \
 		cpu_abort(cpu, -202); \
 	} else { \
-		if (!opsz16) cpu_abort(cpu, -203); \
-		OptAddr meml1, meml2; \
-		uword sp = lreg32(4); \
-		/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp)); \
-		uword newip = laddr16(&meml1); \
-		/* cs */ TRY(translate16(cpu, &meml2, 1, SEG_SS, sp + 2)); \
-		int p1 = laddr16(&meml2); \
-		TRY(set_seg(cpu, SEG_CS, p1)); \
-		cpu->gpr[4] = sp + 4; \
-		cpu->next_ip = newip; \
+		if (opsz16) { \
+			OptAddr meml1, meml2; \
+			uword sp = lreg32(4); \
+			/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
+			uword newip = laddr16(&meml1); \
+			/* cs */ TRY(translate16(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask)); \
+			int p1 = laddr16(&meml2); \
+			TRY(set_seg(cpu, SEG_CS, p1)); \
+			set_sp(sp + 4 + li(i), sp_mask); \
+			cpu->next_ip = newip; \
+		} else { \
+			OptAddr meml1, meml2; \
+			uword sp = lreg32(4); \
+			/* ip */ TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
+			uword newip = laddr32(&meml1); \
+			/* cs */ TRY(translate32(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask)); \
+			int p1 = laddr32(&meml2); \
+			TRY(set_seg(cpu, SEG_CS, p1)); \
+			set_sp(sp + 4 + li(i), sp_mask); \
+			cpu->next_ip = newip; \
+		} \
 	}
+
+#define RETFAR() RETFARw(0, limm, 0)
 
 #define HLT() cpu->halt = true; return true;
 #define NOP()
@@ -2094,44 +2138,44 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	OptAddr meml1; \
 	if (opsz16) { \
 		uword sp = lreg32(4); \
-		TRY(translate16(cpu, &meml1, 2, SEG_SS, sp - 2)); \
-		sreg32(4, sp - 2); \
+		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask)); \
+		set_sp(sp - 2, sp_mask); \
 		saddr16(&meml1, sext8(la(a))); \
 	} else { \
 		uword sp = lreg32(4); \
-		TRY(translate32(cpu, &meml1, 2, SEG_SS, sp - 4)); \
-		sreg32(4, sp - 4); \
+		TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask)); \
+		set_sp(sp - 4, sp_mask); \
 		saddr32(&meml1, sext8(la(a))); \
 	}
 
 #define PUSHw(a, la, sa) \
 	OptAddr meml1; \
 	uword sp = lreg32(4); \
-	TRY(translate16(cpu, &meml1, 2, SEG_SS, sp - 2)); \
-	sreg32(4, sp - 2); \
+	TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask)); \
+	set_sp(sp - 2, sp_mask); \
 	saddr16(&meml1, sext16(la(a)));
 
 #define PUSHd(a, la, sa) \
 	OptAddr meml1; \
 	uword sp = lreg32(4); \
-	TRY(translate32(cpu, &meml1, 2, SEG_SS, sp - 4)); \
-	sreg32(4, sp - 4); \
+	TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask)); \
+	set_sp(sp - 4, sp_mask); \
 	saddr32(&meml1, sext32(la(a)));
 
 #define POPRegw(a, la, sa) \
 	OptAddr meml1; \
 	uword sp = lreg32(4); \
-	TRY(translate16(cpu, &meml1, 1, SEG_SS, sp)); \
+	TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
 	u16 src = laddr16(&meml1); \
-	sreg32(4, sp + 2); \
+	set_sp(sp + 2, sp_mask); \
 	sa(a, src);
 
 #define POPRegd(a, la, sa) \
 	OptAddr meml1; \
 	uword sp = lreg32(4); \
-	TRY(translate32(cpu, &meml1, 1, SEG_SS, sp)); \
+	TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
 	u32 src = laddr32(&meml1); \
-	sreg32(4, sp + 4); \
+	set_sp(sp + 4, sp_mask); \
 	sa(a, src);
 
 #define POPw() \
@@ -2140,15 +2184,15 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	uword sp = lreg32(4); \
-	TRY(translate16(cpu, &meml1, 1, SEG_SS, sp)); \
+	TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
 	u16 src = laddr16(&meml1); \
-	sreg32(4, sp + 2); \
+	set_sp(sp + 2, sp_mask); \
 	if (mod == 3) { \
 		sreg16(rm, src); \
 	} else { \
 		if (!modsib(cpu, adsz16, mod, rm, &addr, &curr_seg) || \
 		    !translate16(cpu, &meml, 2, curr_seg, addr)) { \
-			sreg32(4, sp); \
+			set_sp(sp, sp_mask); \
 			return false; \
 		} \
 		saddr16(&meml, src); \
@@ -2160,15 +2204,15 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	uword sp = lreg32(4); \
-	TRY(translate32(cpu, &meml1, 1, SEG_SS, sp)); \
+	TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
 	u32 src = laddr32(&meml1); \
-	sreg32(4, sp + 4); \
+	set_sp(sp + 4, sp_mask); \
 	if (mod == 3) { \
 		sreg32(rm, src); \
 	} else { \
 		if (!modsib(cpu, adsz16, mod, rm, &addr, &curr_seg) || \
 		    !translate32(cpu, &meml, 2, curr_seg, addr)) { \
-			sreg32(4, sp); \
+			set_sp(sp, sp_mask); \
 			return false; \
 		} \
 		saddr32(&meml, src); \
@@ -2178,17 +2222,17 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define PUSHF() \
 	if (opsz16) { \
 		uword sp = lreg32(4); \
-		TRY(translate16(cpu, &meml, 2, SEG_SS, sp - 2)); \
+		TRY(translate16(cpu, &meml, 2, SEG_SS, (sp - 2) & sp_mask)); \
 		refresh_flags(cpu); \
 		cpu->cc.mask = 0; \
-		sreg32(4, sp - 2); \
+		set_sp(sp - 2, sp_mask); \
 		saddr16(&meml, cpu->flags); \
 	} else { \
 		uword sp = lreg32(4); \
-		TRY(translate32(cpu, &meml, 2, SEG_SS, sp - 4)); \
+		TRY(translate32(cpu, &meml, 2, SEG_SS, (sp - 4) & sp_mask)); \
 		refresh_flags(cpu); \
 		cpu->cc.mask = 0; \
-		sreg32(4, sp - 4); \
+		set_sp(sp - 4, sp_mask); \
 		saddr32(&meml, cpu->flags); \
 	}
 
@@ -2198,13 +2242,13 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define POPF() \
 	if (opsz16) { \
 		uword sp = lreg32(4); \
-		TRY(translate16(cpu, &meml, 1, SEG_SS, sp)); \
-		sreg32(4, sp + 2); \
+		TRY(translate16(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
+		set_sp(sp + 2, sp_mask); \
 		cpu->flags = (cpu->flags & 0xffff0000) | laddr16(&meml); \
 	} else { \
 		uword sp = lreg32(4); \
-		TRY(translate32(cpu, &meml, 1, SEG_SS, sp)); \
-		sreg32(4, sp + 4); \
+		TRY(translate32(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
+		set_sp(sp + 4, sp_mask); \
 		cpu->flags = laddr32(&meml); \
 	} \
 	cpu->flags &= EFLAGS_MASK_486; \
@@ -2214,13 +2258,13 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define PUSHSeg(seg) \
 	if (opsz16) { \
 		uword sp = lreg32(4); \
-		TRY(translate16(cpu, &meml, 2, SEG_SS, sp - 2)); \
-		sreg32(4, sp - 2); \
+		TRY(translate16(cpu, &meml, 2, SEG_SS, (sp - 2) & sp_mask)); \
+		set_sp(sp - 2, sp_mask); \
 		saddr16(&meml, lseg(seg)); \
 	} else { \
 		uword sp = lreg32(4); \
-		TRY(translate32(cpu, &meml, 2, SEG_SS, sp - 4)); \
-		sreg32(4, sp - 4); \
+		TRY(translate32(cpu, &meml, 2, SEG_SS, (sp - 4) & sp_mask)); \
+		set_sp(sp - 4, sp_mask); \
 		saddr32(&meml, lseg(seg)); \
 	}
 #define PUSH_ES() PUSHSeg(SEG_ES)
@@ -2233,14 +2277,14 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define POPSeg(seg) \
 	if (opsz16) { \
 		uword sp = lreg32(4); \
-		TRY(translate16(cpu, &meml, 1, SEG_SS, sp)); \
+		TRY(translate16(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
 		TRY(set_seg(cpu, seg, laddr16(&meml))); \
-		sreg32(4, sp + 2); \
+		set_sp(sp + 2, sp_mask); \
 	} else { \
 		uword sp = lreg32(4); \
-		TRY(translate32(cpu, &meml, 1, SEG_SS, sp)); \
+		TRY(translate32(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
 		TRY(set_seg(cpu, seg, laddr32(&meml))); \
-		sreg32(4, sp + 4); \
+		set_sp(sp + 4, sp_mask); \
 	}
 #define POP_ES() POPSeg(SEG_ES)
 #define POP_SS() POPSeg(SEG_SS)
@@ -2252,14 +2296,14 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	uword sp = lreg32(4); \
 	OptAddr meml1, meml2, meml3, meml4; \
 	OptAddr meml5, meml6, meml7, meml8; \
-	TRY(translate ## BIT(cpu, &meml1, 2, SEG_SS, sp - BYTE * 1)); \
-	TRY(translate ## BIT(cpu, &meml2, 2, SEG_SS, sp - BYTE * 2)); \
-	TRY(translate ## BIT(cpu, &meml3, 2, SEG_SS, sp - BYTE * 3)); \
-	TRY(translate ## BIT(cpu, &meml4, 2, SEG_SS, sp - BYTE * 4)); \
-	TRY(translate ## BIT(cpu, &meml5, 2, SEG_SS, sp - BYTE * 5)); \
-	TRY(translate ## BIT(cpu, &meml6, 2, SEG_SS, sp - BYTE * 6)); \
-	TRY(translate ## BIT(cpu, &meml7, 2, SEG_SS, sp - BYTE * 7)); \
-	TRY(translate ## BIT(cpu, &meml8, 2, SEG_SS, sp - BYTE * 8)); \
+	TRY(translate ## BIT(cpu, &meml1, 2, SEG_SS, (sp - BYTE * 1) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml2, 2, SEG_SS, (sp - BYTE * 2) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml3, 2, SEG_SS, (sp - BYTE * 3) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml4, 2, SEG_SS, (sp - BYTE * 4) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml5, 2, SEG_SS, (sp - BYTE * 5) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml6, 2, SEG_SS, (sp - BYTE * 6) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml7, 2, SEG_SS, (sp - BYTE * 7) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml8, 2, SEG_SS, (sp - BYTE * 8) & sp_mask)); \
 	saddr ## BIT(&meml1, lreg ## BIT(0)); \
 	saddr ## BIT(&meml2, lreg ## BIT(1)); \
 	saddr ## BIT(&meml3, lreg ## BIT(2)); \
@@ -2268,20 +2312,20 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	saddr ## BIT(&meml6, lreg ## BIT(5)); \
 	saddr ## BIT(&meml7, lreg ## BIT(6)); \
 	saddr ## BIT(&meml8, lreg ## BIT(7)); \
-	sreg32(4, sp - BYTE * 8);
+	set_sp(sp - BYTE * 8, sp_mask);
 #define PUSHA() if (opsz16) { PUSHA_helper(16, 2) } else { PUSHA_helper(32, 4) }
 
 #define POPA_helper(BIT, BYTE) \
 	uword sp = lreg32(4); \
 	OptAddr meml1, meml2, meml3, meml4; \
 	OptAddr meml5, meml6, meml7; \
-	TRY(translate ## BIT(cpu, &meml1, 1, SEG_SS, sp + BYTE * 0)); \
-	TRY(translate ## BIT(cpu, &meml2, 1, SEG_SS, sp + BYTE * 1)); \
-	TRY(translate ## BIT(cpu, &meml3, 1, SEG_SS, sp + BYTE * 2)); \
-	TRY(translate ## BIT(cpu, &meml4, 1, SEG_SS, sp + BYTE * 4)); \
-	TRY(translate ## BIT(cpu, &meml5, 1, SEG_SS, sp + BYTE * 5)); \
-	TRY(translate ## BIT(cpu, &meml6, 1, SEG_SS, sp + BYTE * 6)); \
-	TRY(translate ## BIT(cpu, &meml7, 1, SEG_SS, sp + BYTE * 7)); \
+	TRY(translate ## BIT(cpu, &meml1, 1, SEG_SS, (sp + BYTE * 0) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml2, 1, SEG_SS, (sp + BYTE * 1) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml3, 1, SEG_SS, (sp + BYTE * 2) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml4, 1, SEG_SS, (sp + BYTE * 4) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml5, 1, SEG_SS, (sp + BYTE * 5) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml6, 1, SEG_SS, (sp + BYTE * 6) & sp_mask)); \
+	TRY(translate ## BIT(cpu, &meml7, 1, SEG_SS, (sp + BYTE * 7) & sp_mask)); \
 	sreg ## BIT(7, laddr ## BIT(&meml1)); \
 	sreg ## BIT(6, laddr ## BIT(&meml2)); \
 	sreg ## BIT(5, laddr ## BIT(&meml3)); \
@@ -2289,7 +2333,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	sreg ## BIT(2, laddr ## BIT(&meml5)); \
 	sreg ## BIT(1, laddr ## BIT(&meml6)); \
 	sreg ## BIT(0, laddr ## BIT(&meml7)); \
-	sreg32(4, sp + BYTE * 8);
+	set_sp(sp + BYTE * 8, sp_mask);
 #define POPA() if (opsz16) { POPA_helper(16, 2) } else { POPA_helper(32, 4) }
 
 // string operations
@@ -2683,8 +2727,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	cpu->next_ip += d;
 
 #define JMPABSw(i, li, _) \
-	cpu->excno = EX_UD; \
-	return false;
+	cpu->next_ip = li(i);
 
 #define JMPABSd(i, li, _) \
 	cpu->next_ip = li(i);
@@ -2693,61 +2736,81 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	TRY(set_seg(cpu, SEG_CS, seg)); \
 	cpu->next_ip = addr;
 
+#define CALLFAR(addr, seg) \
+	if (cpu->cr0 & 1) cpu_abort(cpu, -300); \
+	OptAddr meml1, meml2; \
+	uword sp = lreg32(4); \
+	if (opsz16) { \
+		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask)); \
+		TRY(translate16(cpu, &meml2, 2, SEG_SS, (sp - 4) & sp_mask)); \
+		set_sp(sp - 4, sp_mask); \
+		saddr16(&meml1, cpu->seg[SEG_CS].sel); \
+		saddr16(&meml2, cpu->next_ip); \
+	} else { \
+		TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask)); \
+		TRY(translate32(cpu, &meml2, 2, SEG_SS, (sp - 8) & sp_mask)); \
+		set_sp(sp - 8, sp_mask); \
+		saddr32(&meml1, cpu->seg[SEG_CS].sel); \
+		saddr32(&meml2, cpu->next_ip); \
+	} \
+	TRY(set_seg(cpu, SEG_CS, seg)); \
+	cpu->next_ip = addr;
+
 #define CALLw(i, li, _) \
 	sword d = sext16(li(i)); \
-	uword sp = lreg16(4); \
-	TRY(translate16(cpu, &meml, 2, SEG_SS, sp - 2)); \
-	sreg16(4, sp - 2); \
+	uword sp = lreg32(4); \
+	TRY(translate16(cpu, &meml, 2, SEG_SS, (sp - 2) & sp_mask)); \
+	set_sp(sp - 2, sp_mask); \
 	saddr16(&meml, cpu->next_ip); \
 	cpu->next_ip += d;
 
 #define CALLd(i, li, _) \
 	sword d = sext32(li(i)); \
 	uword sp = lreg32(4); \
-	TRY(translate32(cpu, &meml, 2, SEG_SS, sp - 4)); \
-	sreg32(4, sp - 4); \
+	TRY(translate32(cpu, &meml, 2, SEG_SS, (sp - 4) & sp_mask)); \
+	set_sp(sp - 4, sp_mask); \
 	saddr32(&meml, cpu->next_ip); \
 	cpu->next_ip += d;
 
 #define CALLABSw(i, li, _) \
 	uword nip = li(i); \
 	uword sp = lreg16(4); \
-	TRY(translate16(cpu, &meml, 2, SEG_SS, sp - 2)); \
-	sreg16(4, sp - 2); \
+	TRY(translate16(cpu, &meml, 2, SEG_SS, (sp - 2) & sp_mask)); \
+	set_sp(sp - 2, sp_mask); \
 	saddr16(&meml, cpu->next_ip); \
 	cpu->next_ip = nip;
 
 #define CALLABSd(i, li, _) \
 	uword nip = li(i); \
 	uword sp = lreg32(4); \
-	TRY(translate32(cpu, &meml, 2, SEG_SS, sp - 4)); \
-	sreg32(4, sp - 4); \
+	TRY(translate32(cpu, &meml, 2, SEG_SS, (sp - 4) & sp_mask)); \
+	set_sp(sp - 4, sp_mask); \
 	saddr32(&meml, cpu->next_ip); \
 	cpu->next_ip = nip;
 
 #define RETw(i, li, _) \
 	if (opsz16) { \
-		uword sp = lreg16(4); \
-		TRY(translate16(cpu, &meml, 1, SEG_SS, sp)); \
-		sreg16(4, sp + 2 + li(i)); \
+		uword sp = lreg32(4); \
+		TRY(translate16(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
+		set_sp(sp + 2 + li(i), sp_mask); \
 		cpu->next_ip = laddr16(&meml); \
 	} else { \
 		uword sp = lreg32(4); \
-		TRY(translate32(cpu, &meml, 1, SEG_SS, sp)); \
-		sreg32(4, sp + 4 + li(i)); \
+		TRY(translate32(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
+		set_sp(sp + 4 + li(i), sp_mask); \
 		cpu->next_ip = laddr32(&meml); \
 	}
 
 #define RET() \
 	if (opsz16) { \
 		uword sp = lreg16(4); \
-		TRY(translate16(cpu, &meml, 1, SEG_SS, sp)); \
-		sreg16(4, sp + 2); \
+		TRY(translate16(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
+		set_sp(sp + 2, sp_mask); \
 		cpu->next_ip = laddr16(&meml); \
 	} else { \
 		uword sp = lreg32(4); \
-		TRY(translate32(cpu, &meml, 1, SEG_SS, sp)); \
-		sreg32(4, sp + 4); \
+		TRY(translate32(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
+		set_sp(sp + 4, sp_mask); \
 		cpu->next_ip = laddr32(&meml); \
 	}
 
@@ -2757,24 +2820,24 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (level != 0) cpu_abort(cpu, -1); \
 	uword sp = lreg32(4); \
 	if (opsz16) { \
-		TRY(translate16(cpu, &meml1, 2, SEG_SS, sp - 2)); \
-		sreg32(4, sp - 2 - l16(i16)); \
+		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask)); \
+		set_sp(sp - 2 - l16(i16), sp_mask); \
 		saddr16(&meml1, lreg16(5)); \
-	} else {						  \
-		TRY(translate32(cpu, &meml1, 2, SEG_SS, sp - 4)); \
-		sreg32(4, sp - 4 - l16(i16)); \
+	} else { \
+		TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask)); \
+		set_sp(sp - 4 - l16(i16), sp_mask); \
 		saddr32(&meml1, lreg32(5)); \
 	}
 
 #define LEAVE() \
 	uword sp = lreg32(5); \
 	if (opsz16) { \
-		TRY(translate16(cpu, &meml, 1, SEG_SS, sp)); \
-		sreg32(4, sp + 2); \
+		TRY(translate16(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
+		set_sp(sp + 2, sp_mask); \
 		sreg16(5, laddr16(&meml)); \
 	} else { \
-		TRY(translate32(cpu, &meml, 1, SEG_SS, sp)); \
-		sreg32(4, sp + 4); \
+		TRY(translate32(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
+		set_sp(sp + 4, sp_mask); \
 		sreg32(5, laddr32(&meml)); \
 	}
 
@@ -2798,6 +2861,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	TRY(translate32(cpu, &meml2, 1, curr_seg, addr + 2)); \
 	u16 limit = load16(cpu, &meml1); \
 	u32 base = load32(cpu, &meml2); \
+	if (opsz16) base &= 0xffffff; \
 	cpu->gdt.base = base; \
 	cpu->gdt.limit = limit;
 
@@ -2807,6 +2871,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	TRY(translate32(cpu, &meml2, 1, curr_seg, addr + 2)); \
 	u16 limit = load16(cpu, &meml1); \
 	u32 base = load32(cpu, &meml2); \
+	if (opsz16) base &= 0xffffff; \
 	cpu->idt.base = base; \
 	cpu->idt.limit = limit;
 
@@ -2891,6 +2956,39 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	}
 
 #define WAIT()
+
+// ...
+#define AAD(i, li, _) \
+	u8 al = lreg8(0); \
+	u8 ah = lreg8(4); \
+	u8 imm = li(i); \
+	u8 res = al + ah * imm; \
+	sreg8(0, res); \
+	sreg8(4, 0); \
+	cpu->cc.dst = res; \
+	cpu->cc.mask = ZF | SF | PF;
+
+#define AAM(i, li, _) \
+	u8 al = lreg8(0); \
+	u8 imm = li(i); \
+	u8 res = al % imm; \
+	sreg8(4, al / imm); \
+	sreg8(0, res); \
+	cpu->cc.dst = res; \
+	cpu->cc.mask = ZF | SF | PF;
+
+#define XLAT() \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
+	if (adsz16) { \
+		addr = lreg16(3) + lreg8(0); \
+		addr &= 0xffff; \
+		TRY(translate8(cpu, &meml, 1, curr_seg, addr)); \
+		sreg8(0, laddr8(&meml)); \
+	} else { \
+		addr = lreg32(3) + lreg8(0); \
+		TRY(translate8(cpu, &meml, 1, curr_seg, addr)); \
+		sreg8(0, laddr8(&meml)); \
+	}
 
 // 486...
 #define CMPXCH_helper(BIT, a, b, la, sa, lb, sb) \
@@ -2981,6 +3079,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 	uword addr;
 	for (; stepcount > 0; stepcount--) {
 	bool code16 = !(cpu->seg[SEG_CS].flags & SEG_D_BIT);
+	uword sp_mask =  cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 	dispatch;
 	if (verbose)
 		cpu_debug(cpu);
@@ -4087,6 +4186,7 @@ int main(int argc, char *argv[])
 	pc->cpu->cr0 = 1;
 	pc->cpu->seg[SEG_CS].flags = SEG_D_BIT;
 	pc->cpu->next_ip = start_addr;
+	pc->cpu->seg[SEG_SS].flags = SEG_B_BIT;
 	pc->cpu->gpr[0] = pc->phys_mem_size;
 	pc->cpu->gpr[3] = 0;//initrd_size;
 	pc->cpu->gpr[1] = cmdline_addr;
