@@ -1463,6 +1463,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define saddr32(addr, v) store32(cpu, addr, v)
 #define lseg(i) ((u16) SEGi((i)))
 #define set_sp(v, mask) (sreg32(4, (v) & mask | lreg32(4) & ~mask))
+#define set_bp(v, mask) (sreg32(5, (v) & mask | lreg32(5) & ~mask))
 
 /*
  * instructions
@@ -2823,10 +2824,12 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask)); \
 		set_sp(sp - 2 - l16(i16), sp_mask); \
 		saddr16(&meml1, lreg16(5)); \
+		set_bp(sp - 2, sp_mask); \
 	} else { \
 		TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask)); \
 		set_sp(sp - 4 - l16(i16), sp_mask); \
 		saddr32(&meml1, lreg32(5)); \
+		set_bp(sp - 4, sp_mask); \
 	}
 
 #define LEAVE() \
