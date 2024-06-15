@@ -13,6 +13,7 @@
 #include "i8254.h"
 #include "ide.h"
 #include "vga.h"
+#include "i8042.h"
 
 typedef uint32_t u32;
 typedef uint16_t u16;
@@ -3732,6 +3733,11 @@ typedef struct {
 
 	SimpleFBDrawFunc *redraw;
 	void *redraw_data;
+	void (*poll)(void *);
+
+	KBDState *i8042;
+	PS2KbdState *kbd;
+	PS2MouseState *mouse;
 } PC;
 
 void u8250_update_interrupts(PC *pc, U8250 *uart)
@@ -3882,8 +3888,12 @@ u8 pc_io_read(void *o, int addr)
 		return val;
 	case 0x92:
 		return 0x2; // A20 on
-	case 0x64: //TODO: i8042
-		return 0;
+	case 0x60:
+		val = kbd_read_data(pc->i8042, addr);
+		return val;
+	case 0x64:
+		val = kbd_read_status(pc->i8042, addr);
+		return val;
 	default:
 		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0);
 		return 0;
@@ -3963,6 +3973,12 @@ void pc_io_write(void *o, int addr, u8 val)
 		fflush(stdout);
 		return;
 	case 0x92:
+		return;
+	case 0x60:
+		kbd_write_data(pc->i8042, addr, val);
+		return;
+	case 0x64:
+		kbd_write_command(pc->i8042, addr, val);
 		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
@@ -4054,6 +4070,7 @@ void pc_step(PC *pc)
 			u8250_update_interrupts(pc, pc->serial);
 		}
 	}
+	pc->poll(pc->redraw_data);
 	pc->fb_dev->refresh(pc->fb_dev, pc->redraw, pc->redraw_data);
 	cpu_step(pc->cpu, 4096);
 }
@@ -4076,7 +4093,7 @@ static void set_irq(void *o, int irq, int level)
 	return i8259_set_irq(s, irq, level);
 }
 
-PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data)
+PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data)
 {
 	PC *pc = malloc(sizeof(PC));
 	long mem_size = 8 * 1024 * 1024;
@@ -4118,6 +4135,10 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data)
 	pc->fb_dev = fb_dev;
 	pc->redraw = redraw;
 	pc->redraw_data = redraw_data;
+	pc->poll = poll;
+
+	pc->i8042 = i8042_init(&(pc->kbd), &(pc->mouse),
+			       1, 12, pc->pic, set_irq);
 	return pc;
 }
 
@@ -4138,11 +4159,12 @@ static int load(PC *pc, const char *file, uword addr)
 typedef struct {
 	int width, height;
 	SDL_Surface *screen;
-} Screen;
+	PC *pc;
+} Console;
 
-Screen *screen_init()
+Console *console_init()
 {
-	Screen *s = malloc(sizeof(Screen));
+	Console *s = malloc(sizeof(Console));
 	s->width = 720;
 	s->height = 400;
 	SDL_Init(SDL_INIT_VIDEO);
@@ -4153,22 +4175,105 @@ Screen *screen_init()
 static void redraw(FBDevice *fb_dev, void *opaque,
 		   int x, int y, int w, int h)
 {
-	Screen *s = opaque;
+	Console *s = opaque;
 	memcpy(s->screen->pixels, fb_dev->fb_data, s->width * s->height * 4);
 	SDL_Flip(s->screen);
 	SDL_PumpEvents();
 }
+
+/* we assume Xorg is used with a PC keyboard. Return 0 if no keycode found. */
+static int sdl_get_keycode(const SDL_KeyboardEvent *ev)
+{
+	int keycode;
+	keycode = ev->keysym.scancode;
+	if (keycode < 9) {
+		keycode = 0;
+	} else if (keycode < 127 + 8) {
+		keycode -= 8;
+	} else {
+		keycode = 0;
+	}
+	return keycode;
+}
+
+/* release all pressed keys */
+#define KEYCODE_MAX 127
+static uint8_t key_pressed[KEYCODE_MAX + 1];
+
+static void sdl_reset_keys(PC *pc)
+{
+	int i;
+	for(i = 1; i <= KEYCODE_MAX; i++) {
+		if (key_pressed[i]) {
+			ps2_put_keycode(pc->kbd, 0, i);
+			key_pressed[i] = 0;
+		}
+	}
+}
+
+static void sdl_handle_key_event(const SDL_KeyboardEvent *ev, PC *pc)
+{
+	int keycode, keypress;
+
+	keycode = sdl_get_keycode(ev);
+	if (keycode) {
+		if (keycode == 0x3a || keycode ==0x45) {
+			/* SDL does not generate key up for numlock & caps lock */
+			ps2_put_keycode(pc->kbd, 1, keycode);
+			ps2_put_keycode(pc->kbd, 0, keycode);
+		} else {
+			keypress = (ev->type == SDL_KEYDOWN);
+			if (keycode <= KEYCODE_MAX)
+				key_pressed[keycode] = keypress;
+			ps2_put_keycode(pc->kbd, keypress, keycode);
+		}
+	} else if (ev->type == SDL_KEYUP) {
+		/* workaround to reset the keyboard state (used when changing
+		   desktop with ctrl-alt-x on Linux) */
+		sdl_reset_keys(pc);
+	}
+}
+
+static void poll(void *opaque)
+{
+	Console *s = opaque;
+	SDL_Surface *sdl = s->screen;
+	SDL_Event ev;
+
+	while (SDL_PollEvent(&ev)) {
+		switch (ev.type) {
+		case SDL_KEYDOWN:
+		case SDL_KEYUP:
+			sdl_handle_key_event(&(ev.key), s->pc);
+			break;
+		case SDL_MOUSEMOTION:
+//			sdl_handle_mouse_motion_event(ev, m);
+			break;
+		case SDL_MOUSEBUTTONDOWN:
+		case SDL_MOUSEBUTTONUP:
+//			sdl_handle_mouse_button_event(ev, m);
+			break;
+		case SDL_QUIT:
+			exit(0);
+		}
+	}
+}
 #else
 typedef struct {
-} Screen;
+	PC *pc;
+} Console;
 
-Screen *screen_init()
+Console *console_init()
 {
 	return NULL;
 }
 
 static void redraw(FBDevice *fb_dev, void *opaque,
 		   int x, int y, int w, int h)
+{
+}
+
+static void poll(void *opaque)
 {
 }
 #endif
@@ -4179,8 +4284,9 @@ int main(int argc, char *argv[])
 	if (argc > 1)
 		vmlinux = argv[1];
 
-	Screen *screen = screen_init();
-	PC *pc = pc_new(redraw, screen);
+	Console *console = console_init();
+	PC *pc = pc_new(redraw, poll, console);
+	console->pc = pc;
 
 	load(pc, "linuxstart.bin", 0x0010000);
 	load(pc, vmlinux, 0x00100000);
