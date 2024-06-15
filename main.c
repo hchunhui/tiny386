@@ -1471,7 +1471,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	int cf = get_CF(cpu); \
 	cpu->cc.src1 = sext ## BIT(la(a)); \
 	cpu->cc.src2 = sext ## BIT(lb(b)); \
-	cpu->cc.dst = cpu->cc.src1 OP cpu->cc.src2 OP cf; \
+	cpu->cc.dst = sext ## BIT(cpu->cc.src1 OP cpu->cc.src2 OP cf); \
 	cpu->cc.op = cf ? CC_ ## NAME1 : CC_ ## NAME2; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sa(a, cpu->cc.dst);
@@ -1479,7 +1479,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define AOP0_helper(NAME, BIT, OP, a, b, la, sa, lb, sb) \
 	cpu->cc.src1 = sext ## BIT(la(a)); \
 	cpu->cc.src2 = sext ## BIT(lb(b)); \
-	cpu->cc.dst = cpu->cc.src1 OP cpu->cc.src2; \
+	cpu->cc.dst = sext ## BIT(cpu->cc.src1 OP cpu->cc.src2); \
 	cpu->cc.op = CC_ ## NAME; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF;
 
@@ -1498,7 +1498,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define INCDEC_helper(NAME, BIT, OP, a, la, sa) \
 	int cf = get_CF(cpu); \
-	cpu->cc.dst = sext ## BIT(la(a)) OP 1; \
+	cpu->cc.dst = sext ## BIT(sext ## BIT(la(a)) OP 1); \
 	cpu->cc.op = CC_ ## NAME; \
 	if (cf) { \
 		cpu->flags |= CF; \
@@ -1510,7 +1510,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define NEG_helper(BIT, a, la, sa) \
 	cpu->cc.src1 = sext ## BIT(la(a)); \
-	cpu->cc.dst = -cpu->cc.src1; \
+	cpu->cc.dst = sext ## BIT(-cpu->cc.src1); \
 	cpu->cc.op = CC_NEG; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sa(a, cpu->cc.dst);
@@ -1966,7 +1966,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	else sreg32(0, sext16(lreg16(0)));
 
 #define CWD_CDQ() \
-	if (opsz16) sreg16(2, sext16(-(sext16(lreg16(0)) >> 15))); \
+	if (opsz16) sreg16(2, sext16(-(sext16(lreg16(0)) >> 31))); \
 	else sreg32(2, sext32(-(sext32(lreg32(0)) >> 31)));
 
 #define MOVFC() \
@@ -2432,7 +2432,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		if (adsz16) { lddi(BIT, 16) } else { lddi(BIT, 32) } \
 		cpu->cc.src1 = sext ## BIT(ax0); \
 		cpu->cc.src2 = sext ## BIT(ax); \
-		cpu->cc.dst = cpu->cc.src1 - cpu->cc.src2; \
+		cpu->cc.dst = sext ## BIT(cpu->cc.src1 - cpu->cc.src2); \
 		cpu->cc.op = CC_SUB; \
 		cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	} else { \
@@ -2442,7 +2442,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 				sreg16(1, lreg16(1) - 1); \
 				cpu->cc.src1 = sext ## BIT(ax0); \
 				cpu->cc.src2 = sext ## BIT(ax); \
-				cpu->cc.dst = cpu->cc.src1 - cpu->cc.src2; \
+				cpu->cc.dst = sext ## BIT(cpu->cc.src1 - cpu->cc.src2); \
 				cpu->cc.op = CC_SUB; \
 				cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 				bool zf = get_ZF(cpu); \
@@ -2454,7 +2454,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 				sreg32(1, lreg32(1) - 1); \
 				cpu->cc.src1 = sext ## BIT(ax0); \
 				cpu->cc.src2 = sext ## BIT(ax); \
-				cpu->cc.dst = cpu->cc.src1 - cpu->cc.src2; \
+				cpu->cc.dst = sext ## BIT(cpu->cc.src1 - cpu->cc.src2); \
 				cpu->cc.op = CC_SUB; \
 				cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 				bool zf = get_ZF(cpu); \
@@ -2495,7 +2495,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		if (adsz16) { ldsilddi(BIT, 16) } else { ldsilddi(BIT, 32) } \
 		cpu->cc.src1 = sext ## BIT(ax0); \
 		cpu->cc.src2 = sext ## BIT(ax); \
-		cpu->cc.dst = cpu->cc.src1 - cpu->cc.src2; \
+		cpu->cc.dst = sext ## BIT(cpu->cc.src1 - cpu->cc.src2); \
 		cpu->cc.op = CC_SUB; \
 		cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	} else { \
@@ -2505,7 +2505,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 				sreg16(1, lreg16(1) - 1); \
 				cpu->cc.src1 = sext ## BIT(ax0); \
 				cpu->cc.src2 = sext ## BIT(ax); \
-				cpu->cc.dst = cpu->cc.src1 - cpu->cc.src2; \
+				cpu->cc.dst = sext ## BIT(cpu->cc.src1 - cpu->cc.src2); \
 				cpu->cc.op = CC_SUB; \
 				cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 				bool zf = get_ZF(cpu); \
@@ -2517,7 +2517,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 				sreg32(1, lreg32(1) - 1); \
 				cpu->cc.src1 = sext ## BIT(ax0); \
 				cpu->cc.src2 = sext ## BIT(ax); \
-				cpu->cc.dst = cpu->cc.src1 - cpu->cc.src2; \
+				cpu->cc.dst = sext ## BIT(cpu->cc.src1 - cpu->cc.src2); \
 				cpu->cc.op = CC_SUB; \
 				cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 				bool zf = get_ZF(cpu); \
@@ -2952,7 +2952,12 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		cpu->excno = EX_NM; \
 		return false; \
 	} else { \
-		TRY(fetch8(cpu, &b1)); \
+		TRY(fetch8(cpu, &modrm)); \
+		int mod = modrm >> 6; \
+		int rm = modrm & 7; \
+		if (mod != 3) { \
+			TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
+		} \
 	}
 
 #define WAIT()
@@ -2965,7 +2970,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	u8 res = al + ah * imm; \
 	sreg8(0, res); \
 	sreg8(4, 0); \
-	cpu->cc.dst = res; \
+	cpu->cc.dst = sext8(res); \
 	cpu->cc.mask = ZF | SF | PF;
 
 #define AAM(i, li, _) \
@@ -2974,7 +2979,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	u8 res = al % imm; \
 	sreg8(4, al / imm); \
 	sreg8(0, res); \
-	cpu->cc.dst = res; \
+	cpu->cc.dst = sext8(res); \
 	cpu->cc.mask = ZF | SF | PF;
 
 #define XLAT() \
@@ -2994,7 +2999,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define CMPXCH_helper(BIT, a, b, la, sa, lb, sb) \
 	cpu->cc.src1 = sext ## BIT(la(a)); \
 	cpu->cc.src2 = sext ## BIT(lreg ## BIT(0)); \
-	cpu->cc.dst = cpu->cc.src1 - cpu->cc.src2; \
+	cpu->cc.dst = sext ## BIT(cpu->cc.src1 - cpu->cc.src2); \
 	cpu->cc.op = CC_SUB; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	if (cpu->cc.dst == 0) sa(a, lb(b)); else sreg ## BIT(0, cpu->cc.src1); 
@@ -3003,7 +3008,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	u ## BIT dst = la(a); \
 	cpu->cc.src1 = sext ## BIT(la(a)); \
 	cpu->cc.src2 = sext ## BIT(lb(b)); \
-	cpu->cc.dst = cpu->cc.src1 + cpu->cc.src2; \
+	cpu->cc.dst = sext ## BIT(cpu->cc.src1 + cpu->cc.src2); \
 	cpu->cc.op = CC_ADD; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sb(b, dst); \
