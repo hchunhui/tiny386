@@ -308,7 +308,7 @@ static void kbd_reset(void *opaque)
 {
     KBDState *s = opaque;
 
-    s->mode = KBD_MODE_KBD_INT | KBD_MODE_MOUSE_INT;
+    s->mode = KBD_MODE_KBD_INT | KBD_MODE_MOUSE_INT | KBD_MODE_KCC;
     s->status = KBD_STAT_CMD | KBD_STAT_UNLOCKED;
 }
 
