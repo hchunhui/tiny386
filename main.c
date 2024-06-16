@@ -2070,30 +2070,26 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	}
 
 #define RETFARw(i, li, _) \
-	if (cpu->cr0 & 1) { \
-		cpu_abort(cpu, -202); \
+	if (opsz16) { \
+		OptAddr meml1, meml2; \
+		uword sp = lreg32(4); \
+		/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
+		uword newip = laddr16(&meml1); \
+		/* cs */ TRY(translate16(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask)); \
+		int p1 = laddr16(&meml2); \
+		TRY(set_seg(cpu, SEG_CS, p1)); \
+		set_sp(sp + 4 + li(i), sp_mask); \
+		cpu->next_ip = newip; \
 	} else { \
-		if (opsz16) { \
-			OptAddr meml1, meml2; \
-			uword sp = lreg32(4); \
-			/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
-			uword newip = laddr16(&meml1); \
-			/* cs */ TRY(translate16(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask)); \
-			int p1 = laddr16(&meml2); \
-			TRY(set_seg(cpu, SEG_CS, p1)); \
-			set_sp(sp + 4 + li(i), sp_mask); \
-			cpu->next_ip = newip; \
-		} else { \
-			OptAddr meml1, meml2; \
-			uword sp = lreg32(4); \
-			/* ip */ TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
-			uword newip = laddr32(&meml1); \
-			/* cs */ TRY(translate32(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask)); \
-			int p1 = laddr32(&meml2); \
-			TRY(set_seg(cpu, SEG_CS, p1)); \
-			set_sp(sp + 4 + li(i), sp_mask); \
-			cpu->next_ip = newip; \
-		} \
+		OptAddr meml1, meml2; \
+		uword sp = lreg32(4); \
+		/* ip */ TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
+		uword newip = laddr32(&meml1); \
+		/* cs */ TRY(translate32(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask)); \
+		int p1 = laddr32(&meml2); \
+		TRY(set_seg(cpu, SEG_CS, p1)); \
+		set_sp(sp + 8 + li(i), sp_mask); \
+		cpu->next_ip = newip; \
 	}
 
 #define RETFAR() RETFARw(0, limm, 0)
@@ -3002,6 +2998,80 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		TRY(translate8(cpu, &meml, 1, curr_seg, addr)); \
 		sreg8(0, laddr8(&meml)); \
 	}
+
+#define DAA() \
+	u8 al = lreg8(0); \
+	int cf = get_CF(cpu); \
+	cpu->flags &= ~CF; \
+	if ((al & 0xf) > 9 || get_AF(cpu)) { \
+		sreg8(0, al + 6); \
+		if (cf || al > 0xff - 6) cpu->flags |= CF; \
+		cpu->flags |= AF; \
+	} else { \
+		cpu->flags &= ~AF; \
+	} \
+	if (al > 0x99 || cf) { \
+		sreg8(0, lreg8(0) + 0x60); \
+		cpu->flags |= CF; \
+	} \
+	cpu->cc.dst = sext8(lreg8(0)); \
+	cpu->cc.mask = ZF | SF | PF;
+
+#define DAS() \
+	u8 al = lreg8(0); \
+	int cf = get_CF(cpu); \
+	cpu->flags &= ~CF; \
+	if ((al & 0xf) > 9 || get_AF(cpu)) { \
+		sreg8(0, al - 6); \
+		if (cf || al < 6) cpu->flags |= CF; \
+		cpu->flags |= AF; \
+	} else { \
+		cpu->flags &= ~AF; \
+	} \
+	if (al > 0x99 || cf) { \
+		sreg8(0, lreg8(0) - 0x60); \
+		cpu->flags |= CF; \
+	} \
+	cpu->cc.dst = sext8(lreg8(0)); \
+	cpu->cc.mask = ZF | SF | PF;
+
+static bool lar_helper(CPUI386 *cpu, int sel, uword *out)
+{
+	if (!(cpu->cr0 & 1)) {
+		cpu->excno = EX_UD;
+		return false;
+	}
+
+	OptAddr meml;
+	uword off = sel & ~0x7;
+	uword base;
+	uword limit;
+	if (sel & 0x4) {
+		base = cpu->seg[SEG_LDT].base;
+		limit = cpu->seg[SEG_LDT].limit;
+	} else {
+		base = cpu->gdt.base;
+		limit = cpu->gdt.limit;
+	}
+	if (off > limit) {
+		cpu->excno = EX_GP;
+		return false;
+	}
+	TRY(translate_slow(cpu, &meml, 1, base + off, 4));
+	uword w1 = load32(cpu, &meml);
+	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
+	uword w2 = load32(cpu, &meml);
+	*out = w2 & 0x00ffff00;
+	return true;
+}
+
+#define LARdw(a, b, la, sa, lb, sb) \
+	uword res; \
+	TRY(lar_helper(cpu, lb(b), &res)); \
+	sa(a, res); \
+	cpu->flags |= ZF; \
+	cpu->cc.mask &= ~ZF;
+#define LARww LARdw
 
 // 486...
 #define CMPXCH_helper(BIT, a, b, la, sa, lb, sb) \
