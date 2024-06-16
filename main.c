@@ -2050,6 +2050,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		cpu->flags &= 0x37fd7; \
 		cpu->flags |= 0x2; \
 		cpu->cc.mask = 0; \
+		if (cpu->intr && (cpu->flags & IF)) return true; \
 	} else { \
 		if (!opsz16) cpu_abort(cpu, -201); \
 		OptAddr meml1, meml2, meml3; \
@@ -2065,6 +2066,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		cpu->flags = (cpu->flags & 0xffff0000) | laddr16(&meml3); \
 		cpu->flags |= 0x2; \
 		cpu->cc.mask = 0; \
+		if (cpu->intr && (cpu->flags & IF)) return true; \
 	}
 
 #define RETFARw(i, li, _) \
@@ -2128,7 +2130,8 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	cpu->flags &= ~IF;
 
 #define STI() \
-	cpu->flags |= IF;
+	cpu->flags |= IF; \
+	if (cpu->intr) return true;
 
 #define CLD() \
 	cpu->flags &= ~DF;
@@ -2255,7 +2258,8 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	} \
 	cpu->flags &= EFLAGS_MASK_486; \
 	cpu->flags |= 0x2; \
-	cpu->cc.mask = 0;
+	cpu->cc.mask = 0; \
+	if (cpu->intr && (cpu->flags & IF)) return true;
 
 #define PUSHSeg(seg) \
 	if (opsz16) { \
