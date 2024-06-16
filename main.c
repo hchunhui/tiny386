@@ -371,7 +371,7 @@ static int get_OF(CPUI386 *cpu)
 		case CC_ROL:
 			return (cpu->cc.dst >> (sizeof(uword) * 8 - 1)) ^ (cpu->cc.dst2 & 1);
 		case CC_ROR:
-			return (cpu->cc.dst ^ (cpu->cc.dst << 1)) >> (sizeof(uword) * 8 - 1);
+			return (cpu->cc.src1 >> (sizeof(uword) * 8 - 1)) ^ (cpu->cc.src1 & 1);
 		case CC_SAR:
 			return 0;
 		case CC_SHL:
@@ -1562,7 +1562,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	uword y = lb(b); \
 	if (y) { \
 		cpu->cc.dst = sext ## BIT(x << y); \
-		cpu->cc.dst2 = cpu->cc.dst >> 31; \
+		cpu->cc.dst2 = ((x >> (BIT - y)) & 1); \
 		cpu->cc.op = CC_SHL; \
 		cpu->cc.mask = CF | PF | ZF | SF | OF; \
 		sa(a, cpu->cc.dst); \
@@ -1570,23 +1570,14 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define SHLb(...) SHL_helper(8, __VA_ARGS__)
 #define SHLw(...) SHL_helper(16, __VA_ARGS__)
-#define SHLd(a, b, la, sa, lb, sb) \
-	uword x = la(a); \
-	uword y = lb(b); \
-	if (y) { \
-		cpu->cc.dst = sext32(x << y); \
-		cpu->cc.dst2 = x >> (sizeof(uword) * 8 - 1 - y); \
-		cpu->cc.op = CC_SHL; \
-		cpu->cc.mask = CF | PF | ZF | SF | OF; \
-		sa(a, cpu->cc.dst); \
-	}
+#define SHLd(...) SHL_helper(32, __VA_ARGS__)
 
 #define ROL_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
 	uword y = lb(b); \
 	if (y) { \
 		cpu->cc.dst = sext ## BIT((x << y) | (x >> (BIT - y))); \
-		cpu->cc.dst2 = cpu->cc.dst >> 31; \
+		cpu->cc.dst2 = cpu->cc.dst & 1; \
 		cpu->cc.op = CC_ROL; \
 		cpu->cc.mask = CF | PF | ZF | SF; \
 		if (y == 1) cpu->cc.mask |= OF; \
@@ -1595,17 +1586,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define ROLb(...) ROL_helper(8, __VA_ARGS__)
 #define ROLw(...) ROL_helper(16, __VA_ARGS__)
-#define ROLd(a, b, la, sa, lb, sb) \
-	uword x = la(a); \
-	uword y = lb(b); \
-	if (y) { \
-		cpu->cc.dst = sext32((x << y) | (x >> (32 - y))); \
-		cpu->cc.dst2 = x >> (sizeof(uword) * 8 - 1 - y); \
-		cpu->cc.op = CC_ROL; \
-		cpu->cc.mask = CF | PF | ZF | SF; \
-		if (y == 1) cpu->cc.mask |= OF; \
-		sa(a, cpu->cc.dst); \
-	}
+#define ROLd(...) ROL_helper(32, __VA_ARGS__)
 
 #define RCL_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
@@ -1619,6 +1600,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		if (y == 1) cpu->cc.mask |= OF; \
 		sa(a, cpu->cc.dst); \
 	}
+
 #define RCLb(...) RCL_helper(8, __VA_ARGS__)
 #define RCLw(...) RCL_helper(16, __VA_ARGS__)
 #define RCLd(...) RCL_helper(32, __VA_ARGS__)
@@ -1635,6 +1617,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		if (y == 1) cpu->cc.mask |= OF; \
 		sa(a, cpu->cc.dst); \
 	}
+
 #define RCRb(...) RCR_helper(8, __VA_ARGS__)
 #define RCRw(...) RCR_helper(16, __VA_ARGS__)
 #define RCRd(...) RCR_helper(32, __VA_ARGS__)
@@ -1653,17 +1636,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define RORb(...) ROR_helper(8, __VA_ARGS__)
 #define RORw(...) ROR_helper(16, __VA_ARGS__)
-#define RORd(a, b, la, sa, lb, sb) \
-	uword x = la(a); \
-	uword y = lb(b); \
-	if (y) { \
-		cpu->cc.dst = sext32((x >> y) | (x << (32 - y))); \
-		cpu->cc.dst2 = x >> (sizeof(uword) * 8 - 1 - y); \
-		cpu->cc.op = CC_ROR; \
-		cpu->cc.mask = CF | PF | ZF | SF; \
-		if (y == 1) cpu->cc.mask |= OF; \
-		sa(a, cpu->cc.dst); \
-	}
+#define RORd(...) ROR_helper(32, __VA_ARGS__)
 
 #define SHR_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
