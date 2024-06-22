@@ -2110,31 +2110,33 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define PUSHb(a, la, sa) \
 	OptAddr meml1; \
+	uword sp = lreg32(4); \
+	uword val = sext8(la(a)); \
 	if (opsz16) { \
-		uword sp = lreg32(4); \
 		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask)); \
 		set_sp(sp - 2, sp_mask); \
-		saddr16(&meml1, sext8(la(a))); \
+		saddr16(&meml1, val); \
 	} else { \
-		uword sp = lreg32(4); \
 		TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask)); \
 		set_sp(sp - 4, sp_mask); \
-		saddr32(&meml1, sext8(la(a))); \
+		saddr32(&meml1, val); \
 	}
 
 #define PUSHw(a, la, sa) \
 	OptAddr meml1; \
 	uword sp = lreg32(4); \
+	uword val = sext16(la(a)); \
 	TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask)); \
 	set_sp(sp - 2, sp_mask); \
-	saddr16(&meml1, sext16(la(a)));
+	saddr16(&meml1, val);
 
 #define PUSHd(a, la, sa) \
 	OptAddr meml1; \
 	uword sp = lreg32(4); \
+	uword val = sext32(la(a)); \
 	TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask)); \
 	set_sp(sp - 4, sp_mask); \
-	saddr32(&meml1, sext32(la(a)));
+	saddr32(&meml1, val);
 
 #define POPRegw(a, la, sa) \
 	OptAddr meml1; \
