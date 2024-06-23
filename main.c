@@ -362,7 +362,7 @@ static int get_OF(CPUI386 *cpu)
 		case CC_SAR:
 			return 0;
 		case CC_SHL:
-			return (cpu->cc.src1 >> (sizeof(uword) * 8 - 1)) ^ (cpu->cc.dst2 & 1);
+			return (cpu->cc.dst >> (sizeof(uword) * 8 - 1)) ^ (cpu->cc.dst2 & 1);
 		case CC_SHR:
 			return (cpu->cc.src1 >> (sizeof(uword) * 8 - 1));
 		case CC_SHLD:
