@@ -177,7 +177,7 @@ enum {
 	CC_AAA, CC_AAS, CC_AAD, CC_AAM, CC_DAA, CC_DAS,
 	CC_ADC, CC_ADD,	CC_SBB, CC_SUB, CC_NEG, CC_DEC, CC_INC,
 	CC_IMUL8, CC_IMUL16, CC_IMUL32,	CC_MUL8, CC_MUL16, CC_MUL32,
-	CC_RCL, CC_RCR, CC_ROL, CC_ROR, CC_SAR, CC_SHL, CC_SHR,
+	CC_SAR, CC_SHL, CC_SHR,
 	CC_SHLD, CC_SHRD, CC_BSF, CC_BSR,
 	CC_AND, CC_OR, CC_XOR,
 };
@@ -220,10 +220,6 @@ static int get_CF(CPUI386 *cpu)
 			return (cpu->cc.dst >> 16) != 0;
 		case CC_MUL32:
 			return (cpu->cc.dst2) != 0;
-		case CC_RCL:
-		case CC_RCR:
-		case CC_ROL:
-		case CC_ROR:
 		case CC_SHL:
 		case CC_SHR:
 		case CC_SAR:
@@ -301,10 +297,6 @@ static int get_AF(CPUI386 *cpu)
 		case CC_IMUL8: case CC_IMUL16: case CC_IMUL32:
 		case CC_MUL8: case CC_MUL16: case CC_MUL32:
 			return 0;
-		case CC_RCL:
-		case CC_RCR:
-		case CC_ROL:
-		case CC_ROR:
 		case CC_SAR:
 		case CC_SHL:
 		case CC_SHR:
@@ -367,12 +359,6 @@ static int get_OF(CPUI386 *cpu)
 		case CC_IMUL8: case CC_IMUL16: case CC_IMUL32:
 		case CC_MUL8: case CC_MUL16: case CC_MUL32:
 			return get_CF(cpu);
-		case CC_RCL:
-		case CC_RCR:
-		case CC_ROL:
-			return (cpu->cc.dst >> (sizeof(uword) * 8 - 1)) ^ (cpu->cc.dst2 & 1);
-		case CC_ROR:
-			return (cpu->cc.src1 >> (sizeof(uword) * 8 - 1)) ^ (cpu->cc.src1 & 1);
 		case CC_SAR:
 			return 0;
 		case CC_SHL:
@@ -1581,12 +1567,13 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	uword x = la(a); \
 	uword y = lb(b); \
 	if (y) { \
-		cpu->cc.dst = sext ## BIT((x << y) | (x >> (BIT - y))); \
-		cpu->cc.dst2 = cpu->cc.dst & 1; \
-		cpu->cc.op = CC_ROL; \
-		cpu->cc.mask = CF | PF | ZF | SF; \
-		if (y == 1) cpu->cc.mask |= OF; \
-		sa(a, cpu->cc.dst); \
+		uword res = sext ## BIT((x << y) | (x >> (BIT - y))); \
+		int cf1 = res & 1; \
+		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
+		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
+		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
+		cpu->cc.mask &= ~(CF | OF); \
+		sa(a, res); \
 	}
 
 #define ROLb(...) ROL_helper(8, __VA_ARGS__)
@@ -1598,12 +1585,13 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	uword y = lb(b); \
 	if (y) { \
 		uword cf = get_CF(cpu); \
-		cpu->cc.dst = sext ## BIT((x << y) | (cf << (y - 1)) | (x >> (BIT + 1 - y))); \
-		cpu->cc.dst2 = (x >> (BIT - y)) & 1; \
-		cpu->cc.op = CC_RCL; \
-		cpu->cc.mask = CF | PF | ZF | SF; \
-		if (y == 1) cpu->cc.mask |= OF; \
-		sa(a, cpu->cc.dst); \
+		uword res = sext ## BIT((x << y) | (cf << (y - 1)) | (x >> (BIT + 1 - y))); \
+		int cf1 = (x >> (BIT - y)) & 1; \
+		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
+		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
+		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
+		cpu->cc.mask &= ~(CF | OF); \
+		sa(a, res); \
 	}
 
 #define RCLb(...) RCL_helper(8, __VA_ARGS__)
@@ -1615,12 +1603,13 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	uword y = lb(b); \
 	if (y) { \
 		uword cf = get_CF(cpu); \
-		cpu->cc.dst = sext ## BIT((x >> y) | (cf << (BIT - y)) | (x << (BIT + 1 - y))); \
-		cpu->cc.dst2 = sext ## BIT(x << (BIT - y)) >> (BIT - 1); \
-		cpu->cc.op = CC_RCR; \
-		cpu->cc.mask = CF | PF | ZF | SF; \
-		if (y == 1) cpu->cc.mask |= OF; \
-		sa(a, cpu->cc.dst); \
+		uword res = sext ## BIT((x >> y) | (cf << (BIT - y)) | (x << (BIT + 1 - y))); \
+		int cf1 = (sext ## BIT(x << (BIT - y)) >> (BIT - 1)) & 1; \
+		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
+		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
+		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
+		cpu->cc.mask &= ~(CF | OF); \
+		sa(a, res); \
 	}
 
 #define RCRb(...) RCR_helper(8, __VA_ARGS__)
@@ -1631,12 +1620,13 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	uword x = la(a); \
 	uword y = lb(b); \
 	if (y) { \
-		cpu->cc.dst = sext ## BIT((x >> y) | (x << (BIT - y))); \
-		cpu->cc.dst2 = cpu->cc.dst >> 31; \
-		cpu->cc.op = CC_ROR; \
-		cpu->cc.mask = CF | PF | ZF | SF; \
-		if (y == 1) cpu->cc.mask |= OF; \
-		sa(a, cpu->cc.dst); \
+		uword res = sext ## BIT((x >> y) | (x << (BIT - y))); \
+		int cf1 = (cpu->cc.dst >> 31) & 1; \
+		int of1 = (x >> (sizeof(uword) * 8 - 1)) ^ (x & 1); \
+		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
+		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
+		cpu->cc.mask &= ~(CF | OF); \
+		sa(a, res); \
 	}
 
 #define RORb(...) ROR_helper(8, __VA_ARGS__)
