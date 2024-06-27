@@ -174,8 +174,10 @@ static uword sext32(u32 a)
 }
 
 enum {
-	CC_AAA, CC_AAS, CC_AAD, CC_AAM, CC_DAA, CC_DAS,
-	CC_ADC, CC_ADD,	CC_SBB, CC_SUB, CC_NEG, CC_DEC, CC_INC,
+	CC_ADC, CC_ADD,	CC_SBB, CC_SUB,
+	CC_NEG8, CC_NEG16, CC_NEG32,
+	CC_DEC8, CC_DEC16, CC_DEC32,
+	CC_INC8, CC_INC16, CC_INC32,
 	CC_IMUL8, CC_IMUL16, CC_IMUL32,	CC_MUL8, CC_MUL16, CC_MUL32,
 	CC_SAR, CC_SHL, CC_SHR,
 	CC_SHLD, CC_SHRD, CC_BSF, CC_BSR,
@@ -186,15 +188,6 @@ static int get_CF(CPUI386 *cpu)
 {
 	if (cpu->cc.mask & CF) {
 		switch(cpu->cc.op) {
-		case CC_AAA:
-		case CC_AAS:
-			cpu_abort(cpu, -1);
-		case CC_AAD:
-		case CC_AAM:
-			return 0;
-		case CC_DAA:
-		case CC_DAS:
-			cpu_abort(cpu, -1);
 		case CC_ADC:
 			return cpu->cc.dst <= cpu->cc.src2;
 		case CC_ADD:
@@ -203,17 +196,17 @@ static int get_CF(CPUI386 *cpu)
 			return cpu->cc.src1 <= cpu->cc.src2;
 		case CC_SUB:
 			return cpu->cc.src1 < cpu->cc.src2;
-		case CC_NEG:
+		case CC_NEG8: case CC_NEG16: case CC_NEG32:
 			return cpu->cc.dst != 0;
-		case CC_DEC:
-		case CC_INC:
-			cpu_abort(cpu, -2); // should not happen
+		case CC_DEC8: case CC_DEC16: case CC_DEC32:
+		case CC_INC8: case CC_INC16: case CC_INC32:
+			abort(); // should not happen
 		case CC_IMUL8:
 			return sext8(cpu->cc.dst) != cpu->cc.dst;
 		case CC_IMUL16:
 			return sext16(cpu->cc.dst) != cpu->cc.dst;
 		case CC_IMUL32:
-			return (sext32(cpu->cc.dst) >> 31) != cpu->cc.dst2;
+			return (((s32) cpu->cc.dst) >> 31) != cpu->cc.dst2;
 		case CC_MUL8:
 			return (cpu->cc.dst >> 8) != 0;
 		case CC_MUL16:
@@ -274,25 +267,16 @@ static int get_AF(CPUI386 *cpu)
 {
 	if (cpu->cc.mask & AF) {
 		switch(cpu->cc.op) {
-		case CC_AAA:
-		case CC_AAS:
-			cpu_abort(cpu, -1);
-		case CC_AAD:
-		case CC_AAM:
-			return 0;
-		case CC_DAA:
-		case CC_DAS:
-			cpu_abort(cpu, -1);
 		case CC_ADC:
 		case CC_ADD:
 		case CC_SBB:
 		case CC_SUB:
-			return !!((cpu->cc.src1 ^ cpu->cc.src2 ^ cpu->cc.dst) >> 4);
-		case CC_NEG:
-			return (cpu->cc.dst & 0xf) == 0; //VERIFY
-		case CC_DEC:
+			return ((cpu->cc.src1 ^ cpu->cc.src2 ^ cpu->cc.dst) >> 4) & 1;
+		case CC_NEG8: case CC_NEG16: case CC_NEG32:
+			return (cpu->cc.dst & 0xf) != 0;
+		case CC_DEC8: case CC_DEC16: case CC_DEC32:
 			return (cpu->cc.dst & 0xf) == 0xf;
-		case CC_INC:
+		case CC_INC8: case CC_INC16: case CC_INC32:
 			return (cpu->cc.dst & 0xf) == 0;
 		case CC_IMUL8: case CC_IMUL16: case CC_IMUL32:
 		case CC_MUL8: case CC_MUL16: case CC_MUL32:
@@ -337,25 +321,24 @@ static int get_OF(CPUI386 *cpu)
 {
 	if (cpu->cc.mask & OF) {
 		switch(cpu->cc.op) {
-		case CC_AAA:
-		case CC_AAS:
-		case CC_AAD:
-		case CC_AAM:
-		case CC_DAA:
-		case CC_DAS:
-			return 0;
 		case CC_ADC:
 		case CC_ADD:
 			return (~(cpu->cc.src1 ^ cpu->cc.src2) & (cpu->cc.dst ^ cpu->cc.src2)) >> (sizeof(uword) * 8 - 1);
 		case CC_SBB:
 		case CC_SUB:
 			return ((cpu->cc.src1 ^ cpu->cc.src2) & (cpu->cc.dst ^ cpu->cc.src1)) >> (sizeof(uword) * 8 - 1);
-		case CC_NEG:
-			return cpu->cc.dst == 1 << (sizeof(uword) * 8 - 1);
-		case CC_DEC:
-			return cpu->cc.dst == ~(1 << (sizeof(uword) * 8 - 1));
-		case CC_INC:
-			return cpu->cc.dst == 1 << (sizeof(uword) * 8 - 1);
+		case CC_DEC8:
+			return cpu->cc.dst == sext8((u8) ~(1u << 7));
+		case CC_DEC16:
+			return cpu->cc.dst == sext16((u16) ~(1u << 15));
+		case CC_DEC32:
+			return cpu->cc.dst == sext32((u32) ~(1u << 31));
+		case CC_INC8: case CC_NEG8:
+			return cpu->cc.dst == sext8(1u << 7);
+		case CC_INC16: case CC_NEG16:
+			return cpu->cc.dst == sext16(1u << 15);
+		case CC_INC32: case CC_NEG32:
+			return cpu->cc.dst == sext32(1u << 31);
 		case CC_IMUL8: case CC_IMUL16: case CC_IMUL32:
 		case CC_MUL8: case CC_MUL16: case CC_MUL32:
 			return get_CF(cpu);
@@ -1492,7 +1475,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define INCDEC_helper(NAME, BIT, OP, a, la, sa) \
 	int cf = get_CF(cpu); \
 	cpu->cc.dst = sext ## BIT(sext ## BIT(la(a)) OP 1); \
-	cpu->cc.op = CC_ ## NAME; \
+	cpu->cc.op = CC_ ## NAME ## BIT; \
 	if (cf) { \
 		cpu->flags |= CF; \
 	} else { \
@@ -1504,7 +1487,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define NEG_helper(BIT, a, la, sa) \
 	cpu->cc.src1 = sext ## BIT(la(a)); \
 	cpu->cc.dst = sext ## BIT(-cpu->cc.src1); \
-	cpu->cc.op = CC_NEG; \
+	cpu->cc.op = CC_NEG ## BIT; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sa(a, cpu->cc.dst);
 
@@ -1550,7 +1533,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define SHL_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = lb(b); \
+	uword y = (lb(b)) & 0x1f; \
 	if (y) { \
 		cpu->cc.dst = sext ## BIT(x << y); \
 		cpu->cc.dst2 = ((x >> (BIT - y)) & 1); \
@@ -1565,7 +1548,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define ROL_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = lb(b); \
+	uword y = (lb(b)) & (BIT - 1); \
 	if (y) { \
 		uword res = sext ## BIT((x << y) | (x >> (BIT - y))); \
 		int cf1 = res & 1; \
@@ -1582,10 +1565,10 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define RCL_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = lb(b); \
+	uword y = ((lb(b)) & 0x1f) % (BIT + 1); \
 	if (y) { \
 		uword cf = get_CF(cpu); \
-		uword res = sext ## BIT((x << y) | (cf << (y - 1)) | (x >> (BIT + 1 - y))); \
+		uword res = sext ## BIT((x << y) | (cf << (y - 1)) | (y != 1 ? (x >> (BIT + 1 - y)) : 0)); \
 		int cf1 = (x >> (BIT - y)) & 1; \
 		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
 		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
@@ -1600,12 +1583,12 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define RCR_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = lb(b); \
+	uword y = ((lb(b)) & 0x1f) % (BIT + 1); \
 	if (y) { \
 		uword cf = get_CF(cpu); \
-		uword res = sext ## BIT((x >> y) | (cf << (BIT - y)) | (x << (BIT + 1 - y))); \
+		uword res = sext ## BIT((x >> y) | (cf << (BIT - y)) | (y != 1 ? (x << (BIT + 1 - y)) : 0)); \
 		int cf1 = (sext ## BIT(x << (BIT - y)) >> (BIT - 1)) & 1; \
-		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
+		int of1 = (res ^ (res << 1)) >> (sizeof(uword) * 8 - 1); \
 		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
 		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
 		cpu->cc.mask &= ~(CF | OF); \
@@ -1618,11 +1601,11 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define ROR_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = lb(b); \
+	uword y = (lb(b)) & (BIT - 1); \
 	if (y) { \
 		uword res = sext ## BIT((x >> y) | (x << (BIT - y))); \
-		int cf1 = (cpu->cc.dst >> 31) & 1; \
-		int of1 = (x >> (sizeof(uword) * 8 - 1)) ^ (x & 1); \
+		int cf1 = res >> (sizeof(uword) * 8 - 1); \
+		int of1 = (res ^ (res << 1)) >> (sizeof(uword) * 8 - 1); \
 		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
 		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
 		cpu->cc.mask &= ~(CF | OF); \
@@ -1635,7 +1618,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 #define SHR_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = lb(b); \
+	uword y = (lb(b)) & 0x1f; \
 	if (y) { \
 		cpu->cc.src1 = sext ## BIT(x); \
 		cpu->cc.dst = sext ## BIT(x >> y); \
@@ -1650,13 +1633,17 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define SHRd(...) SHR_helper(32, __VA_ARGS__)
 
 #define SHLD_helper(BIT, a, b, c, la, sa, lb, sb, lc, sc) \
-	int count = lc(c); \
+	int count = (lc(c)) & 0x1f; \
 	uword x = la(a); \
 	uword y = lb(b); \
 	if (count) { \
 		cpu->cc.src1 = sext ## BIT(x); \
 		cpu->cc.dst = sext ## BIT((x << count) | (y >> (BIT - count))); \
-		cpu->cc.dst2 = sext ## BIT((x << (count - 1)) | (y >> (BIT - (count - 1)))); \
+		if (count == 1) { \
+			cpu->cc.dst2 = sext ## BIT(x); \
+		} else { \
+			cpu->cc.dst2 = sext ## BIT((x << (count - 1)) | (count == 1 ? 0 : (y >> (BIT - (count - 1))))); \
+		} \
 		cpu->cc.op = CC_SHLD; \
 		cpu->cc.mask = CF | PF | ZF | SF | OF; \
 		sa(a, cpu->cc.dst); \
@@ -1666,13 +1653,17 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define SHLDd(...) SHLD_helper(32, __VA_ARGS__)
 
 #define SHRD_helper(BIT, a, b, c, la, sa, lb, sb, lc, sc) \
-	int count = lc(c); \
+	int count = (lc(c)) & 0x1f; \
 	uword x = la(a); \
 	uword y = lb(b); \
 	if (count) { \
 		cpu->cc.src1 = sext ## BIT(x); \
 		cpu->cc.dst = sext ## BIT((x >> count) | (y << (BIT - count))); \
-		cpu->cc.dst2 = sext ## BIT((x >> (count - 1)) | (y << (BIT - (count - 1)))); \
+		if (count == 1) { \
+			cpu->cc.dst2 = sext ## BIT(x); \
+		} else { \
+			cpu->cc.dst2 = sext ## BIT((x >> (count - 1)) | (y << (BIT - (count - 1)))); \
+		} \
 		cpu->cc.op = CC_SHRD; \
 		cpu->cc.mask = CF | PF | ZF | SF | OF; \
 		sa(a, cpu->cc.dst); \
@@ -1684,7 +1675,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 // ">>"
 #define SAR_helper(BIT, a, b, la, sa, lb, sb) \
 	sword x = sext ## BIT(la(a)); \
-	sword y = lb(b); \
+	sword y = (lb(b)) & 0x1f; \
 	if (y) { \
 		cpu->cc.dst = x >> y; \
 		cpu->cc.dst2 = (x >> (y - 1)) & 1; \
@@ -1697,37 +1688,52 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define SARw(...) SAR_helper(16, __VA_ARGS__)
 #define SARd(...) SAR_helper(32, __VA_ARGS__)
 
-#define IMUL2_helper(BIT, a, b, la, sa, lb, sb) \
-	cpu->cc.src1 = sext ## BIT(la(a)); \
-	cpu->cc.src2 = sext ## BIT(lb(b)); \
+#define IMUL2w(a, b, la, sa, lb, sb) \
+	cpu->cc.src1 = sext16(la(a)); \
+	cpu->cc.src2 = sext16(lb(b)); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
-	cpu->cc.op = CC_IMUL ## BIT; \
+	cpu->cc.op = CC_IMUL16; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sa(a, cpu->cc.dst);
 
-#define IMUL2w(...) IMUL2_helper(16, __VA_ARGS__)
-#define IMUL2d(...) IMUL2_helper(32, __VA_ARGS__)
+#define IMUL2d(a, b, la, sa, lb, sb) \
+	cpu->cc.src1 = sext32(la(a)); \
+	cpu->cc.src2 = sext32(lb(b)); \
+	int64_t res = (int64_t) (s32) cpu->cc.src1 * (int64_t) (s32) cpu->cc.src2; \
+	cpu->cc.dst = res; \
+	cpu->cc.dst2 = res >> 32; \
+	cpu->cc.op = CC_IMUL32; \
+	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
+	sa(a, cpu->cc.dst);
 
-#define IMUL2I_helper(BIT, BITI, a, b, c, la, sa, lb, sb) \
+#define IMUL2wI_helper(BIT, BITI, a, b, c, la, sa, lb, sb) \
 	cpu->cc.src1 = sext ## BIT(lb(b)); \
 	cpu->cc.src2 = sext ## BITI(c); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
 	cpu->cc.op = CC_IMUL ## BIT; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sa(a, cpu->cc.dst);
 
-#define IMUL2wIb(...) IMUL2I_helper(16, 8, __VA_ARGS__)
-#define IMUL2wIw(...) IMUL2I_helper(16, 16, __VA_ARGS__)
-#define IMUL2dIb(...) IMUL2I_helper(32, 8, __VA_ARGS__)
-#define IMUL2dId(...) IMUL2I_helper(32, 32, __VA_ARGS__)
+#define IMUL2dI_helper(BIT, BITI, a, b, c, la, sa, lb, sb) \
+	cpu->cc.src1 = sext ## BIT(lb(b)); \
+	cpu->cc.src2 = sext ## BITI(c); \
+	int64_t res = (int64_t) (s32) cpu->cc.src1 * (int64_t) (s32) cpu->cc.src2; \
+	cpu->cc.dst = res; \
+	cpu->cc.dst2 = res >> 32; \
+	cpu->cc.op = CC_IMUL ## BIT; \
+	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
+	sa(a, cpu->cc.dst);
+
+#define IMUL2wIb(...) IMUL2wI_helper(16, 8, __VA_ARGS__)
+#define IMUL2wIw(...) IMUL2wI_helper(16, 16, __VA_ARGS__)
+#define IMUL2dIb(...) IMUL2dI_helper(32, 8, __VA_ARGS__)
+#define IMUL2dId(...) IMUL2dI_helper(32, 32, __VA_ARGS__)
 
 #define IMULb(a, la, sa) \
 	cpu->cc.src1 = sext8(lreg8(0)); \
 	cpu->cc.src2 = sext8(la(a)); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
+	cpu->cc.dst2 = ((sword) cpu->cc.dst) >> (sizeof(uword) * 8 - 1); \
 	cpu->cc.op = CC_IMUL8; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sreg16(0, cpu->cc.dst);
@@ -1736,7 +1742,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	cpu->cc.src1 = sext16(lreg16(0)); \
 	cpu->cc.src2 = sext16(la(a)); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
+	cpu->cc.dst2 = ((sword) cpu->cc.dst) >> (sizeof(uword) * 8 - 1); \
 	cpu->cc.op = CC_IMUL16; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sreg16(0, cpu->cc.dst); \
@@ -1786,43 +1792,61 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define IDIVb(a, la, sa) \
 	sword src1 = sext16(lreg16(0)); \
 	sword src2 = sext8(la(a)); \
+	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
+	sword res = src1 / src2; \
+	if (res > 127 || res < -128) { cpu->excno = EX_DE; return false; } \
 	cpu->cc.mask = 0; \
-	sreg8(0, src1 / src2); \
+	sreg8(0, res); \
 	sreg8(4, src1 % src2);
 
 #define IDIVw(a, la, sa) \
 	sword src1 = sext32(lreg16(0) | (lreg16(2)<< 16)); \
 	sword src2 = sext16(la(a)); \
+	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
+	sword res = src1 / src2; \
+	if (res > 32767 || res < -32768) { cpu->excno = EX_DE; return false; } \
 	cpu->cc.mask = 0; \
-	sreg16(0, src1 / src2); \
+	sreg16(0, res); \
 	sreg16(2, src1 % src2);
 
 #define IDIVd(a, la, sa) \
 	int64_t src1 = (((uint64_t) lreg32(2)) << 32) | lreg32(0); \
-	int64_t src2 = sext32(la(a)); \
+	int64_t src2 = (sword) (la(a));	\
+	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
+	int64_t res = src1 / src2; \
+	if (res > 2147483647 || res < -2147483648) { cpu->excno = EX_DE; return false; } \
 	cpu->cc.mask = 0; \
-	sreg32(0, src1 / src2); \
+	sreg32(0, res); \
 	sreg32(2, src1 % src2);
 
 #define DIVb(a, la, sa) \
 	uword src1 = lreg16(0); \
 	uword src2 = la(a); \
+	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
+	uword res = src1 / src2; \
+	if (res > 0xff) { cpu->excno = EX_DE; return false; } \
 	cpu->cc.mask = 0; \
-	sreg8(0, src1 / src2); \
+	sreg8(0, res); \
 	sreg8(4, src1 % src2);
 
 #define DIVw(a, la, sa) \
 	uword src1 = lreg16(0) | (lreg16(2)<< 16); \
 	uword src2 = la(a); \
+	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
+	uword res = src1 / src2; \
+	if (res > 0xffff) { cpu->excno = EX_DE; return false; } \
 	cpu->cc.mask = 0; \
-	sreg16(0, src1 / src2); \
+	sreg16(0, res); \
 	sreg16(2, src1 % src2);
 
 #define DIVd(a, la, sa) \
 	uint64_t src1 = (((uint64_t) lreg32(2)) << 32) | lreg32(0); \
 	uint64_t src2 = la(a); \
+	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
+	uint64_t res = src1 / src2; \
+	if (res > 0xffffffff) { cpu->excno = EX_DE; return false; } \
 	cpu->cc.mask = 0; \
-	sreg32(0, src1 / src2); \
+	sreg32(0, res); \
 	sreg32(2, src1 % src2);
 
 #define BT_helper(BIT, a, b, la, sa, lb, sb) \
