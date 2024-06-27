@@ -3068,6 +3068,27 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	cpu->cc.dst = sext8(lreg8(0)); \
 	cpu->cc.mask = ZF | SF | PF;
 
+#define AAA() \
+	if ((lreg8(0) & 0xf) > 9 || get_AF(cpu)) { \
+		sreg16(0, lreg16(0) + 0x106); \
+		cpu->flags |= AF | CF; \
+	} else { \
+		cpu->flags &= ~(AF | CF); \
+	} \
+	cpu->cc.mask = ZF | SF | PF; \
+	sreg8(0, lreg8(0) & 0xf);
+
+#define AAS() \
+	if ((lreg8(0) & 0xf) > 9 || get_AF(cpu)) { \
+		sreg16(0, lreg16(0) - 6); \
+		sreg8(4, lreg8(4) - 1); \
+		cpu->flags |= AF | CF; \
+	} else { \
+		cpu->flags &= ~(AF | CF); \
+	} \
+	cpu->cc.mask = ZF | SF | PF; \
+	sreg8(0, lreg8(0) & 0xf);
+
 static bool lar_helper(CPUI386 *cpu, int sel, uword *out)
 {
 	if (!(cpu->cr0 & 1)) {
