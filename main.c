@@ -2414,10 +2414,6 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (rep == 0) { \
 		if (adsz16) { stdi(BIT, 16) } else { stdi(BIT, 32) } \
 	} else { \
-		if (rep != 1) { \
-			cpu->excno = EX_UD; \
-			return false; \
-		} \
 		if (adsz16) { \
 			while (lreg16(1)) { \
 				stdi(BIT, 16) \
@@ -2439,10 +2435,6 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		if (adsz16) { ldsi(BIT, 16) } else { ldsi(BIT, 32) } \
 		sreg ## BIT(0, ax); \
 	} else { \
-		if (rep != 1) { \
-			cpu->excno = EX_UD; \
-			return false; \
-		} \
 		if (adsz16) { \
 			while (lreg16(1)) { \
 				ldsi(BIT, 16) \
@@ -2505,10 +2497,6 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	if (rep == 0) { \
 		if (adsz16) { ldsistdi(BIT, 16) } else { ldsistdi(BIT, 32) } \
 	} else { \
-		if (rep != 1) { \
-			cpu->excno = EX_UD; \
-			return false; \
-		} \
 		if (adsz16) { \
 			while (lreg16(1)) { \
 				ldsistdi(BIT, 16) \
@@ -3295,7 +3283,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #undef CX
 #define CX(_1) case _1:
 
-	ecase(0x80): { // G1b
+	ecase(0x80): ecase(0x82): { // G1b
 		TRY(peek8(cpu, &modrm));
 		switch((modrm >> 3) & 7) {
 #undef IG1b
