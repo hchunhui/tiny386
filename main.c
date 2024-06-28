@@ -1919,7 +1919,12 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 #define MOVb(a, b, la, sa, lb, sb) sa(a, lb(b));
 #define MOVw(a, b, la, sa, lb, sb) sa(a, lb(b));
 #define MOVd(a, b, la, sa, lb, sb) sa(a, lb(b));
-#define MOVSeg(a, b, la, sa, lb, sb) TRY(set_seg(cpu, a, lb(b)));
+#define MOVSeg(a, b, la, sa, lb, sb) \
+	if (a == SEG_CS) { \
+		cpu->excno = EX_UD; \
+		return false; \
+	} \
+	TRY(set_seg(cpu, a, lb(b)));
 #define MOVZXdb(a, b, la, sa, lb, sb) sa(a, lb(b));
 #define MOVZXwb(a, b, la, sa, lb, sb) sa(a, lb(b));
 #define MOVZXww(a, b, la, sa, lb, sb) sa(a, lb(b));
