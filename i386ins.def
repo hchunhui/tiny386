@@ -77,7 +77,7 @@ I(C(0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f), PlusRegv, 0, POPReg)
 I(C(0x60), _,      0, PUSHA)
 I(C(0x61), _,      0, POPA)
 /*I(C(0x62), GvMa,   0, BOUND)*/
-/*I(C(0x63), EwRw,   0, ARPL)*/
+I(C(0x63), EwGw,   0, ARPL)
 //  0x64   SEG FS
 //  0x65   SEG GS
 //  0x66   Operand Size
@@ -204,7 +204,7 @@ I(C(0xfd), _,      0, STD)
 //   0x00   GRP6
 //   0x01   GRP7
 I2(C(0x02), GvEw, 1, LAR)
-/*I2(C(0x03), GvEw, 1, LSL)*/
+I2(C(0x03), GvEw, 1, LSL)
 I2(C(0x06), _, 0, CLTS)
 
 I2(C(0x20), _, 0, MOVFC) // Move control register to r32
@@ -319,7 +319,7 @@ IG2vC(C(0x04, 0x06), EvCL, 3, SHL)
 IG2vC(C(0x05), EvCL, 3, SHR)
 IG2vC(C(0x07), EvCL, 3, SAR)
 
-IG3b(C(0x00), EbIb, 1, TESTb)
+IG3b(C(0x00, 0x01), EbIb, 1, TESTb)
 IG3b(C(0x02), Eb, 3, NOTb)
 IG3b(C(0x03), Eb, 3, NEGb)
 IG3b(C(0x04), Eb, 1, MULb)
@@ -327,7 +327,7 @@ IG3b(C(0x05), Eb, 1, IMULb)
 IG3b(C(0x06), Eb, 1, DIVb)
 IG3b(C(0x07), Eb, 1, IDIVb)
 
-IG3v(C(0x00), EvIv, 1, TEST)
+IG3v(C(0x00, 0x01), EvIv, 1, TEST)
 IG3v(C(0x02), Ev, 3, NOT)
 IG3v(C(0x03), Ev, 3, NEG)
 IG3v(C(0x04), Ev, 1, MUL)
@@ -346,12 +346,12 @@ IG5(C(0x04), Ev, 1, JMPABS)
 IG5(C(0x05), Ep, 1, JMPFAR)
 IG5(C(0x06), Ev, 1, PUSH)
 
-/*IG6(C(0x00), Ew, 2, SLDT)*/
-/*IG6(C(0x01), Ew, 2, STR)*/
+IG6(C(0x00), Ew, 2, SLDT)
+IG6(C(0x01), Ew, 2, STR)
 IG6(C(0x02), Ew, 1, LLDT)
 IG6(C(0x03), Ew, 1, LTR)
-/*IG6(C(0x04), Ew, 1, VERR)*/
-/*IG6(C(0x05), Ew, 2, VERW)*/
+IG6(C(0x04), Ew, 1, VERR)
+IG6(C(0x05), Ew, 1, VERW)
 
 IG7(C(0x00), Ms, 2, SGDT)
 IG7(C(0x01), Ms, 2, SIDT)
@@ -365,6 +365,8 @@ IG8(C(0x05), BTEvIb, 3, BTS)
 IG8(C(0x06), BTEvIb, 3, BTR)
 IG8(C(0x07), BTEvIb, 3, BTC)
 
+I2(C(0xff), _,       0, UD0)
+
 //486 (not in 386 ISA)
 I2(C(0xb0), EbGb,    3, CMPXCHb)
 I2(C(0xb1), EvGv,    3, CMPXCH)
@@ -372,3 +374,4 @@ I2(C(0xc0), EbGb,    3, XADDb)
 I2(C(0xc1), EvGv,    3, XADD)
 I2(C(0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf), PlusRegv, _, BSWAP)
 IG7(C(0x07), Ms,     0, INVLPG)
+I2(C(0x09), _,       0, WBINVD)

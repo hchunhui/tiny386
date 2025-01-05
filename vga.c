@@ -100,6 +100,8 @@ struct VGAState {
     uint8_t dac_write_index;
     uint8_t dac_cache[3]; /* used when writing */
     uint8_t palette[768];
+
+    uint32_t latch;
     
     /* text mode state */
     uint32_t last_palette[16];
@@ -180,6 +182,38 @@ static inline int c6_to_8(int v)
     v &= 0x3f;
     b = v & 1;
     return (v << 2) | (b << 1) | b;
+}
+
+static inline unsigned int rgb_to_pixel(unsigned int r, unsigned int g,
+					unsigned int b)
+{
+    return (r << 16) | (g << 8) | b;
+}
+
+static int update_palette256(VGAState *s, uint32_t *palette)
+{
+    int full_update, i;
+    uint32_t v, col;
+
+    full_update = 0;
+    v = 0;
+    for(i = 0; i < 256; i++) {
+        if (/*s->dac_8bit*/ 0) {
+          col = rgb_to_pixel(s->palette[v],
+                             s->palette[v + 1],
+                             s->palette[v + 2]);
+        } else {
+          col = rgb_to_pixel(c6_to_8(s->palette[v]),
+                             c6_to_8(s->palette[v + 1]),
+                             c6_to_8(s->palette[v + 2]));
+        }
+        if (col != palette[i]) {
+            full_update = 1;
+            palette[i] = col;
+        }
+        v += 3;
+    }
+    return full_update;
 }
 
 static int update_palette16(VGAState *s, uint32_t *palette)
@@ -344,6 +378,12 @@ static void vga_text_refresh(VGAState *s,
     }
 }
 
+static void simplefb_refresh(FBDevice *fb_dev,
+			     SimpleFBDrawFunc *redraw_func, void *opaque)
+{
+    redraw_func(fb_dev, opaque, 0, 0, fb_dev->width, fb_dev->height);
+}
+
 static void vga_refresh(FBDevice *fb_dev,
                         SimpleFBDrawFunc *redraw_func, void *opaque)
 {
@@ -352,7 +392,41 @@ static void vga_refresh(FBDevice *fb_dev,
         /* blank */
     } else if (s->gr[0x06] & 1) {
         /* graphic mode (VBE) */
-//        simplefb_refresh(fb_dev, redraw_func, opaque, s->mem_range, s->fb_page_count);
+	    uint32_t start_addr = s->cr[0x0d] | (s->cr[0x0c] << 8);
+	    uint8_t *vram = s->vga_ram + 4 * start_addr;
+//	    uint32_t palette[256];
+	    uint32_t palette[16];
+	    int h = 480;
+//	    h = 400; // DOOM2
+	    int w = 640;
+//	    update_palette256(s, palette);
+	    update_palette16(s, palette);
+	    for (int y = 0; y < h; y++) {
+		    for (int x = 0; x < w; x++) {
+			    int i = 4 * (y * fb_dev->width + x);
+			    int j = y * w + x;
+#if 0
+			    int k = ((vram[j >> 3] >> (7 - (j & 7))) & 1) << 0;
+			    k |= ((vram[(j >> 3) + 0x10000] >> (7 - (j & 7))) & 1) << 1;
+			    k |= ((vram[(j >> 3) + 0x20000] >> (7 - (j & 7))) & 1) << 2;
+			    k |= ((vram[(j >> 3) + 0x30000] >> (7 - (j & 7))) & 1) << 3;
+#else
+			    //j = y * w / 2 + x / 2; // win95 splash
+ 			    //j = y / 2 * w / 2 + x / 2; // DOOM2
+			    //int k = vram[j];
+			    int k = ((vram[4 * (j >> 3)] >> (7 - (j & 7))) & 1) << 0;
+			    k |= ((vram[4 * (j >> 3) + 1] >> (7 - (j & 7))) & 1) << 1;
+			    k |= ((vram[4 * (j >> 3) + 2] >> (7 - (j & 7))) & 1) << 2;
+			    k |= ((vram[4 * (j >> 3) + 3] >> (7 - (j & 7))) & 1) << 3;
+#endif
+			    uint32_t color = palette[k];
+			    fb_dev->fb_data[i + 0] = color;
+			    fb_dev->fb_data[i + 1] = color >> 8;
+			    fb_dev->fb_data[i + 2] = color >> 16;
+			    fb_dev->fb_data[i + 3] = color >> 24;
+		    }
+	    }
+        simplefb_refresh(fb_dev, redraw_func, opaque);
     } else {
         /* text mode */
         vga_text_refresh(s, redraw_func, opaque);
@@ -709,6 +783,307 @@ static uint32_t vbe_read(void *opaque, uint32_t offset, int size_log2)
     return val;
 }
 
+#define cbswap_32(__x) \
+((uint32_t)( \
+                (((uint32_t)(__x) & (uint32_t)0x000000ffUL) << 24) | \
+                (((uint32_t)(__x) & (uint32_t)0x0000ff00UL) <<  8) | \
+                (((uint32_t)(__x) & (uint32_t)0x00ff0000UL) >>  8) | \
+                (((uint32_t)(__x) & (uint32_t)0xff000000UL) >> 24) ))
+
+#ifdef HOST_WORDS_BIGENDIAN
+#define PAT(x) cbswap_32(x)
+#else
+#define PAT(x) (x)
+#endif
+
+#ifdef HOST_WORDS_BIGENDIAN
+#define GET_PLANE(data, p) (((data) >> (24 - (p) * 8)) & 0xff)
+#else
+#define GET_PLANE(data, p) (((data) >> ((p) * 8)) & 0xff)
+#endif
+
+static const uint32_t mask16[16] = {
+    PAT(0x00000000),
+    PAT(0x000000ff),
+    PAT(0x0000ff00),
+    PAT(0x0000ffff),
+    PAT(0x00ff0000),
+    PAT(0x00ff00ff),
+    PAT(0x00ffff00),
+    PAT(0x00ffffff),
+    PAT(0xff000000),
+    PAT(0xff0000ff),
+    PAT(0xff00ff00),
+    PAT(0xff00ffff),
+    PAT(0xffff0000),
+    PAT(0xffff00ff),
+    PAT(0xffffff00),
+    PAT(0xffffffff),
+};
+
+#define VGA_SEQ_RESET           0x00
+#define VGA_SEQ_CLOCK_MODE      0x01
+#define VGA_SEQ_PLANE_WRITE     0x02
+#define VGA_SEQ_CHARACTER_MAP   0x03
+#define VGA_SEQ_MEMORY_MODE     0x04
+
+#define VGA_SR01_CHAR_CLK_8DOTS 0x01 /* bit 0: character clocks 8 dots wide are generated */
+#define VGA_SR01_SCREEN_OFF     0x20 /* bit 5: Screen is off */
+#define VGA_SR02_ALL_PLANES     0x0F /* bits 3-0: enable access to all planes */
+#define VGA_SR04_EXT_MEM        0x02 /* bit 1: allows complete mem access to 256K */
+#define VGA_SR04_SEQ_MODE       0x04 /* bit 2: directs system to use a sequential addressing mode */
+#define VGA_SR04_CHN_4M         0x08 /* bit 3: selects modulo 4 addressing for CPU access to display memory */
+
+#define VGA_GFX_SR_VALUE        0x00
+#define VGA_GFX_SR_ENABLE       0x01
+#define VGA_GFX_COMPARE_VALUE   0x02
+#define VGA_GFX_DATA_ROTATE     0x03
+#define VGA_GFX_PLANE_READ      0x04
+#define VGA_GFX_MODE            0x05
+#define VGA_GFX_MISC            0x06
+#define VGA_GFX_COMPARE_MASK    0x07
+#define VGA_GFX_BIT_MASK        0x08
+void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
+{
+	uint32_t val = val8;
+#if 1
+    if (!(s->gr[0x06] & 1)) {
+        s->vga_ram[addr] = val;
+        return;
+    }
+
+    int memory_map_mode, plane, write_mode, b, func_select, mask;
+    uint32_t write_mask, bit_mask, set_mask;
+
+#ifdef DEBUG_VGA_MEM
+    printf("vga: [0x" TARGET_FMT_plx "] = 0x%02x\n", addr, val);
+#endif
+    /* convert to VGA memory offset */
+    memory_map_mode = (s->gr[VGA_GFX_MISC] >> 2) & 3;
+    addr &= 0x1ffff;
+    switch(memory_map_mode) {
+    case 0:
+        break;
+    case 1:
+        if (addr >= 0x10000)
+            return;
+//        addr += s->bank_offset;
+        break;
+    case 2:
+        addr -= 0x10000;
+        if (addr >= 0x8000)
+            return;
+        break;
+    default:
+    case 3:
+        addr -= 0x18000;
+        if (addr >= 0x8000)
+            return;
+        break;
+    }
+
+    if (s->sr[VGA_SEQ_MEMORY_MODE] & VGA_SR04_CHN_4M) {
+        /* chain 4 mode : simplest access */
+        plane = addr & 3;
+        mask = (1 << plane);
+        if (s->sr[VGA_SEQ_PLANE_WRITE] & mask) {
+            s->vga_ram[addr] = val;
+#ifdef DEBUG_VGA_MEM
+            printf("vga: chain4: [0x" TARGET_FMT_plx "]\n", addr);
+#endif
+//            s->plane_updated |= mask; /* only used to detect font change */
+//            memory_region_set_dirty(&s->vram, addr, 1);
+        }
+    } else if (s->gr[VGA_GFX_MODE] & 0x10) {
+        /* odd/even mode (aka text mode mapping) */
+        plane = (s->gr[VGA_GFX_PLANE_READ] & 2) | (addr & 1);
+        mask = (1 << plane);
+        if (s->sr[VGA_SEQ_PLANE_WRITE] & mask) {
+            addr = ((addr & ~1) << 1) | plane;
+            if (addr >= 256 * 1024) {
+                return;
+            }
+            s->vga_ram[addr] = val;
+#ifdef DEBUG_VGA_MEM
+            printf("vga: odd/even: [0x" TARGET_FMT_plx "]\n", addr);
+#endif
+//            s->plane_updated |= mask; /* only used to detect font change */
+//            memory_region_set_dirty(&s->vram, addr, 1);
+        }
+    } else {
+        /* standard VGA latched access */
+        write_mode = s->gr[VGA_GFX_MODE] & 3;
+        switch(write_mode) {
+        default:
+        case 0:
+            /* rotate */
+            b = s->gr[VGA_GFX_DATA_ROTATE] & 7;
+            val = ((val >> b) | (val << (8 - b))) & 0xff;
+            val |= val << 8;
+            val |= val << 16;
+
+            /* apply set/reset mask */
+            set_mask = mask16[s->gr[VGA_GFX_SR_ENABLE]];
+            val = (val & ~set_mask) |
+                (mask16[s->gr[VGA_GFX_SR_VALUE]] & set_mask);
+            bit_mask = s->gr[VGA_GFX_BIT_MASK];
+            break;
+        case 1:
+            val = s->latch;
+            goto do_write;
+        case 2:
+            val = mask16[val & 0x0f];
+            bit_mask = s->gr[VGA_GFX_BIT_MASK];
+            break;
+        case 3:
+            /* rotate */
+            b = s->gr[VGA_GFX_DATA_ROTATE] & 7;
+            val = (val >> b) | (val << (8 - b));
+
+            bit_mask = s->gr[VGA_GFX_BIT_MASK] & val;
+            val = mask16[s->gr[VGA_GFX_SR_VALUE]];
+            break;
+        }
+
+        /* apply logical operation */
+        func_select = s->gr[VGA_GFX_DATA_ROTATE] >> 3;
+        switch(func_select) {
+        case 0:
+        default:
+            /* nothing to do */
+            break;
+        case 1:
+            /* and */
+            val &= s->latch;
+            break;
+        case 2:
+            /* or */
+            val |= s->latch;
+            break;
+        case 3:
+            /* xor */
+            val ^= s->latch;
+            break;
+        }
+
+        /* apply bit mask */
+        bit_mask |= bit_mask << 8;
+        bit_mask |= bit_mask << 16;
+        val = (val & bit_mask) | (s->latch & ~bit_mask);
+
+    do_write:
+        /* mask data according to sr[2] */
+        mask = s->sr[VGA_SEQ_PLANE_WRITE];
+//        s->plane_updated |= mask; /* only used to detect font change */
+        write_mask = mask16[mask];
+        if (addr * sizeof(uint32_t) >= 256 * 1024) {
+            return;
+        }
+        ((uint32_t *)s->vga_ram)[addr] =
+            (((uint32_t *)s->vga_ram)[addr] & ~write_mask) |
+            (val & write_mask);
+#ifdef DEBUG_VGA_MEM
+        printf("vga: latch: [0x" TARGET_FMT_plx "] mask=0x%08x val=0x%08x\n",
+               addr * 4, write_mask, val);
+#endif
+//        memory_region_set_dirty(&s->vram, addr << 2, sizeof(uint32_t));
+    }
+
+    return;
+#endif
+    unsigned int mask1 = 1;
+    if (s->gr[0x06] & 1) {
+	fprintf(stderr, "vga write %05x, mode %d mask %02x\n", addr, s->gr[0x5] & 3, s->gr[0x8]);
+	mask1 = s->sr[0x2];
+	if (addr > 0x10000)
+	    return;
+    }
+
+    for (int plane = 0; plane < 4; plane++) {
+	    if (mask1 & 1)
+		    s->vga_ram[(plane << 16) + addr] = val;
+	    mask1 >>= 1;
+    }
+}
+
+uint8_t vga_mem_read(VGAState *s, uint32_t addr)
+{
+#if 1
+    if (!(s->gr[0x06] & 1)) {
+        return s->vga_ram[addr];
+    }
+
+    int memory_map_mode, plane;
+    uint32_t ret;
+
+    /* convert to VGA memory offset */
+    memory_map_mode = (s->gr[VGA_GFX_MISC] >> 2) & 3;
+    addr &= 0x1ffff;
+    switch(memory_map_mode) {
+    case 0:
+        break;
+    case 1:
+        if (addr >= 0x10000)
+            return 0xff;
+//        addr += s->bank_offset;
+        break;
+    case 2:
+        addr -= 0x10000;
+        if (addr >= 0x8000)
+            return 0xff;
+        break;
+    default:
+    case 3:
+        addr -= 0x18000;
+        if (addr >= 0x8000)
+            return 0xff;
+        break;
+    }
+
+    if (s->sr[VGA_SEQ_MEMORY_MODE] & VGA_SR04_CHN_4M) {
+        /* chain 4 mode : simplest access */
+//        assert(addr < s->vram_size);
+        ret = s->vga_ram[addr];
+    } else if (s->gr[VGA_GFX_MODE] & 0x10) {
+        /* odd/even mode (aka text mode mapping) */
+        plane = (s->gr[VGA_GFX_PLANE_READ] & 2) | (addr & 1);
+        addr = ((addr & ~1) << 1) | plane;
+        if (addr >= 256 * 1024) { // s->vram_size) {
+            return 0xff;
+        }
+        ret = s->vga_ram[addr];
+    } else {
+        /* standard VGA latched access */
+        if (addr * sizeof(uint32_t) >= 256 * 1024) {//s->vram_size) {
+            return 0xff;
+        }
+        s->latch = ((uint32_t *)s->vga_ram)[addr];
+
+        if (!(s->gr[VGA_GFX_MODE] & 0x08)) {
+            /* read mode 0 */
+            plane = s->gr[VGA_GFX_PLANE_READ];
+            ret = GET_PLANE(s->latch, plane);
+        } else {
+            /* read mode 1 */
+            ret = (s->latch ^ mask16[s->gr[VGA_GFX_COMPARE_VALUE]]) &
+                mask16[s->gr[VGA_GFX_COMPARE_MASK]];
+            ret |= ret >> 16;
+            ret |= ret >> 8;
+            ret = (~ret) & 0xff;
+        }
+    }
+    return ret;
+#endif
+#if 0
+	int plane = 0;
+	if (s->gr[0x06] & 1) {
+		plane = s->gr[0x4];
+		if ((s->gr[0x5] >> 3) & 1)
+			fprintf(stderr, "vga read %05x, mode 1\n", addr);
+	}
+	return s->vga_ram[(plane << 16) + addr];
+#endif
+}
 
 //static void simplefb_bar_set(void *opaque, int bar_num,
 //                              uint32_t addr, bool enabled)

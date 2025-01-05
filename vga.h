@@ -27,4 +27,7 @@ VGAState *vga_init(FBDevice *fb_dev,
 void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val);
 uint32_t vga_ioport_read(VGAState *s, uint32_t addr);
 
+void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val);
+uint8_t vga_mem_read(VGAState *s, uint32_t addr);
+
 #endif /* VGA_H */
