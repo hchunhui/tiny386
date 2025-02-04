@@ -75,6 +75,7 @@
 struct VGAState {
     FBDevice *fb_dev;
     int fb_page_count;
+    int graphic_mode;
 //    PhysMemoryRange *mem_range;
 //    PhysMemoryRange *mem_range2;
 //    PhysMemoryRange *rom_range;
@@ -185,7 +186,7 @@ static inline int c6_to_8(int v)
 }
 
 static inline unsigned int rgb_to_pixel(unsigned int r, unsigned int g,
-					unsigned int b)
+                                        unsigned int b)
 {
     return (r << 16) | (g << 8) | b;
 }
@@ -243,7 +244,8 @@ static int update_palette16(VGAState *s, uint32_t *palette)
 /* the text refresh is just for debugging and initial boot message, so
    it is very incomplete */
 static void vga_text_refresh(VGAState *s,
-                             SimpleFBDrawFunc *redraw_func, void *opaque)
+                             SimpleFBDrawFunc *redraw_func, void *opaque,
+                             int full_update)
 {
     FBDevice *fb_dev = s->fb_dev;
     int width, height, cwidth, cheight, cy, cx, x1, y1, width1, height1;
@@ -251,9 +253,8 @@ static void vga_text_refresh(VGAState *s,
     uint32_t ch_attr, line_offset, start_addr, ch_addr, ch_addr1, ch, cattr;
     uint8_t *vga_ram, *font_ptr, *dst;
     uint32_t fgcol, bgcol, cursor_offset, cursor_start, cursor_end;
-    bool full_update;
 
-    full_update = update_palette16(s, s->last_palette);
+    full_update = full_update || update_palette16(s, s->last_palette);
 
     vga_ram = s->vga_ram;
     
@@ -287,7 +288,7 @@ static void vga_text_refresh(VGAState *s,
         s->last_start_addr = start_addr;
         s->last_width = width;
         s->last_height = height;
-        full_update = true;
+        full_update = 1;
     }
        
     /* update cursor position */
@@ -379,57 +380,124 @@ static void vga_text_refresh(VGAState *s,
 }
 
 static void simplefb_refresh(FBDevice *fb_dev,
-			     SimpleFBDrawFunc *redraw_func, void *opaque)
+                             SimpleFBDrawFunc *redraw_func, void *opaque)
 {
     redraw_func(fb_dev, opaque, 0, 0, fb_dev->width, fb_dev->height);
+}
+
+static void simplefb_clear(FBDevice *fb_dev,
+               SimpleFBDrawFunc *redraw_func, void *opaque)
+{
+    memset(fb_dev->fb_data, 0, fb_dev->width * fb_dev->height * 4);
 }
 
 static void vga_refresh(FBDevice *fb_dev,
                         SimpleFBDrawFunc *redraw_func, void *opaque)
 {
     VGAState *s = fb_dev->device_opaque;
+    int graphic_mode;
+    int full_update = 0;
     if (!(s->ar_index & 0x20)) {
         /* blank */
+        graphic_mode = 0;
     } else if (s->gr[0x06] & 1) {
-        /* graphic mode (VBE) */
-	    uint32_t start_addr = s->cr[0x0d] | (s->cr[0x0c] << 8);
-	    uint8_t *vram = s->vga_ram + 4 * start_addr;
-//	    uint32_t palette[256];
-	    uint32_t palette[16];
-	    int h = 480;
-//	    h = 400; // DOOM2
-	    int w = 640;
-//	    update_palette256(s, palette);
-	    update_palette16(s, palette);
-	    for (int y = 0; y < h; y++) {
-		    for (int x = 0; x < w; x++) {
-			    int i = 4 * (y * fb_dev->width + x);
-			    int j = y * w + x;
-#if 0
-			    int k = ((vram[j >> 3] >> (7 - (j & 7))) & 1) << 0;
-			    k |= ((vram[(j >> 3) + 0x10000] >> (7 - (j & 7))) & 1) << 1;
-			    k |= ((vram[(j >> 3) + 0x20000] >> (7 - (j & 7))) & 1) << 2;
-			    k |= ((vram[(j >> 3) + 0x30000] >> (7 - (j & 7))) & 1) << 3;
-#else
-			    //j = y * w / 2 + x / 2; // win95 splash
- 			    //j = y / 2 * w / 2 + x / 2; // DOOM2
-			    //int k = vram[j];
-			    int k = ((vram[4 * (j >> 3)] >> (7 - (j & 7))) & 1) << 0;
-			    k |= ((vram[4 * (j >> 3) + 1] >> (7 - (j & 7))) & 1) << 1;
-			    k |= ((vram[4 * (j >> 3) + 2] >> (7 - (j & 7))) & 1) << 2;
-			    k |= ((vram[4 * (j >> 3) + 3] >> (7 - (j & 7))) & 1) << 3;
-#endif
-			    uint32_t color = palette[k];
-			    fb_dev->fb_data[i + 0] = color;
-			    fb_dev->fb_data[i + 1] = color >> 8;
-			    fb_dev->fb_data[i + 2] = color >> 16;
-			    fb_dev->fb_data[i + 3] = color >> 24;
-		    }
-	    }
-        simplefb_refresh(fb_dev, redraw_func, opaque);
+        /* graphic mode */
+        graphic_mode = 2;
     } else {
         /* text mode */
-        vga_text_refresh(s, redraw_func, opaque);
+        graphic_mode = 1;
+    }
+
+    if (graphic_mode != s->graphic_mode) {
+        s->graphic_mode = graphic_mode;
+        full_update = 1;
+        simplefb_clear(fb_dev, redraw_func, opaque);
+    }
+
+    if (s->graphic_mode == 2) {
+        int w = (s->cr[0x01] + 1) * 8;
+        int h = s->cr[0x12] |
+            ((s->cr[0x07] & 0x02) << 7) |
+            ((s->cr[0x07] & 0x40) << 3);
+        h++;
+
+        int shift_control = (s->gr[0x05] >> 5) & 3;
+        int double_scan = (s->cr[0x09] >> 7);
+        int multi_scan, multi_run;
+        if (shift_control != 1) {
+            multi_scan = (((s->cr[0x09] & 0x1f) + 1) << double_scan) - 1;
+        } else {
+            /* in CGA modes, multi_scan is ignored */
+            /* XXX: is it correct ? */
+            multi_scan = double_scan;
+        }
+        multi_run = multi_scan;
+
+        uint32_t start_addr = s->cr[0x0d] | (s->cr[0x0c] << 8);
+        uint32_t line_offset = s->cr[0x13];
+        line_offset <<= 3;
+        uint32_t line_compare = s->cr[0x18] |
+            ((s->cr[0x07] & 0x10) << 4) |
+            ((s->cr[0x09] & 0x40) << 3);
+        uint32_t addr1 = 4 * start_addr;
+        uint8_t *vram = s->vga_ram;
+        uint32_t palette[256];
+        int xdiv = 1;
+        if (shift_control == 0 || shift_control == 1) {
+            update_palette16(s, palette);
+            if (s->sr[0x01] & 8) {
+                xdiv = 2;
+            }
+        } else {
+            update_palette256(s, palette);
+            xdiv = 2;
+        }
+
+        int y1 = 0;
+        for (int y = 0; y < h; y++) {
+            uint32_t addr = addr1;
+            if (!(s->cr[0x17] & 1)) {
+                int shift;
+                /* CGA compatibility handling */
+                shift = 14 + ((s->cr[0x17] >> 6) & 1);
+                addr = (addr & ~(1 << shift)) | ((y1 & 1) << shift);
+            }
+            if (!(s->cr[0x17] & 2)) {
+                addr = (addr & ~0x8000) | ((y1 & 2) << 14);
+            }
+            for (int x = 0; x < w; x++) {
+                int i = 4 * (y * fb_dev->width + x);
+                int x1 = x / xdiv;
+                uint32_t color;
+                if (shift_control == 0 || shift_control == 1) {
+                    int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x & 7))) & 1) << 0;
+                    k |= ((vram[addr + 4 * (x1 >> 3) + 1] >> (7 - (x & 7))) & 1) << 1;
+                    k |= ((vram[addr + 4 * (x1 >> 3) + 2] >> (7 - (x & 7))) & 1) << 2;
+                    k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x & 7))) & 1) << 3;
+                    color = palette[k];
+                } else {
+                    int k = vram[addr + x1];
+                    color = palette[k];
+                }
+
+                fb_dev->fb_data[i + 0] = color;
+                fb_dev->fb_data[i + 1] = color >> 8;
+                fb_dev->fb_data[i + 2] = color >> 16;
+                fb_dev->fb_data[i + 3] = color >> 24;
+            }
+            if (!multi_run) {
+                int mask = (s->cr[0x17] & 3) ^ 3;
+                if ((y1 & mask) == mask)
+                    addr1 += line_offset;
+                y1++;
+                multi_run = multi_scan;
+            } else {
+                multi_run--;
+            }
+        }
+        simplefb_refresh(fb_dev, redraw_func, opaque);
+    } else if (s->graphic_mode == 1) {
+        vga_text_refresh(s, redraw_func, opaque, full_update);
     }
 }
 
@@ -503,9 +571,9 @@ uint32_t vga_ioport_read(VGAState *s, uint32_t addr)
         case 0x3c7:
             val = s->dac_state;
             break;
-	case 0x3c8:
-	    val = s->dac_write_index;
-	    break;
+        case 0x3c8:
+            val = s->dac_write_index;
+            break;
         case 0x3c9:
             val = s->palette[s->dac_read_index * 3 + s->dac_sub_index];
             if (++s->dac_sub_index == 3) {
@@ -845,8 +913,7 @@ static const uint32_t mask16[16] = {
 #define VGA_GFX_BIT_MASK        0x08
 void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
 {
-	uint32_t val = val8;
-#if 1
+    uint32_t val = val8;
     if (!(s->gr[0x06] & 1)) {
         s->vga_ram[addr] = val;
         return;
@@ -988,22 +1055,6 @@ void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
 #endif
 //        memory_region_set_dirty(&s->vram, addr << 2, sizeof(uint32_t));
     }
-
-    return;
-#endif
-    unsigned int mask1 = 1;
-    if (s->gr[0x06] & 1) {
-	fprintf(stderr, "vga write %05x, mode %d mask %02x\n", addr, s->gr[0x5] & 3, s->gr[0x8]);
-	mask1 = s->sr[0x2];
-	if (addr > 0x10000)
-	    return;
-    }
-
-    for (int plane = 0; plane < 4; plane++) {
-	    if (mask1 & 1)
-		    s->vga_ram[(plane << 16) + addr] = val;
-	    mask1 >>= 1;
-    }
 }
 
 uint8_t vga_mem_read(VGAState *s, uint32_t addr)
@@ -1074,15 +1125,6 @@ uint8_t vga_mem_read(VGAState *s, uint32_t addr)
     }
     return ret;
 #endif
-#if 0
-	int plane = 0;
-	if (s->gr[0x06] & 1) {
-		plane = s->gr[0x4];
-		if ((s->gr[0x5] >> 3) & 1)
-			fprintf(stderr, "vga read %05x, mode 1\n", addr);
-	}
-	return s->vga_ram[(plane << 16) + addr];
-#endif
 }
 
 //static void simplefb_bar_set(void *opaque, int bar_num,
@@ -1111,6 +1153,7 @@ VGAState *vga_init(FBDevice *fb_dev,
     s = malloc(sizeof(*s));
     memset(s, 0, sizeof(*s));
     s->fb_dev = fb_dev;
+    s->graphic_mode = 0;
     fb_dev->width = width;
     fb_dev->height = height;
     fb_dev->stride = width * 4;
