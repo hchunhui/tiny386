@@ -28,6 +28,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include <assert.h>
+#include <time.h>
 
 #include "vga.h"
 
@@ -76,6 +77,8 @@ struct VGAState {
     FBDevice *fb_dev;
     int fb_page_count;
     int graphic_mode;
+    uint32_t cursor_blink_time;
+    int cursor_visible_phase;
 //    PhysMemoryRange *mem_range;
 //    PhysMemoryRange *mem_range2;
 //    PhysMemoryRange *rom_range;
@@ -119,6 +122,19 @@ struct VGAState {
     uint16_t vbe_index;
     uint16_t vbe_regs[VBE_DISPI_INDEX_NB];
 };
+
+static uint32_t get_uticks()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ((uint32_t) ts.tv_sec * 1000000 +
+            (uint32_t) ts.tv_nsec / 1000);
+}
+
+static int after_eq(uint32_t a, uint32_t b)
+{
+    return (a - b) < (1u << 31);
+}
 
 static void vga_draw_glyph8(uint8_t *d, int linesize,
                             const uint8_t *font_ptr, int h,
@@ -253,6 +269,11 @@ static void vga_text_refresh(VGAState *s,
     uint32_t ch_attr, line_offset, start_addr, ch_addr, ch_addr1, ch, cattr;
     uint8_t *vga_ram, *font_ptr, *dst;
     uint32_t fgcol, bgcol, cursor_offset, cursor_start, cursor_end;
+    uint32_t now = get_uticks();
+    if (after_eq(now, s->cursor_blink_time)) {
+        s->cursor_blink_time = now + 266666;
+        s->cursor_visible_phase = !s->cursor_visible_phase;
+    }
 
     full_update = full_update || update_palette16(s, s->last_palette);
 
@@ -324,7 +345,7 @@ static void vga_text_refresh(VGAState *s,
         cx_max = -1;
         for(cx = 0; cx < width; cx++) {
             ch_attr = *(uint16_t *)(vga_ram + (ch_addr & 0x1fffe));
-            if (full_update || ch_attr != s->last_ch_attr[cy * width + cx]) {
+            if (full_update || ch_attr != s->last_ch_attr[cy * width + cx] || cursor_offset == ch_addr) {
                 s->last_ch_attr[cy * width + cx] = ch_attr;
                 cx_min = cx_min > cx ? cx : cx_min;
                 cx_max = cx_max < cx ? cx : cx_max;
@@ -344,7 +365,7 @@ static void vga_text_refresh(VGAState *s,
                                     fgcol, bgcol, dup9);
                 }
                 /* cursor display */
-                if (cursor_offset == ch_addr && !(cursor_start & 0x20)) {
+                if (cursor_offset == ch_addr && !(cursor_start & 0x20) && s->cursor_visible_phase) {
                     int line_start, line_last, h;
                     uint8_t *dst1;
                     line_start = cursor_start & 0x1f;
@@ -1154,6 +1175,8 @@ VGAState *vga_init(FBDevice *fb_dev,
     memset(s, 0, sizeof(*s));
     s->fb_dev = fb_dev;
     s->graphic_mode = 0;
+    s->cursor_blink_time = get_uticks();
+    s->cursor_visible_phase = 1;
     fb_dev->width = width;
     fb_dev->height = height;
     fb_dev->stride = width * 4;
