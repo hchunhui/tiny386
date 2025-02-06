@@ -491,10 +491,10 @@ static void vga_refresh(FBDevice *fb_dev,
                 int x1 = x / xdiv;
                 uint32_t color;
                 if (shift_control == 0 || shift_control == 1) {
-                    int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x & 7))) & 1) << 0;
-                    k |= ((vram[addr + 4 * (x1 >> 3) + 1] >> (7 - (x & 7))) & 1) << 1;
-                    k |= ((vram[addr + 4 * (x1 >> 3) + 2] >> (7 - (x & 7))) & 1) << 2;
-                    k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x & 7))) & 1) << 3;
+                    int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1) << 0;
+                    k |= ((vram[addr + 4 * (x1 >> 3) + 1] >> (7 - (x1 & 7))) & 1) << 1;
+                    k |= ((vram[addr + 4 * (x1 >> 3) + 2] >> (7 - (x1 & 7))) & 1) << 2;
+                    k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x1 & 7))) & 1) << 3;
                     color = palette[k];
                 } else {
                     int k = vram[addr + x1];
