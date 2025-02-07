@@ -5668,7 +5668,7 @@ static u32 iomem_read32(void *iomem, uword addr)
 static void iomem_write32(void *iomem, uword addr, u32 val)
 {
 	iomem_write16(iomem, addr, val);
-	iomem_write16(iomem, addr + 1, val >> 16);
+	iomem_write16(iomem, addr + 2, val >> 16);
 }
 
 PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data)
