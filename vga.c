@@ -79,6 +79,8 @@ struct VGAState {
     int graphic_mode;
     uint32_t cursor_blink_time;
     int cursor_visible_phase;
+    uint32_t retrace_time;
+    int retrace_phase;
 //    PhysMemoryRange *mem_range;
 //    PhysMemoryRange *mem_range2;
 //    PhysMemoryRange *rom_range;
@@ -412,6 +414,25 @@ static void simplefb_clear(FBDevice *fb_dev,
     memset(fb_dev->fb_data, 0, fb_dev->width * fb_dev->height * 4);
 }
 
+int vga_step(VGAState *s)
+{
+    uint32_t now = get_uticks();
+    int ret = 0;
+    if (after_eq(now, s->retrace_time)) {
+        if (s->retrace_phase == 0) {
+            s->st01 |= (ST01_V_RETRACE | ST01_DISP_ENABLE);
+            s->retrace_phase = 1;
+            s->retrace_time = now + 1666;
+            ret = 1;
+        } else {
+            s->st01 &= ~(ST01_V_RETRACE | ST01_DISP_ENABLE);
+            s->retrace_phase = 0;
+            s->retrace_time = now + 15000;
+        }
+    }
+    return ret;
+}
+
 static void vga_refresh(FBDevice *fb_dev,
                         SimpleFBDrawFunc *redraw_func, void *opaque)
 {
@@ -632,7 +653,7 @@ uint32_t vga_ioport_read(VGAState *s, uint32_t addr)
         case 0x3ba:
         case 0x3da:
             /* just toggle to fool polling */
-            s->st01 ^= ST01_V_RETRACE | ST01_DISP_ENABLE;
+//            s->st01 ^= ST01_V_RETRACE | ST01_DISP_ENABLE;
             val = s->st01;
             s->ar_flip_flop = 0;
             break;
@@ -1178,6 +1199,8 @@ VGAState *vga_init(FBDevice *fb_dev,
     s->graphic_mode = 0;
     s->cursor_blink_time = get_uticks();
     s->cursor_visible_phase = 1;
+    s->retrace_time = get_uticks();
+    s->retrace_phase = 0;
     fb_dev->width = width;
     fb_dev->height = height;
     fb_dev->stride = width * 4;

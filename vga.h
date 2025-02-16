@@ -24,6 +24,8 @@ VGAState *vga_init(FBDevice *fb_dev,
 		   int width, int height,
 		   const uint8_t *vga_rom_buf, int vga_rom_size, uint8_t *vga_ram);
 
+int vga_step(VGAState *vga);
+
 void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val);
 uint32_t vga_ioport_read(VGAState *s, uint32_t addr);
 

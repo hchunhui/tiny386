@@ -5596,6 +5596,7 @@ static void cmos_update_irq(CMOS *s);
 
 void pc_step(PC *pc)
 {
+	int refresh = vga_step(pc->vga);
 	i8254_update_irq(pc->pit);
 	cmos_update_irq(pc->cmos);
 	if (IsKBHit()) {
@@ -5606,10 +5607,9 @@ void pc_step(PC *pc)
 		}
 	}
 	pc->poll(pc->redraw_data);
-	static u32 c;
-	c = (c + 1) % 128;
-	if (c == 0)
+	if (refresh) {
 		pc->fb_dev->refresh(pc->fb_dev, pc->redraw, pc->redraw_data);
+	}
 #ifdef USEKVM
 	cpukvm_step(pc->cpu, 4096);
 #else
