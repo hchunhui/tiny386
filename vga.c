@@ -432,6 +432,7 @@ static void vga_refresh(FBDevice *fb_dev,
     if (graphic_mode != s->graphic_mode) {
         s->graphic_mode = graphic_mode;
         full_update = 1;
+        s->cursor_blink_time = get_uticks();
         simplefb_clear(fb_dev, redraw_func, opaque);
     }
 
