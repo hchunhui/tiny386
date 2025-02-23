@@ -1,0 +1,100 @@
+diff --git a/src/hw/serialio.c b/src/hw/serialio.c
+index fa663b99..48efda12 100644
+--- a/src/hw/serialio.c
++++ b/src/hw/serialio.c
+@@ -112,8 +112,9 @@ qemu_debug_preinit(void)
+ 
+     /* Check if the QEMU debug output port is active */
+     if (CONFIG_DEBUG_IO &&
+-        inb(GET_GLOBAL(DebugOutputPort)) != QEMU_DEBUGCON_READBACK)
+-        DebugOutputPort = 0;
++        inb(GET_GLOBAL(DebugOutputPort)) != QEMU_DEBUGCON_READBACK) {
++//        DebugOutputPort = 0;
++    }
+ }
+ 
+ // Write a character to the special debugging port.
+diff --git a/src/misc.c b/src/misc.c
+index b5117304..9cdc6d08 100644
+--- a/src/misc.c
++++ b/src/misc.c
+@@ -63,7 +63,7 @@ mathcp_setup(void)
+ {
+     dprintf(3, "math cp init\n");
+     // 80x87 coprocessor installed
+-    set_equipment_flags(0x02, 0x02);
++//    set_equipment_flags(0x02, 0x02);
+     enable_hwirq(13, FUNC16(entry_75));
+ }
+ 
+diff --git a/src/optionroms.c b/src/optionroms.c
+index e906ab97..e7bae7ab 100644
+--- a/src/optionroms.c
++++ b/src/optionroms.c
+@@ -450,7 +450,7 @@ static void try_setup_display_other(void)
+ void
+ vgarom_setup(void)
+ {
+-    int have_vga = 0;
++//    int have_vga = 0;
+ 
+     if (! CONFIG_OPTIONROMS)
+         return;
+@@ -458,34 +458,36 @@ vgarom_setup(void)
+     dprintf(1, "Scan for VGA option rom\n");
+ 
+     // Load some config settings that impact VGA.
+-    EnforceChecksum = romfile_loadint("etc/optionroms-checksum", 1);
+-    S3ResumeVga = romfile_loadint("etc/s3-resume-vga-init", CONFIG_QEMU);
+-    RunPCIroms = romfile_loadint("etc/pci-optionrom-exec", 2);
+-    ScreenAndDebug = romfile_loadint("etc/screen-and-debug", 1);
++//    EnforceChecksum = romfile_loadint("etc/optionroms-checksum", 1);
++//    S3ResumeVga = romfile_loadint("etc/s3-resume-vga-init", CONFIG_QEMU);
++//    RunPCIroms = romfile_loadint("etc/pci-optionrom-exec", 2);
++//    ScreenAndDebug = romfile_loadint("etc/screen-and-debug", 1);
+ 
+     // Clear option rom memory
+-    memset((void*)BUILD_ROM_START, 0, rom_get_max() - BUILD_ROM_START);
++//    memset((void*)BUILD_ROM_START, 0, rom_get_max() - BUILD_ROM_START);
+ 
+     // Find and deploy PCI VGA rom.
+-    struct pci_device *pci;
+-    foreachpci(pci) {
+-        if (!is_pci_vga(pci))
+-            continue;
+-        vgahook_setup(pci);
+-        init_pcirom(pci, 1, NULL);
+-        have_vga = 1;
+-        break;
+-    }
+-    if (!have_vga)
+-        try_setup_display_other();
+-
++//    struct pci_device *pci;
++//    foreachpci(pci) {
++//        if (!is_pci_vga(pci))
++//            continue;
++//        vgahook_setup(pci);
++//        init_pcirom(pci, 1, NULL);
++//        have_vga = 1;
++//        break;
++//    }
++//    if (!have_vga)
++//        try_setup_display_other();
++
++    init_optionrom((void*)BUILD_ROM_START, 0, 1);
++    VgaROM = (void*)BUILD_ROM_START;
+     // Find and deploy CBFS vga-style roms not associated with a device.
+-    run_file_roms("vgaroms/", 1, NULL);
+-    rom_reserve(0);
++//    run_file_roms("vgaroms/", 1, NULL);
++//    rom_reserve(0);
+ 
+-    if (rom_get_last() != BUILD_ROM_START)
++//    if (rom_get_last() != BUILD_ROM_START)
+         // VGA rom found
+-        VgaROM = (void*)BUILD_ROM_START;
++//        VgaROM = (void*)BUILD_ROM_START;
+ }
+ 
+ void
