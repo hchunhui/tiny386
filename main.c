@@ -16,6 +16,7 @@
 #include "ide.h"
 #include "vga.h"
 #include "i8042.h"
+#include "adlib.h"
 
 typedef uint32_t u32;
 typedef uint16_t u16;
@@ -5194,6 +5195,7 @@ typedef struct {
 	KBDState *i8042;
 	PS2KbdState *kbd;
 	PS2MouseState *mouse;
+	AdlibState *adlib;
 } PC;
 
 void u8250_update_interrupts(PC *pc, U8250 *uart)
@@ -5423,6 +5425,12 @@ u8 pc_io_read(void *o, int addr)
 		return val;
 	case 0x61:
 		return 0xff;
+	case 0x220: case 0x221: case 0x222: case 0x223:
+	case 0x224: case 0x225: case 0x226: case 0x227:
+	case 0x228: case 0x229: case 0x22a: case 0x22b:
+	case 0x22c: case 0x22d: case 0x22e: case 0x22f:
+	case 0x388: case 0x389:
+		return adlib_read(pc->adlib, addr);
 	default:
 		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0);
 		return 0;
@@ -5511,6 +5519,13 @@ void pc_io_write(void *o, int addr, u8 val)
 		kbd_write_command(pc->i8042, addr, val);
 		return;
 	case 0x61:
+		return;
+	case 0x220: case 0x221: case 0x222: case 0x223:
+	case 0x224: case 0x225: case 0x226: case 0x227:
+	case 0x228: case 0x229: case 0x22a: case 0x22b:
+	case 0x22c: case 0x22d: case 0x22e: case 0x22f:
+	case 0x388: case 0x389:
+		adlib_write(pc->adlib, addr, val);
 		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
@@ -5747,6 +5762,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data)
 
 	pc->i8042 = i8042_init(&(pc->kbd), &(pc->mouse),
 			       1, 12, pc->pic, set_irq);
+	pc->adlib = adlib_new();
 	return pc;
 }
 
@@ -5775,7 +5791,7 @@ Console *console_init()
 	Console *s = malloc(sizeof(Console));
 	s->width = 720;
 	s->height = 480;
-	SDL_Init(SDL_INIT_VIDEO);
+	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
 	s->screen = SDL_SetVideoMode(s->width, s->height, 32, 0);
 	return s;
 }
@@ -6007,6 +6023,15 @@ int main(int argc, char *argv[])
 	PC *pc = pc_new(redraw, poll, console);
 	if (console)
 		console->pc = pc;
+
+	SDL_AudioSpec audio_spec = {0};
+	audio_spec.freq = 44100;
+	audio_spec.format = AUDIO_S16SYS;
+	audio_spec.channels = 1;
+	audio_spec.samples = 1024;
+	audio_spec.callback = adlib_callback;
+	audio_spec.userdata = pc->adlib;
+	SDL_OpenAudio(&audio_spec, 0);
 
 	load(pc, "bios.bin", 0xe0000);
 	load(pc, "vgabios.bin", 0xc0000);
