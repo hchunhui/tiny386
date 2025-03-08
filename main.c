@@ -5182,7 +5182,7 @@ typedef struct {
 	PITState *pit;
 	U8250 *serial;
 	CMOS *cmos;
-	struct ide_controller *ide;
+	struct ide_controller *ide, *ide2;
 	VGAState *vga;
 	FBDevice *fb_dev;
 	char *phys_mem;
@@ -5404,8 +5404,15 @@ u8 pc_io_read(void *o, int addr)
 	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
 		val = ide_read8(pc->ide, addr - 0x1f0);
 		return val;
+	case 0x170: case 0x171: case 0x172: case 0x173:
+	case 0x174: case 0x175: case 0x176: case 0x177:
+		val = ide_read8(pc->ide2, addr - 0x170);
+		return val;
 	case 0x3f6:
 		val = ide_read8(pc->ide, 8);
+		return val;
+	case 0x376:
+		val = ide_read8(pc->ide2, 8);
 		return val;
 	case 0x3c0: case 0x3c1: case 0x3c2: case 0x3c3:
 	case 0x3c4: case 0x3c5: case 0x3c6: case 0x3c7:
@@ -5448,6 +5455,10 @@ u16 pc_io_read16(void *o, int addr)
 	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
 	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
 		val = ide_read16(pc->ide, addr - 0x1f0);
+		return val;
+	case 0x170: case 0x171: case 0x172: case 0x173:
+	case 0x174: case 0x175: case 0x176: case 0x177:
+		val = ide_read16(pc->ide2, addr - 0x170);
 		return val;
 	default:
 		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0);
@@ -5494,8 +5505,15 @@ void pc_io_write(void *o, int addr, u8 val)
 	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
 		ide_write8(pc->ide, addr - 0x1f0, val);
 		return;
+	case 0x170: case 0x171: case 0x172: case 0x173:
+	case 0x174: case 0x175: case 0x176: case 0x177:
+		ide_write8(pc->ide2, addr - 0x170, val);
+		return;
 	case 0x3f6:
 		ide_write8(pc->ide, 8, val);
+		return;
+	case 0x376:
+		ide_write8(pc->ide2, 8, val);
 		return;
 	case 0x3c0: case 0x3c1: case 0x3c2: case 0x3c3:
 	case 0x3c4: case 0x3c5: case 0x3c6: case 0x3c7:
@@ -5542,6 +5560,10 @@ void pc_io_write16(void *o, int addr, u16 val)
 	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
 	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
 		ide_write16(pc->ide, addr - 0x1f0, val);
+		return;
+	case 0x170: case 0x171: case 0x172: case 0x173:
+	case 0x174: case 0x175: case 0x176: case 0x177:
+		ide_write16(pc->ide2, addr - 0x170, val);
 		return;
 	case 0x3c0: case 0x3c1: case 0x3c2: case 0x3c3:
 	case 0x3c4: case 0x3c5: case 0x3c6: case 0x3c7:
@@ -5688,7 +5710,7 @@ static void iomem_write32(void *iomem, uword addr, u32 val)
 	iomem_write16(iomem, addr + 2, val >> 16);
 }
 
-PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data)
+PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data, char **disks)
 {
 	PC *pc = malloc(sizeof(PC));
 	long mem_size = 16 * 1024 * 1024;
@@ -5714,21 +5736,21 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data)
 	pc->serial = u8250_init();
 	pc->cmos = cmos_init(mem_size, 8, pc->pic, set_irq);
 	pc->ide = ide_allocate("ide", 14, pc->pic, set_irq);
-//	int idefd = open("fdos.img", O_RDWR);
-//	int idefd = open("winnt4.img", O_RDWR);
-//	int idefd = open("disk20mb", O_RDWR);
-//	int idefd2 = open("disk128m.img", O_RDWR);
-	int idefd = open("win95.img", O_RDWR);
-
-//	int idefd = open("dos622.img", O_RDWR);
-	int idefd2 = open("disk128m.img", O_RDWR);
-	assert(idefd >= 0);
-	if (idefd >= 0) {
-		int ret = ide_attach(pc->ide, 0, idefd);
-		assert(ret == 0);
-		int ret2 = ide_attach(pc->ide, 1, idefd2);
-		assert(ret2 == 0);
+	pc->ide2 = ide_allocate("ide2", 15, pc->pic, set_irq);
+	if (disks) {
+		for (int i = 0; disks[i] && i < 4; i++) {
+			int idefd = open(disks[i], O_RDWR);
+			assert(idefd >= 0);
+			if (i < 2) {
+				int ret = ide_attach(pc->ide, i, idefd);
+				assert(ret == 0);
+			} else {
+				int ret = ide_attach(pc->ide2, i - 2, idefd);
+				assert(ret == 0);
+			}
+		}
 		ide_reset_begin(pc->ide);
+		ide_reset_begin(pc->ide2);
 	}
 
 	pc->phys_mem = mem;
@@ -5977,7 +5999,7 @@ int main(int argc, char *argv[])
 		vmlinux = argv[1];
 
 	Console *console = console_init();
-	PC *pc = pc_new(redraw, poll, console);
+	PC *pc = pc_new(redraw, poll, console, argv + 1);
 	if (console)
 		console->pc = pc;
 
@@ -6022,7 +6044,7 @@ int main(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
 	Console *console = console_init();
-	PC *pc = pc_new(redraw, poll, console);
+	PC *pc = pc_new(redraw, poll, console, argv + 1);
 	if (console)
 		console->pc = pc;
 
