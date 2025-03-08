@@ -2231,7 +2231,8 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		int newcs = laddr16(&meml2); \
 		/* flags */ TRY(translate16(cpu, &meml3, 1, SEG_SS, (sp + 4) & sp_mask)); \
 		uword oldflags = cpu->flags; \
-		cpu->flags = (cpu->flags & (0xffff0000 | IOPL)) | (laddr16(&meml3) & ~IOPL); \
+		if (cpu->flags & VM) cpu->flags = (cpu->flags & (0xffff0000 | IOPL)) | (laddr16(&meml3) & ~IOPL); \
+		else cpu->flags = (cpu->flags & 0xffff0000) | laddr16(&meml3); \
 		cpu->flags &= EFLAGS_MASK; \
 		cpu->flags |= 0x2; \
 		if (!set_seg(cpu, SEG_CS, newcs)) { cpu->flags = oldflags; return false; } \
@@ -2488,24 +2489,21 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		cpu->excerr = 0; \
 		return false; \
 	} \
+	uword mask = VM; \
+	if (cpu->cr0 & 1) { \
+		if (cpu->cpl > 0) mask |= IOPL; \
+		if (get_IOPL(cpu) < cpu->cpl) mask |= IF; \
+	} \
 	if (opsz16) { \
 		uword sp = lreg32(4); \
 		TRY(translate16(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
 		set_sp(sp + 2, sp_mask); \
-		if (cpu->flags & VM) \
-			cpu->flags = (cpu->flags & (0xffff0000 | IF | IOPL)) | \
-				(laddr16(&meml) & ~(IF | IOPL)); \
-		else \
-			cpu->flags = (cpu->flags & 0xffff0000) | laddr16(&meml); \
+		cpu->flags = (cpu->flags & (0xffff0000 | mask)) | (laddr16(&meml) & ~mask); \
 	} else { \
 		uword sp = lreg32(4); \
 		TRY(translate32(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
 		set_sp(sp + 4, sp_mask); \
-		if (cpu->flags & VM) \
-			cpu->flags = (cpu->flags & (IF | IOPL | VM)) | \
-				(laddr32(&meml) & ~(IF | IOPL | VM)); \
-		else \
-			cpu->flags = laddr32(&meml) & ~VM; \
+		cpu->flags = (cpu->flags & mask) | (laddr32(&meml) & ~mask); \
 	} \
 	cpu->flags &= EFLAGS_MASK; \
 	cpu->flags |= 0x2; \
@@ -4887,6 +4885,10 @@ static bool pmiret(CPUI386 *cpu, bool opsz16)
 		newcs = laddr32(&meml2);
 		newflags = laddr32(&meml3);
 	}
+	uword mask = 0;
+	if (cpu->cpl > 0) mask |= IOPL;
+	if (get_IOPL(cpu) < cpu->cpl) mask |= IF;
+	newflags = (oldflags & mask) | (newflags & ~mask);
 	newflags &= EFLAGS_MASK;
 	newflags |= 0x2;
 
