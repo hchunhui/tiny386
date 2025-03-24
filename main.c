@@ -80,8 +80,8 @@ enum {
 };
 
 enum {
-	SEG_D_BIT = 4,
-	SEG_B_BIT = 4,
+	SEG_D_BIT = 1 << 14,
+	SEG_B_BIT = 1 << 14,
 };
 
 typedef struct {
@@ -128,6 +128,7 @@ typedef struct {
 		struct tlb_entry {
 			uword lpgno;
 			uword pte;
+			u8 *ppte;
 		} *tab;
 	} tlb;
 
@@ -461,16 +462,18 @@ static bool tlb_refill(CPUI386 *cpu, struct tlb_entry *ent, uword lpgno)
 	if (!(pte & 1))
 		return false;
 	mem[base_addr2 + j * 4] |= 1 << 5; // accessed
-	mem[base_addr2 + j * 4] |= 1 << 6; // dirty
+//	mem[base_addr2 + j * 4] |= 1 << 6; // dirty
 
 	ent->lpgno = lpgno;
-	ent->pte = pte;
+	ent->pte = pte & ((pde & 7) | 0xfffffff8);
+	ent->ppte = &(mem[base_addr2 + j * 4]);
 	return true;
 }
 
 #define TRY(f) if(!(f)) { /*fprintf(stderr, "FAIL AT %s %s %d\n", __FILE__, __FUNCTION__, __LINE__);*/ return false; }
+#define TRY1(f) if(!(f)) { fprintf(stderr, "FAIL AT %s %s %d\n", __FILE__, __FUNCTION__, __LINE__); abort(); }
 
-static bool translate_slow(CPUI386 *cpu, OptAddr *res, int rwm, uword laddr, int size)
+static bool __translate_slow(CPUI386 *cpu, OptAddr *res, int rwm, uword laddr, int size, int cpl)
 {
 	if (cpu->cr0 & CR0_PG) {
 		uword lpgno = laddr >> 12;
@@ -480,22 +483,29 @@ static bool translate_slow(CPUI386 *cpu, OptAddr *res, int rwm, uword laddr, int
 				cpu->cr2 = laddr;
 				cpu->excno = EX_PF;
 				cpu->excerr = 0;
-				if (cpu->cpl)
+				if (rwm & 2)
+					cpu->excerr |= 2;
+				if (cpl)
 					cpu->excerr |= 4;
 				return false;
 			}
 		}
 		// TODO WP bit
-		if (((cpu->cr0 & 0x10000) || cpu->cpl) && (rwm & 2) && !(ent->pte & 2)) {
+		if (((cpu->cr0 & 0x10000) || cpl) && (rwm & 2) && !(ent->pte & 2) ||
+		    !(ent->pte & 4) && cpl) {
 			cpu->cr2 = laddr;
 			cpu->excno = EX_PF;
-			cpu->excerr = 3;
-			if (cpu->cpl)
+			cpu->excerr = 1;
+			if (rwm & 2)
+				cpu->excerr |= 2;
+			if (cpl)
 				cpu->excerr |= 4;
+			ent->lpgno = -1;
 			return false;
 		}
 		res->res = ADDR_OK1;
 		res->addr1 = (ent->pte & ~0xfff) | (laddr & 0xfff);
+		if (rwm & 2) *(ent->ppte) |= 1 << 6; // dirty bit
 
 		if ((laddr & 0xfff) > 0x1000 - size) {
 			lpgno++;
@@ -505,22 +515,29 @@ static bool translate_slow(CPUI386 *cpu, OptAddr *res, int rwm, uword laddr, int
 					cpu->cr2 = lpgno << 12;
 					cpu->excno = EX_PF;
 					cpu->excerr = 0;
-					if (cpu->cpl)
+					if (rwm & 2)
+						cpu->excerr |= 2;
+					if (cpl)
 						cpu->excerr |= 4;
 					return false;
 				}
 			}
 			// TODO WP bit
-			if (((cpu->cr0 & 0x10000) || cpu->cpl) && (rwm & 2) && !(ent->pte & 2)) {
+			if (((cpu->cr0 & 0x10000) || cpl) && (rwm & 2) && !(ent->pte & 2) ||
+			    !(ent->pte & 4) && cpl) {
 				cpu->cr2 = lpgno << 12;
 				cpu->excno = EX_PF;
-				cpu->excerr = 3;
-				if (cpu->cpl)
+				cpu->excerr = 1;
+				if (rwm & 2)
+					cpu->excerr |= 2;
+				if (cpl)
 					cpu->excerr |= 4;
+				ent->lpgno = -1;
 				return false;
 			}
 			res->res = ADDR_OK2;
 			res->addr2 = ent->pte & ~0xfff;
+			if (rwm & 2) *(ent->ppte) |= 1 << 6; // dirty bit
 		}
 	} else {
 		res->res = ADDR_OK1;
@@ -529,21 +546,41 @@ static bool translate_slow(CPUI386 *cpu, OptAddr *res, int rwm, uword laddr, int
 	return true;
 }
 
-static bool translate(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr, int size)
+static bool translate_slow(CPUI386 *cpu, OptAddr *res, int rwm, uword laddr, int size)
+{
+	return __translate_slow(cpu, res, rwm, laddr, size, cpu->cpl);
+}
+
+static bool translate(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr, int size, int cpl)
 {
 	assert(seg != -1);
 	uword laddr = cpu->seg[seg].base + addr;
-
+#if 0
+	if (cpu->cr0 & 1) {
+		bool expand_down = (cpu->seg[seg].flags & 0xc) == 0x4;
+		bool readonly = (cpu->seg[seg].flags & 0xa) == 0x0;
+		bool over = addr + size - 1 > cpu->seg[seg].limit;
+		if (expand_down)
+			over = addr <= cpu->seg[seg].limit;
+		if (over) {
+			fprintf(stderr, "over: addr %08x size %08x limit %08x\n", addr, size, cpu->seg[seg].limit);
+			cpu_debug(cpu);
+			cpu->excno = EX_GP;
+			cpu->excerr = 0;
+			return false;
+		}
+	}
+#endif
 	// XXX
-	if ((cpu->cr0 & 1) && !(cpu->flags & VM) && (cpu->seg[seg].sel & ~3) == 0) {
+	if ((cpu->cr0 & 1) && !(cpu->flags & VM) && (cpu->seg[seg].sel & ~0x3) == 0) {
+		fprintf(stderr, "translate: seg %d is null %x\n", seg, cpu->seg[seg].sel);
 		cpu->excno = EX_GP;
 		cpu->excerr = 0;
-		fprintf(stderr, "translate seg %d is null %x\n", seg, cpu->seg[seg].sel);
 		return false;
 	}
 
 	if (laddr & 3)
-		return translate_slow(cpu, res, rwm, laddr, size);
+		return __translate_slow(cpu, res, rwm, laddr, size, cpl);
 	if (cpu->cr0 & CR0_PG) {
 		uword lpgno = laddr >> 12;
 		struct tlb_entry *ent = &(cpu->tlb.tab[lpgno % tlb_size]);
@@ -552,22 +589,29 @@ static bool translate(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr, 
 				cpu->cr2 = laddr;
 				cpu->excno = EX_PF;
 				cpu->excerr = 0;
-				if (cpu->cpl)
+				if (rwm & 2)
+					cpu->excerr |= 2;
+				if (cpl)
 					cpu->excerr |= 4;
 				return false;
 			}
 		}
 		// TODO WP bit
-		if (((cpu->cr0 & 0x10000) || cpu->cpl) && (rwm & 2) && !(ent->pte & 2)) {
+		if (((cpu->cr0 & 0x10000) || cpl) && (rwm & 2) && !(ent->pte & 2) ||
+		    !(ent->pte & 4) && cpl) {
 			cpu->cr2 = laddr;
 			cpu->excno = EX_PF;
-			cpu->excerr = 3;
-			if (cpu->cpl)
+			cpu->excerr = 1;
+			if (rwm & 2)
+				cpu->excerr |= 2;
+			if (cpl)
 				cpu->excerr |= 4;
+			ent->lpgno = -1;
 			return false;
 		}
 		res->res = ADDR_OK1;
 		res->addr1 = (ent->pte & ~0xfff) | (laddr & 0xfff);
+		if (rwm & 2) *(ent->ppte) |= 1 << 6; // dirty bit
 	} else {
 		res->res = ADDR_OK1;
 		res->addr1 = laddr;
@@ -579,9 +623,24 @@ static bool translate8(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr)
 {
 	assert(seg != -1);
 	uword laddr = cpu->seg[seg].base + addr;
+#if 0
+	if (cpu->cr0 & 1) {
+		bool expand_down = (cpu->seg[seg].flags & 0xc) == 0x4;
+		bool readonly = (cpu->seg[seg].flags & 0xa) == 0x0;
+		bool over = addr > cpu->seg[seg].limit;
+		if (expand_down)
+			over = addr <= cpu->seg[seg].limit;
 
+		if (over) {
+			cpu_debug(cpu);
+			cpu->excno = EX_GP;
+			cpu->excerr = 0;
+			return false;
+		}
+	}
+#endif
 	// XXX
-	if ((cpu->cr0 & 1) && !(cpu->flags & VM) && (cpu->seg[seg].sel & ~3) == 0) {
+	if ((cpu->cr0 & 1) && !(cpu->flags & VM) && (cpu->seg[seg].sel & ~0x3) == 0) {
 		cpu->excno = EX_GP;
 		cpu->excerr = 0;
 		fprintf(stderr, "translate8 seg %d is null %04x:%08x\n", seg, cpu->seg[seg].sel, cpu->ip);
@@ -596,22 +655,29 @@ static bool translate8(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr)
 				cpu->cr2 = laddr;
 				cpu->excno = EX_PF;
 				cpu->excerr = 0;
+				if (rwm & 2)
+					cpu->excerr |= 2;
 				if (cpu->cpl)
 					cpu->excerr |= 4;
 				return false;
 			}
 		}
 		// TODO WP bit
-		if (((cpu->cr0 & 0x10000) || cpu->cpl) && (rwm & 2) && !(ent->pte & 2)) {
+		if (((cpu->cr0 & 0x10000) || cpu->cpl) && (rwm & 2) && !(ent->pte & 2) ||
+		    !(ent->pte & 4) && cpu->cpl) {
 			cpu->cr2 = laddr;
 			cpu->excno = EX_PF;
-			cpu->excerr = 3;
+			cpu->excerr = 1;
+			if (rwm & 2)
+				cpu->excerr |= 2;
 			if (cpu->cpl)
 				cpu->excerr |= 4;
+			ent->lpgno = -1;
 			return false;
 		}
 		res->res = ADDR_OK1;
 		res->addr1 = (ent->pte & ~0xfff) | (laddr & 0xfff);
+		if (rwm & 2) *(ent->ppte) |= 1 << 6; // dirty bit
 	} else {
 		res->res = ADDR_OK1;
 		res->addr1 = laddr;
@@ -622,12 +688,12 @@ static bool translate8(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr)
 
 static bool translate16(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr)
 {
-	return translate(cpu, res, rwm, seg, addr, 2);
+	return translate(cpu, res, rwm, seg, addr, 2, cpu->cpl);
 }
 
 static bool translate32(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uword addr)
 {
-	return translate(cpu, res, rwm, seg, addr, 4);
+	return translate(cpu, res, rwm, seg, addr, 4, cpu->cpl);
 }
 
 static bool in_iomem(uword addr)
@@ -640,17 +706,21 @@ static u8 load8(CPUI386 *cpu, OptAddr *res)
 	uword addr = res->addr1;
 	if (in_iomem(addr) && cpu->iomem_read8)
 		return cpu->iomem_read8(cpu->iomem, addr);
-	if (addr >= cpu->phys_mem_size)
+	if (addr >= cpu->phys_mem_size) {
+		fprintf(stderr, "load8: bad addr %08x\n", addr);
 		return 0;
+	}
 	return ((u8 *) cpu->phys_mem)[addr];
 }
 
 static u16 load16(CPUI386 *cpu, OptAddr *res)
 {
-	if (in_iomem(res->addr1) && cpu->iomem_read8)
+	if (in_iomem(res->addr1) && cpu->iomem_read16)
 		return cpu->iomem_read16(cpu->iomem, res->addr1);
-	if (res->addr1 >= cpu->phys_mem_size)
+	if (res->addr1 >= cpu->phys_mem_size) {
+		fprintf(stderr, "load16: bad addr %08x\n", res->addr1);
 		return 0;
+	}
 	u8 *mem = (u8 *) cpu->phys_mem;
 	if (res->res == ADDR_OK1)
 		return mem[res->addr1] | (mem[res->addr1 + 1] << 8);
@@ -660,10 +730,12 @@ static u16 load16(CPUI386 *cpu, OptAddr *res)
 
 static u32 load32(CPUI386 *cpu, OptAddr *res)
 {
-	if (in_iomem(res->addr1) && cpu->iomem_read8)
+	if (in_iomem(res->addr1) && cpu->iomem_read32)
 		return cpu->iomem_read32(cpu->iomem, res->addr1);
-	if (res->addr1 >= cpu->phys_mem_size)
+	if (res->addr1 >= cpu->phys_mem_size) {
+		fprintf(stderr, "load32: bad addr %08x\n", res->addr1);
 		return 0;
+	}
 	u8 *mem = (u8 *) cpu->phys_mem;
 	if (res->res == ADDR_OK1) {
 		u32 val = mem[res->addr1] | (mem[res->addr1 + 1] << 8) |
@@ -692,19 +764,23 @@ static void store8(CPUI386 *cpu, OptAddr *res, u8 val)
 		cpu->iomem_write8(cpu->iomem, addr, val);
 		return;
 	}
-	if (addr >= cpu->phys_mem_size)
+	if (addr >= cpu->phys_mem_size) {
+		fprintf(stderr, "store8: bad addr %08x\n", addr);
 		return;
+	}
 	((u8 *) cpu->phys_mem)[addr] = val;
 }
 
 static void store16(CPUI386 *cpu, OptAddr *res, u16 val)
 {
-	if (in_iomem(res->addr1) && cpu->iomem_write8) {
+	if (in_iomem(res->addr1) && cpu->iomem_write16) {
 		cpu->iomem_write16(cpu->iomem, res->addr1, val);
 		return;
 	}
-	if (res->addr1 >= cpu->phys_mem_size)
+	if (res->addr1 >= cpu->phys_mem_size) {
+		fprintf(stderr, "store16: bad addr %08x\n", res->addr1);
 		return;
+	}
 	u8 *mem = (u8 *) cpu->phys_mem;
 	if (res->res == ADDR_OK1) {
 		mem[res->addr1] = val;
@@ -717,12 +793,14 @@ static void store16(CPUI386 *cpu, OptAddr *res, u16 val)
 
 static void store32(CPUI386 *cpu, OptAddr *res, u32 val)
 {
-	if (in_iomem(res->addr1) && cpu->iomem_write8) {
+	if (in_iomem(res->addr1) && cpu->iomem_write32) {
 		cpu->iomem_write32(cpu->iomem, res->addr1, val);
 		return;
 	}
-	if (res->addr1 >= cpu->phys_mem_size)
+	if (res->addr1 >= cpu->phys_mem_size) {
+		fprintf(stderr, "store32: bad addr %08x\n", res->addr1);
 		return;
+	}
 	u8 *mem = (u8 *) cpu->phys_mem;
 	if (res->res == ADDR_OK1) {
 		mem[res->addr1] = val;
@@ -917,98 +995,55 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 
 	if (off > limit) {
 		cpu->excno = EX_GP;
-		cpu->excerr = 0;
+		cpu->excerr = sel & ~0x3;
 		fprintf(stderr, "set_seg: seg %04x sel %04x base %x limit %x off %x\n", seg, sel, base, limit, off);
 		return false;
 	}
-	TRY(translate_slow(cpu, &meml, 1, base + off, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off, 4, 0));
 	uword w1 = load32(cpu, &meml);
-	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off + 4, 4, 0));
 	uword w2 = load32(cpu, &meml);
 
 	int p = (w2 >> 15) & 1;
-	if (off != 0 && !p) {
+	if ((off != 0 || (sel & 0x4)) && !p) {
 		fprintf(stderr, "set seg: seg %d not present %0x\n", seg, sel);
 		cpu->excno = EX_NP;
-		cpu->excerr = sel;
+		cpu->excerr = sel & ~0x3;
 		return false;
+	}
+
+	if (seg == SEG_TR) {
+		int gt = (w2 >> 8) & 0xf;
+		int s = w2 >> 12 & 1;
+		if (!(!s && (gt == 0x9 || gt == 0xb || gt == 0x1 || gt == 0x3))) {
+			fprintf(stderr, "w2: %08x gt: %x s: %d\n", w2, gt, s);
+			abort();
+		}
+		w2 = w2 | (1 << 9);
+		TRY(__translate_slow(cpu, &meml, 2, base + off + 4, 4, 0));
+		store32(cpu, &meml, w2);
 	}
 
 	cpu->seg[seg].sel = sel;
 	cpu->seg[seg].base = (w1 >> 16) | ((w2 & 0xff) << 16) | (w2 & 0xff000000);
+	cpu->seg[seg].limit = (w2 & 0xf0000) | (w1 & 0xffff);
 	if (w2 & 0x00800000)
-		cpu->seg[seg].limit = ((w1 & 0xffff) << 12) | 0xfff;
-	else
-		cpu->seg[seg].limit = w1 & 0xffff;
-	cpu->seg[seg].flags = (w2 >> 20) & 0xf;
+		cpu->seg[seg].limit = (cpu->seg[seg].limit << 12) | 0xfff;
+	cpu->seg[seg].flags = (w2 >> 8) & 0xffff; // (w2 >> 20) & 0xf;
 	if (seg == SEG_CS) {
 //		if ((sel & 3) != cpu->cpl)
 //			fprintf(stderr, "set_seg: PVL %d => %d\n", cpu->cpl, sel & 3);
 		cpu->cpl = sel & 3;
 	}
-	return true;
-}
 
-static bool check_same_pvl(CPUI386 *cpu, int sel, bool *res)
-{
-	sel = sel & 0xffff;
-	OptAddr meml;
-	uword off = sel & ~0x7;
-	uword base;
-	uword limit;
-	if (sel & 0x4) {
-		base = cpu->seg[SEG_LDT].base;
-		limit = cpu->seg[SEG_LDT].limit;
-	} else {
-		base = cpu->gdt.base;
-		limit = cpu->gdt.limit;
-	}
-	if (off > limit) {
-		cpu->excno = EX_GP;
-		cpu->excerr = 0;
-		fprintf(stderr, "check_cs: sel %04x base %x off %x\n", sel, base, off);
-		return false;
-	}
-	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
-	uword w2 = load32(cpu, &meml);
-
-	int dpl = (w2 >> 13) & 0x3;
-	bool conforming = (w2 >> 8) & 0x4;
-	if (conforming || dpl == cpu->cpl) {
-		*res = true;
-	} else {
-		*res = false;
-	}
 	return true;
 }
 
 static void clear_segs(CPUI386 *cpu)
 {
-	return;
 	int segs[] = { SEG_DS, SEG_ES, SEG_FS, SEG_GS };
 	for (int i = 0; i < 4; i++) {
-		int sel = cpu->seg[segs[i]].sel;
-		OptAddr meml;
-		uword off = sel & ~0x7;
-		uword base;
-		uword limit;
-		if (sel & 0x4) {
-			base = cpu->seg[SEG_LDT].base;
-			limit = cpu->seg[SEG_LDT].limit;
-		} else {
-			base = cpu->gdt.base;
-			limit = cpu->gdt.limit;
-		}
-		if (off > limit) {
-			cpu->seg[segs[i]].sel = 0;
-			cpu->seg[segs[i]].base = 0;
-			cpu->seg[segs[i]].limit = 0;
-			cpu->seg[segs[i]].flags = 0;
-		}
-		if(!translate_slow(cpu, &meml, 1, base + off + 4, 4))
-			abort();
-		uword w2 = load32(cpu, &meml);
-
+		uword w2 = cpu->seg[segs[i]].flags << 8;
 		bool is_dataseg = !((w2 >> 11) & 1);
 		int dpl = (w2 >> 13) & 0x3;
 		bool conforming = (w2 >> 8) & 0x4;
@@ -1085,11 +1120,15 @@ static void clear_segs(CPUI386 *cpu)
 #define Eb(...) E_helper(8, , __VA_ARGS__)
 #define Ev(...) if (opsz16) { E_helper(16, w, __VA_ARGS__) } else { E_helper(32, d, __VA_ARGS__) }
 
-#define EG_helper(BIT, SUFFIX, rwm, INST) \
+#define EG_helper(PM, BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
+	if (PM && (!(cpu->cr0 & 1) || (cpu->flags & VM))) { \
+		cpu->excno = EX_UD; \
+		return false; \
+	} \
 	if (mod == 3) { \
 		INST ## SUFFIX(rm, reg, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
@@ -1098,9 +1137,10 @@ static void clear_segs(CPUI386 *cpu)
 		INST ## SUFFIX(&meml, reg, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT) \
 	}
 
-#define EbGb(...) EG_helper(8, , __VA_ARGS__)
-#define EwGw(...) EG_helper(16, , __VA_ARGS__)
-#define EvGv(...) if (opsz16) { EG_helper(16, w, __VA_ARGS__) } else { EG_helper(32, d, __VA_ARGS__) }
+#define EbGb(...) EG_helper(false, 8, , __VA_ARGS__)
+#define EwGw(...) EG_helper(false, 16, , __VA_ARGS__)
+#define PMEwGw(...) EG_helper(true, 16, , __VA_ARGS__)
+#define EvGv(...) if (opsz16) { EG_helper(false, 16, w, __VA_ARGS__) } else { EG_helper(false, 32, d, __VA_ARGS__) }
 
 #define BTEG_helper(BIT, BYTE, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
@@ -1559,7 +1599,11 @@ static void clear_segs(CPUI386 *cpu)
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (mod == 3) { \
-		INST(rm, lreg16, sreg16) \
+		if (opsz16) { \
+			INST(rm, lreg16, sreg16) \
+		} else { \
+			INST(rm, lreg32, sreg32) \
+		} \
 	} else { \
 		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
 		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
@@ -1613,7 +1657,6 @@ static void clear_segs(CPUI386 *cpu)
 #define saddr32(addr, v) store32(cpu, addr, v)
 #define lseg(i) ((u16) SEGi((i)))
 #define set_sp(v, mask) (sreg32(4, (v) & mask | lreg32(4) & ~mask))
-#define set_bp(v, mask) (sreg32(5, (v) & mask | lreg32(5) & ~mask))
 
 /*
  * instructions
@@ -2099,6 +2142,7 @@ static void clear_segs(CPUI386 *cpu)
 		cpu->excno = EX_UD; \
 		return false; \
 	} \
+	if (a == SEG_SS) delay = true; \
 	TRY(set_seg(cpu, a, lb(b)));
 #define MOVZXdb(a, b, la, sa, lb, sb) sa(a, lb(b));
 #define MOVZXwb(a, b, la, sa, lb, sb) sa(a, lb(b));
@@ -2174,7 +2218,7 @@ static void clear_segs(CPUI386 *cpu)
 	int rm = modrm & 7; \
 	if (reg == 0) { \
 		u32 new_cr0 = lreg32(rm); \
-		if ((new_cr0 ^ cpu->cr0) & CR0_PG) \
+		if ((new_cr0 ^ cpu->cr0) & (CR0_PG | 1)) \
 			tlb_clear(cpu); \
 		cpu->cr0 = new_cr0; \
 	} else if (reg == 2) { \
@@ -2210,10 +2254,9 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 			return false; \
 		} \
 	} \
-	cpu->excno = li(i); \
 	uword oldip = cpu->ip; \
 	cpu->ip = cpu->next_ip; \
-	if (!call_isr(cpu, cpu->excno, false, 0)) { \
+	if (!call_isr(cpu, li(i), false, 0)) { \
 		cpu->ip = oldip; \
 		return false; \
 	}
@@ -2243,71 +2286,29 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	if (cpu->intr && (cpu->flags & IF)) return true;
 
 #define RETFARw(i, li, _) \
-	if (opsz16) { \
-		OptAddr meml1, meml2, meml3, meml4; \
-		uword sp = lreg32(4); \
-		/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
-		uword newip = laddr16(&meml1); \
-		/* cs */ TRY(translate16(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask)); \
-		int newcs = laddr16(&meml2); \
-		bool switchss = (cpu->cr0 & 1) && !(cpu->flags & VM) && (newcs & 3) != cpu->cpl; \
-		if (switchss) { \
-			if ((newcs & 3) < cpu->cpl) { \
-				cpu->excno = EX_GP; \
-				cpu->excerr = newcs; \
-				return false; \
-			} \
-			/* sp */ TRY(translate16(cpu, &meml3, 1, SEG_SS, (sp + 4 + li(i)) & sp_mask)); \
-			/* ss */ TRY(translate16(cpu, &meml4, 1, SEG_SS, (sp + 4 + li(i) + 2) & sp_mask)); \
-		} \
-		int oldcs = cpu->seg[SEG_CS].sel; \
-		int oldcpl = cpu->cpl; \
-		TRY(set_seg(cpu, SEG_CS, newcs)); \
-		set_sp(sp + 4 + li(i), sp_mask); \
-		cpu->next_ip = newip; \
-		if (switchss) { \
-			uword newsp = laddr16(&meml3); \
-			int newss = laddr16(&meml4); \
-			if (!set_seg(cpu, SEG_SS, newss)) { \
-				cpu->seg[SEG_CS].sel = oldcs; /* XXX */ \
-				cpu->cpl = oldcpl; \
-				return false; \
-			} \
-			uword newsp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff; \
-			set_sp(newsp, newsp_mask); \
-		} \
+	if ((cpu->cr0 & 1) && !(cpu->flags & VM)) { \
+		TRY(pmretf(cpu, opsz16, li(i))); \
 	} else { \
-		OptAddr meml1, meml2, meml3, meml4; \
-		uword sp = lreg32(4); \
-		/* ip */ TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
-		uword newip = laddr32(&meml1); \
-		/* cs */ TRY(translate32(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask)); \
-		int newcs = laddr32(&meml2); \
-		bool switchss = (cpu->cr0 & 1) && !(cpu->flags & VM) && (newcs & 3) != cpu->cpl; \
-		if (switchss) { \
-			if ((newcs & 3) < cpu->cpl) { \
-				cpu->excno = EX_GP; \
-				cpu->excerr = newcs; \
-				return false; \
-			} \
-			/* sp */ TRY(translate32(cpu, &meml3, 1, SEG_SS, (sp + 8 + li(i)) & sp_mask)); \
-			/* ss */ TRY(translate32(cpu, &meml4, 1, SEG_SS, (sp + 8 + li(i) + 2) & sp_mask)); \
-		} \
-		int oldcs = cpu->seg[SEG_CS].sel; \
-		int oldcpl = cpu->cpl; \
-		TRY(set_seg(cpu, SEG_CS, newcs)); \
-		set_sp(sp + 8 + li(i), sp_mask); \
-		cpu->next_ip = newip; \
-		if (switchss) { \
-			uword newsp = laddr32(&meml3); \
-			int newss = laddr32(&meml4); \
-			if (!set_seg(cpu, SEG_SS, newss)) { \
-				cpu->seg[SEG_CS].sel = oldcs; /* XXX */ \
-				cpu->cpl = oldcpl; \
-				return false; \
-			} \
-			uword newsp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff; \
-			set_sp(newsp, newsp_mask); \
+		if (opsz16) { \
+			OptAddr meml1, meml2; \
+			uword sp = lreg32(4); \
+			/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
+			uword newip = laddr16(&meml1); \
+			/* cs */ TRY(translate16(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask)); \
+			int newcs = laddr16(&meml2); \
+			TRY(set_seg(cpu, SEG_CS, newcs)); \
+			set_sp(sp + 4 + li(i), sp_mask); \
+			cpu->next_ip = newip; \
+		} else { \
+			OptAddr meml1, meml2; \
+			uword sp = lreg32(4); \
+			/* ip */ TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
+			uword newip = laddr32(&meml1); \
+			/* cs */ TRY(translate32(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask)); \
+			int newcs = laddr32(&meml2); \
+			TRY(set_seg(cpu, SEG_CS, newcs)); \
+			set_sp(sp + 8 + li(i), sp_mask); \
+			cpu->next_ip = newip; \
 		} \
 	}
 
@@ -2518,9 +2519,9 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		saddr16(&meml, lseg(seg)); \
 	} else { \
 		uword sp = lreg32(4); \
-		TRY(translate32(cpu, &meml, 2, SEG_SS, (sp - 4) & sp_mask)); \
+		TRY(translate16(cpu, &meml, 2, SEG_SS, (sp - 4) & sp_mask)); \
 		set_sp(sp - 4, sp_mask); \
-		saddr32(&meml, lseg(seg)); \
+		saddr16(&meml, lseg(seg)); \
 	}
 #define PUSH_ES() PUSHSeg(SEG_ES)
 #define PUSH_CS() PUSHSeg(SEG_CS)
@@ -2537,12 +2538,12 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		set_sp(sp + 2, sp_mask); \
 	} else { \
 		uword sp = lreg32(4); \
-		TRY(translate32(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
-		TRY(set_seg(cpu, seg, laddr32(&meml))); \
+		TRY(translate16(cpu, &meml, 1, SEG_SS, sp & sp_mask)); \
+		TRY(set_seg(cpu, seg, laddr16(&meml))); \
 		set_sp(sp + 4, sp_mask); \
 	}
 #define POP_ES() POPSeg(SEG_ES)
-#define POP_SS() POPSeg(SEG_SS)
+#define POP_SS() POPSeg(SEG_SS) delay = true;
 #define POP_DS() POPSeg(SEG_DS)
 #define POP_FS() POPSeg(SEG_FS)
 #define POP_GS() POPSeg(SEG_GS)
@@ -3075,12 +3076,12 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask)); \
 		set_sp(sp - 2 - l16(i16), sp_mask); \
 		saddr16(&meml1, lreg16(5)); \
-		set_bp(sp - 2, sp_mask); \
+		sreg16(5, (sp - 2) & sp_mask); \
 	} else { \
 		TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask)); \
 		set_sp(sp - 4 - l16(i16), sp_mask); \
 		saddr32(&meml1, lreg32(5)); \
-		set_bp(sp - 4, sp_mask); \
+		sreg32(5, (sp - 4) & sp_mask); \
 	}
 
 #define LEAVE() \
@@ -3110,6 +3111,11 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	store32(cpu, &meml2, cpu->idt.base);
 
 #define LGDT(addr) \
+	if (cpu->cpl != 0) { \
+		cpu->excno = EX_GP; \
+		cpu->excerr = 0; \
+		return false; \
+	} \
 	OptAddr meml1, meml2; \
 	TRY(translate16(cpu, &meml1, 1, curr_seg, addr)); \
 	TRY(translate32(cpu, &meml2, 1, curr_seg, addr + 2)); \
@@ -3120,6 +3126,11 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	cpu->gdt.limit = limit;
 
 #define LIDT(addr) \
+	if (cpu->cpl != 0) { \
+		cpu->excno = EX_GP; \
+		cpu->excerr = 0; \
+		return false; \
+	} \
 	OptAddr meml1, meml2; \
 	TRY(translate16(cpu, &meml1, 1, curr_seg, addr)); \
 	TRY(translate32(cpu, &meml2, 1, curr_seg, addr + 2)); \
@@ -3130,12 +3141,22 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	cpu->idt.limit = limit;
 
 #define LLDT(a, la, sa) \
+	if (cpu->cpl != 0) { \
+		cpu->excno = EX_GP; \
+		cpu->excerr = 0; \
+		return false; \
+	} \
 	TRY(set_seg(cpu, SEG_LDT, la(a)));
 
 #define SLDT(a, la, sa) \
 	sa(a, cpu->seg[SEG_LDT].sel);
 
 #define LTR(a, la, sa) \
+	if (cpu->cpl != 0) { \
+		cpu->excno = EX_GP; \
+		cpu->excerr = 0; \
+		return false; \
+	} \
 	TRY(set_seg(cpu, SEG_TR, la(a)));
 
 #define STR(a, la, sa) \
@@ -3215,10 +3236,10 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 		allow = false;
 		if (cpu->seg[SEG_TR].limit >= 103) {
 			OptAddr meml;
-			TRY(translate16(cpu, &meml, 1, SEG_TR, 102));
+			TRY(translate(cpu, &meml, 1, SEG_TR, 102, 2, 0));
 			u32 iobase = load16(cpu, &meml);
 			if (iobase + port / 8 < cpu->seg[SEG_TR].limit) {
-				TRY(translate16(cpu, &meml, 1, SEG_TR, iobase + port / 8));
+				TRY(translate(cpu, &meml, 1, SEG_TR, iobase + port / 8, 2, 0));
 				u16 perm = load16(cpu, &meml);
 				int len = bit / 8;
 				unsigned bit_index = port & 0x7;
@@ -3264,7 +3285,7 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 
 #define OUTd(a, b, la, sa, lb, sb) \
 	int port = la(a); \
-	TRY(check_ioperm(cpu, port, 16)); \
+	TRY(check_ioperm(cpu, port, 32)); \
 	cpu->io_write32(cpu->io, port, lb(b));
 
 #define CLTS() \
@@ -3401,9 +3422,9 @@ static bool larsl_helper(CPUI386 *cpu, int sel, uword *ar, uword *sl, int *zf)
 		*zf = 0;
 		return true;
 	}
-	TRY(translate_slow(cpu, &meml, 1, base + off, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off, 4, 0));
 	uword w1 = load32(cpu, &meml);
-	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off + 4, 4, 0));
 	uword w2 = load32(cpu, &meml);
 
 	int dpl = (w2 >> 13) & 0x3;
@@ -3446,9 +3467,9 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 		*zf = 0;
 		return true;
 	}
-	TRY(translate_slow(cpu, &meml, 1, base + off, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off, 4, 0));
 	uword w1 = load32(cpu, &meml);
-	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off + 4, 4, 0));
 	uword w2 = load32(cpu, &meml);
 
 	int dpl = (w2 >> 13) & 0x3;
@@ -3567,6 +3588,7 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel);
 static bool pmjmp(CPUI386 *cpu, bool opsz16, uword addr, int sel);
 static bool pmiret(CPUI386 *cpu, bool opsz16);
+static bool pmretf(CPUI386 *cpu, bool opsz16, int off);
 
 static bool verbose;
 
@@ -3619,9 +3641,11 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 	u8 modrm;
 	OptAddr meml;
 	uword addr;
-	for (; stepcount > 0; stepcount--) {
+	bool delay = false;
+	for (; delay || stepcount > 0; stepcount--) {
 	bool code16 = !(cpu->seg[SEG_CS].flags & SEG_D_BIT);
 	uword sp_mask =  cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
+	delay = false;
 
 	dispatch;
 
@@ -3951,15 +3975,16 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 
 static bool ex_push_helper1(CPUI386 *cpu, uword oldss, uword oldsp, bool pusherr)
 {
+	uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 	OptAddr meml1, meml2, meml3, meml4, meml5, meml6;
 	uword sp = lreg32(4);
-	TRY(translate32(cpu, &meml1, 2, SEG_SS, sp - 4 * 1));
-	TRY(translate32(cpu, &meml2, 2, SEG_SS, sp - 4 * 2));
-	TRY(translate32(cpu, &meml3, 2, SEG_SS, sp - 4 * 3));
-	TRY(translate32(cpu, &meml4, 2, SEG_SS, sp - 4 * 4));
-	TRY(translate32(cpu, &meml5, 2, SEG_SS, sp - 4 * 5));
+	TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 4 * 1) & sp_mask, 4, 0));
+	TRY(translate(cpu, &meml2, 2, SEG_SS, (sp - 4 * 2) & sp_mask, 4, 0));
+	TRY(translate(cpu, &meml3, 2, SEG_SS, (sp - 4 * 3) & sp_mask, 4, 0));
+	TRY(translate(cpu, &meml4, 2, SEG_SS, (sp - 4 * 4) & sp_mask, 4, 0));
+	TRY(translate(cpu, &meml5, 2, SEG_SS, (sp - 4 * 5) & sp_mask, 4, 0));
 	if (pusherr) {
-		TRY(translate32(cpu, &meml6, 2, SEG_SS, sp - 4 * 6));
+		TRY(translate(cpu, &meml6, 2, SEG_SS, (sp - 4 * 6) & sp_mask, 4, 0));
 	}
 	saddr32(&meml1, oldss);
 	saddr32(&meml2, oldsp);
@@ -3981,21 +4006,22 @@ static bool ex_push_helper1(CPUI386 *cpu, uword oldss, uword oldsp, bool pusherr
 
 static bool ex_push_helper1vm(CPUI386 *cpu, uword oldss, uword oldsp, bool pusherr)
 {
+//	pusherr = false;
 	uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 	OptAddr memlg, memlf, memld, memle;
 	OptAddr meml1, meml2, meml3, meml4, meml5, meml6;
 	uword sp = lreg32(4);
-	TRY(translate32(cpu, &memlg, 2, SEG_SS, sp - 4 * 1));
-	TRY(translate32(cpu, &memlf, 2, SEG_SS, sp - 4 * 2));
-	TRY(translate32(cpu, &memld, 2, SEG_SS, sp - 4 * 3));
-	TRY(translate32(cpu, &memle, 2, SEG_SS, sp - 4 * 4));
-	TRY(translate32(cpu, &meml1, 2, SEG_SS, sp - 4 * 5));
-	TRY(translate32(cpu, &meml2, 2, SEG_SS, sp - 4 * 6));
-	TRY(translate32(cpu, &meml3, 2, SEG_SS, sp - 4 * 7));
-	TRY(translate32(cpu, &meml4, 2, SEG_SS, sp - 4 * 8));
-	TRY(translate32(cpu, &meml5, 2, SEG_SS, sp - 4 * 9));
+	TRY(translate(cpu, &memlg, 2, SEG_SS, (sp - 4 * 1) & sp_mask, 4, 0));
+	TRY(translate(cpu, &memlf, 2, SEG_SS, (sp - 4 * 2) & sp_mask, 4, 0));
+	TRY(translate(cpu, &memld, 2, SEG_SS, (sp - 4 * 3) & sp_mask, 4, 0));
+	TRY(translate(cpu, &memle, 2, SEG_SS, (sp - 4 * 4) & sp_mask, 4, 0));
+	TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 4 * 5) & sp_mask, 4, 0));
+	TRY(translate(cpu, &meml2, 2, SEG_SS, (sp - 4 * 6) & sp_mask, 4, 0));
+	TRY(translate(cpu, &meml3, 2, SEG_SS, (sp - 4 * 7) & sp_mask, 4, 0));
+	TRY(translate(cpu, &meml4, 2, SEG_SS, (sp - 4 * 8) & sp_mask, 4, 0));
+	TRY(translate(cpu, &meml5, 2, SEG_SS, (sp - 4 * 9) & sp_mask, 4, 0));
 	if (pusherr) {
-		TRY(translate32(cpu, &meml6, 2, SEG_SS, sp - 4 * 10));
+		TRY(translate(cpu, &meml6, 2, SEG_SS, (sp - 4 * 10) & sp_mask, 4, 0));
 	}
 	saddr32(&memlg, cpu->seg[SEG_GS].sel);
 	saddr32(&memlf, cpu->seg[SEG_FS].sel);
@@ -4024,13 +4050,13 @@ static bool ex_push_helper1_16(CPUI386 *cpu, uword oldss, uword oldsp, bool push
 	uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 	OptAddr meml1, meml2, meml3, meml4, meml5, meml6;
 	uword sp = lreg32(4);
-	TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask));
-	TRY(translate16(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask));
-	TRY(translate16(cpu, &meml3, 2, SEG_SS, (sp - 2 * 3) & sp_mask));
-	TRY(translate16(cpu, &meml4, 2, SEG_SS, (sp - 2 * 4) & sp_mask));
-	TRY(translate16(cpu, &meml5, 2, SEG_SS, (sp - 2 * 5) & sp_mask));
+	TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask, 2, 0));
+	TRY(translate(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask, 2, 0));
+	TRY(translate(cpu, &meml3, 2, SEG_SS, (sp - 2 * 3) & sp_mask, 2, 0));
+	TRY(translate(cpu, &meml4, 2, SEG_SS, (sp - 2 * 4) & sp_mask, 2, 0));
+	TRY(translate(cpu, &meml5, 2, SEG_SS, (sp - 2 * 5) & sp_mask, 2, 0));
 	if (pusherr) {
-		TRY(translate16(cpu, &meml6, 2, SEG_SS, (sp - 2 * 6) & sp_mask));
+		TRY(translate(cpu, &meml6, 2, SEG_SS, (sp - 2 * 6) & sp_mask, 2, 0));
 	}
 	saddr16(&meml1, oldss);
 	saddr16(&meml2, oldsp);
@@ -4056,11 +4082,11 @@ static bool ex_push_helper2(CPUI386 *cpu, bool gate16, bool pusherr)
 	uword sp = lreg32(4);
 	uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 	if (gate16) {
-		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask));
-		TRY(translate16(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask));
-		TRY(translate16(cpu, &meml3, 2, SEG_SS, (sp - 2 * 3) & sp_mask));
+		TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask, 2, 0));
+		TRY(translate(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask, 2, 0));
+		TRY(translate(cpu, &meml3, 2, SEG_SS, (sp - 2 * 3) & sp_mask, 2, 0));
 		if (pusherr) {
-			TRY(translate16(cpu, &meml4, 2, SEG_SS, (sp - 2 * 4) & sp_mask));
+			TRY(translate(cpu, &meml4, 2, SEG_SS, (sp - 2 * 4) & sp_mask, 2, 0));
 		}
 
 		refresh_flags(cpu);
@@ -4076,11 +4102,11 @@ static bool ex_push_helper2(CPUI386 *cpu, bool gate16, bool pusherr)
 			set_sp(sp - 2 * 3, sp_mask);
 		}
 	} else {
-		TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4 * 1) & sp_mask));
-		TRY(translate32(cpu, &meml2, 2, SEG_SS, (sp - 4 * 2) & sp_mask));
-		TRY(translate32(cpu, &meml3, 2, SEG_SS, (sp - 4 * 3) & sp_mask));
+		TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 4 * 1) & sp_mask, 4, 0));
+		TRY(translate(cpu, &meml2, 2, SEG_SS, (sp - 4 * 2) & sp_mask, 4, 0));
+		TRY(translate(cpu, &meml3, 2, SEG_SS, (sp - 4 * 3) & sp_mask, 4, 0));
 		if (pusherr) {
-			TRY(translate32(cpu, &meml4, 2, SEG_SS, (sp - 4 * 4) & sp_mask));
+			TRY(translate(cpu, &meml4, 2, SEG_SS, (sp - 4 * 4) & sp_mask, 4, 0));
 		}
 
 		refresh_flags(cpu);
@@ -4099,48 +4125,9 @@ static bool ex_push_helper2(CPUI386 *cpu, bool gate16, bool pusherr)
 	return true;
 }
 
-static bool ex_push_helper(CPUI386 *cpu, bool gate16, int newpl, bool pusherr)
-{
-	OptAddr meml;
-	OptAddr msp0, mss0;
-
-	if (newpl != cpu->cpl) {
-		uword oldss = cpu->seg[SEG_SS].sel;
-		uword oldsp = cpu->gpr[4];
-		if (!gate16) {//cpu->seg[SEG_TR].flags & SEG_D_BIT) {
-			TRY(translate32(cpu, &msp0, 1, SEG_TR, 4 + 8 * newpl));
-			TRY(translate32(cpu, &mss0, 1, SEG_TR, 8 + 8 * newpl));
-			cpu->gpr[4] = load32(cpu, &msp0);
-
-			if (cpu->flags & VM) {
-				cpu->flags &= ~VM;
-				TRY(set_seg(cpu, SEG_SS, load32(cpu, &mss0)));
-				TRY(ex_push_helper1vm(cpu, oldss, oldsp, pusherr));
-				TRY(set_seg(cpu, SEG_DS, 0));
-				TRY(set_seg(cpu, SEG_ES, 0));
-				TRY(set_seg(cpu, SEG_FS, 0));
-				TRY(set_seg(cpu, SEG_GS, 0));
-				cpu->flags &= ~(TF | RF | NT);
-			} else {
-				TRY(set_seg(cpu, SEG_SS, load32(cpu, &mss0)));
-				TRY(ex_push_helper1(cpu, oldss, oldsp, pusherr));
-			}
-		} else {
-			TRY(translate16(cpu, &msp0, 1, SEG_TR, 2 + 4 * newpl));
-			TRY(translate16(cpu, &mss0, 1, SEG_TR, 4 + 4 * newpl));
-			cpu->gpr[4] = load16(cpu, &msp0);
-
-			TRY(set_seg(cpu, SEG_SS, load16(cpu, &mss0)));
-			TRY(ex_push_helper1_16(cpu, oldss, oldsp, pusherr));
-		}
-		return true;
-	} else {
-		return ex_push_helper2(cpu, gate16, pusherr);
-	}
-}
-
 static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 {
+	sel = sel & 0xffff;
 	uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 	OptAddr meml;
 	uword off = sel & ~0x7;
@@ -4154,7 +4141,7 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 		limit = cpu->gdt.limit;
 	}
 
-	if (off == 0) {
+	if ((sel & ~0x3) == 0) {
 		cpu->excno = EX_GP;
 		cpu->excerr = 0;
 		return false;
@@ -4162,22 +4149,22 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 
 	if (off > limit) {
 		cpu->excno = EX_GP;
-		cpu->excerr = sel;
+		cpu->excerr = sel & ~0x3;
 		return false;
 	}
 
-	TRY(translate_slow(cpu, &meml, 1, base + off, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off, 4, 0));
 	uword w1 = load32(cpu, &meml);
-	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off + 4, 4, 0));
 	uword w2 = load32(cpu, &meml);
 
 	int s = (w2 >> 12) & 1;
 	int dpl = (w2 >> 13) & 0x3;
 	int p = (w2 >> 15) & 1;
 	if (!p) {
-		fprintf(stderr, "pmcall: seg not present %0x4\n", sel);
+		fprintf(stderr, "pmcall: seg not present %04x\n", sel);
 		cpu->excno = EX_NP;
-		cpu->excerr = sel;
+		cpu->excerr = sel & ~0x3;
 		return false;
 	}
 
@@ -4186,21 +4173,22 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 		bool conforming = (w2 >> 8) & 0x4;
 		if (!code) {
 			cpu->excno = EX_GP;
-			cpu->excerr = sel;
+			cpu->excerr = sel & ~0x3;
 			return false;
 		}
 		if (conforming) {
 			// call conforming code segment
 			if (dpl > cpu->cpl) {
 				cpu->excno = EX_GP;
-				cpu->excerr = sel;
+				cpu->excerr = sel & ~0x3;
 				return false;
 			}
+			sel = (sel & 0xfffc) | cpu->cpl;
 		} else {
 			// call nonconforming code segment
 			if ((sel & 0x3) > cpu->cpl || dpl != cpu->cpl) {
 				cpu->excno = EX_GP;
-				cpu->excerr = sel;
+				cpu->excerr = sel & ~0x3;
 				return false;
 			}
 			sel = (sel & 0xfffc) | cpu->cpl;
@@ -4209,21 +4197,21 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 		OptAddr meml1, meml2;
 		uword sp = lreg32(4);
 		if (opsz16) {
-			TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask));
-			TRY(translate16(cpu, &meml2, 2, SEG_SS, (sp - 4) & sp_mask));
+			TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask, 2, 0));
+			TRY(translate(cpu, &meml2, 2, SEG_SS, (sp - 4) & sp_mask, 2, 0));
 			set_sp(sp - 4, sp_mask);
 			saddr16(&meml1, cpu->seg[SEG_CS].sel);
 			saddr16(&meml2, cpu->next_ip);
 		} else {
-			TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask));
-			TRY(translate32(cpu, &meml2, 2, SEG_SS, (sp - 8) & sp_mask));
+			TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask, 4, 0));
+			TRY(translate(cpu, &meml2, 2, SEG_SS, (sp - 8) & sp_mask, 4, 0));
 			set_sp(sp - 8, sp_mask);
 			saddr32(&meml1, cpu->seg[SEG_CS].sel);
 			saddr32(&meml2, cpu->next_ip);
 		}
 //		if ((sel & 3) != cpu->cpl)
 //			fprintf(stderr, "pmcall PVL %d => %d\n", cpu->cpl, sel & 3);
-		TRY(set_seg(cpu, SEG_CS, sel));
+		TRY1(set_seg(cpu, SEG_CS, sel));
 		cpu->next_ip = addr;
 	} else {
 		int newcs = w1 >> 16;
@@ -4234,7 +4222,7 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 
 		if (dpl < cpu->cpl || dpl < (sel & 3)) {
 			cpu->excno = EX_GP;
-			cpu->excerr = sel;
+			cpu->excerr = sel & ~0x3;
 			return false;
 		}
 
@@ -4250,7 +4238,7 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 			newlimit = cpu->gdt.limit;
 		}
 
-		TRY(translate_slow(cpu, &meml, 1, newbase + newoff + 4, 4));
+		TRY(__translate_slow(cpu, &meml, 1, newbase + newoff + 4, 4, 0));
 		uword neww2 = load32(cpu, &meml);
 
 		if (newoff == 0) {
@@ -4261,14 +4249,14 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 
 		if (newoff > newlimit) {
 			cpu->excno = EX_GP;
-			cpu->excerr = newcs;
+			cpu->excerr = newcs & ~0x3;
 			return false;
 		}
 
 		if (((neww2 >> 11) & 0x3) != 0x3) {
 			// not code segment
 			cpu->excno = EX_GP;
-			cpu->excerr = newcs;
+			cpu->excerr = newcs & ~0x3;
 			return false;
 		}
 
@@ -4276,13 +4264,13 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 		int newp = (neww2 >> 15) & 1;
 		if (!newp) {
 			cpu->excno = EX_NP;
-			cpu->excerr = newcs;
+			cpu->excerr = newcs & ~0x3;
 			return false;
 		}
 
 		if (newdpl > cpu->cpl) {
 			cpu->excno = EX_GP;
-			cpu->excerr = newcs;
+			cpu->excerr = newcs & ~0x3;
 			return false;
 		}
 
@@ -4294,31 +4282,48 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 			uword oldss = cpu->seg[SEG_SS].sel;
 			uword oldsp = cpu->gpr[4];
 			uword params[31];
-			if (!gate16) { //cpu->seg[SEG_TR].flags & SEG_D_BIT) {
-				uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
+			uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
+
+			if (!gate16) {
 				for (int i = 0; i < wc; i++) {
 					OptAddr meml;
-					TRY(translate32(cpu, &meml, 1, SEG_SS, (oldsp + 4 * i) & sp_mask));
+					TRY(translate(cpu, &meml, 1, SEG_SS, (oldsp + 4 * i) & sp_mask, 4, 0));
 					params[i] = laddr32(&meml);
 				}
+			} else {
+				for (int i = 0; i < wc; i++) {
+					OptAddr meml;
+					TRY(translate(cpu, &meml, 1, SEG_SS, (oldsp + 2 * i) & sp_mask, 2, 0));
+					params[i] = laddr16(&meml);
+				}
+			}
 
-				TRY(translate32(cpu, &msp0, 1, SEG_TR, 4 + 8 * newdpl));
-				TRY(translate32(cpu, &mss0, 1, SEG_TR, 8 + 8 * newdpl));
+			if (!(cpu->seg[SEG_TR].flags & 0x8)) {
+				TRY(translate(cpu, &msp0, 1, SEG_TR, 2 + 4 * newdpl, 2, 0));
+				TRY(translate(cpu, &mss0, 1, SEG_TR, 4 + 4 * newdpl, 2, 0));
+				// TODO: Check SS...
+				cpu->gpr[4] = load16(cpu, &msp0);
+				TRY(set_seg(cpu, SEG_SS, load16(cpu, &mss0)));
+			} else {
+				TRY(translate(cpu, &msp0, 1, SEG_TR, 4 + 8 * newdpl, 4, 0));
+				TRY(translate(cpu, &mss0, 1, SEG_TR, 8 + 8 * newdpl, 4, 0));
 				// TODO: Check SS...
 				cpu->gpr[4] = load32(cpu, &msp0);
 				TRY(set_seg(cpu, SEG_SS, load32(cpu, &mss0)));
-				sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
+			}
+			sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 
+			if (!gate16) {
 				OptAddr meml1, meml2, meml3, meml4;
 				uword sp = lreg32(4);
-				TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4 * 1) & sp_mask));
-				TRY(translate32(cpu, &meml2, 2, SEG_SS, (sp - 4 * 2) & sp_mask));
-				TRY(translate32(cpu, &meml3, 2, SEG_SS, (sp - 4 * (3 + wc)) & sp_mask));
-				TRY(translate32(cpu, &meml4, 2, SEG_SS, (sp - 4 * (4 + wc)) & sp_mask));
+				TRY1(translate(cpu, &meml1, 2, SEG_SS, (sp - 4 * 1) & sp_mask, 4, 0));
+				TRY1(translate(cpu, &meml2, 2, SEG_SS, (sp - 4 * 2) & sp_mask, 4, 0));
+				TRY1(translate(cpu, &meml3, 2, SEG_SS, (sp - 4 * (3 + wc)) & sp_mask, 4, 0));
+				TRY1(translate(cpu, &meml4, 2, SEG_SS, (sp - 4 * (4 + wc)) & sp_mask, 4, 0));
 
 				for (int i = 0; i < wc; i++) {
 					OptAddr meml;
-					TRY(translate32(cpu, &meml, 2, SEG_SS, (sp - 4 * (2 + wc - i)) & sp_mask));
+					TRY1(translate(cpu, &meml, 2, SEG_SS, (sp - 4 * (2 + wc - i)) & sp_mask, 4, 0));
 					saddr32(&meml, params[i]);
 				}
 
@@ -4328,30 +4333,16 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 				saddr32(&meml4, cpu->next_ip);
 				set_sp(sp - 4 * (4 + wc), sp_mask);
 			} else {
-				uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
-				for (int i = 0; i < wc; i++) {
-					OptAddr meml;
-					TRY(translate16(cpu, &meml, 1, SEG_SS, (oldsp + 2 * i) & sp_mask));
-					params[i] = laddr16(&meml);
-				}
-
-				TRY(translate16(cpu, &msp0, 1, SEG_TR, 2 + 4 * newdpl));
-				TRY(translate16(cpu, &mss0, 1, SEG_TR, 4 + 4 * newdpl));
-				// TODO: Check SS...
-				cpu->gpr[4] = load16(cpu, &msp0);
-				TRY(set_seg(cpu, SEG_SS, load16(cpu, &mss0)));
-				sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
-
 				OptAddr meml1, meml2, meml3, meml4;
 				uword sp = lreg32(4);
-				TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask));
-				TRY(translate16(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask));
-				TRY(translate16(cpu, &meml3, 2, SEG_SS, (sp - 2 * (3 + wc)) & sp_mask));
-				TRY(translate16(cpu, &meml4, 2, SEG_SS, (sp - 2 * (4 + wc)) & sp_mask));
+				TRY1(translate(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask, 2, 0));
+				TRY1(translate(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask, 2, 0));
+				TRY1(translate(cpu, &meml3, 2, SEG_SS, (sp - 2 * (3 + wc)) & sp_mask, 2, 0));
+				TRY1(translate(cpu, &meml4, 2, SEG_SS, (sp - 2 * (4 + wc)) & sp_mask, 2, 0));
 
 				for (int i = 0; i < wc; i++) {
 					OptAddr meml;
-					TRY(translate16(cpu, &meml, 2, SEG_SS, (sp - 2 * (2 + wc - i)) & sp_mask));
+					TRY1(translate(cpu, &meml, 2, SEG_SS, (sp - 2 * (2 + wc - i)) & sp_mask, 2, 0));
 					saddr16(&meml, params[i]);
 				}
 
@@ -4368,14 +4359,14 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 			uword sp = lreg32(4);
 			uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 			if (gate16) {
-				TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask));
-				TRY(translate16(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask));
+				TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask, 2, 0));
+				TRY(translate(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask, 2, 0));
 				saddr16(&meml1, cpu->seg[SEG_CS].sel);
 				saddr16(&meml2, cpu->next_ip);
 				set_sp(sp - 2 * 2, sp_mask);
 			} else {
-				TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4 * 1) & sp_mask));
-				TRY(translate32(cpu, &meml2, 2, SEG_SS, (sp - 4 * 2) & sp_mask));
+				TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 4 * 1) & sp_mask, 4, 0));
+				TRY(translate(cpu, &meml2, 2, SEG_SS, (sp - 4 * 2) & sp_mask, 4, 0));
 				saddr32(&meml1, cpu->seg[SEG_CS].sel);
 				saddr32(&meml2, cpu->next_ip);
 				set_sp(sp - 4 * 2, sp_mask);
@@ -4394,6 +4385,7 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 
 static bool pmjmp(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 {
+	sel = sel & 0xffff;
 	uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 	OptAddr meml;
 	uword off = sel & ~0x7;
@@ -4407,7 +4399,7 @@ static bool pmjmp(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 		limit = cpu->gdt.limit;
 	}
 
-	if (off == 0) {
+	if ((sel & ~0x3) == 0) {
 		cpu->excno = EX_GP;
 		cpu->excerr = 0;
 		return false;
@@ -4415,22 +4407,22 @@ static bool pmjmp(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 
 	if (off > limit) {
 		cpu->excno = EX_GP;
-		cpu->excerr = sel;
+		cpu->excerr = sel & ~0x3;
 		return false;
 	}
 
-	TRY(translate_slow(cpu, &meml, 1, base + off, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off, 4, 0));
 	uword w1 = load32(cpu, &meml);
-	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off + 4, 4, 0));
 	uword w2 = load32(cpu, &meml);
 
 	int s = (w2 >> 12) & 1;
 	int dpl = (w2 >> 13) & 0x3;
 	int p = (w2 >> 15) & 1;
 	if (!p) {
-		fprintf(stderr, "pmjmp: seg not present %0x4\n", sel);
+		fprintf(stderr, "pmjmp: seg not present %04x\n", sel);
 		cpu->excno = EX_NP;
-		cpu->excerr = sel;
+		cpu->excerr = sel & ~0x3;
 		return false;
 	}
 
@@ -4439,26 +4431,27 @@ static bool pmjmp(CPUI386 *cpu, bool opsz16, uword addr, int sel)
 		bool conforming = (w2 >> 8) & 0x4;
 		if (!code) {
 			cpu->excno = EX_GP;
-			cpu->excerr = sel;
+			cpu->excerr = sel & ~0x3;
 			return false;
 		}
 		if (conforming) {
 			// call conforming code segment
 			if (dpl > cpu->cpl) {
 				cpu->excno = EX_GP;
-				cpu->excerr = sel;
+				cpu->excerr = sel & ~0x3;
 				return false;
 			}
+			sel = (sel & 0xfffc) | cpu->cpl;
 		} else {
 			// call nonconforming code segment
 			if ((sel & 0x3) > cpu->cpl || dpl != cpu->cpl) {
 				cpu->excno = EX_GP;
-				cpu->excerr = sel;
+				cpu->excerr = sel & ~0x3;
 				return false;
 			}
 			sel = (sel & 0xfffc) | cpu->cpl;
 		}
-		TRY(set_seg(cpu, SEG_CS, sel));
+		TRY1(set_seg(cpu, SEG_CS, sel));
 		cpu->next_ip = addr;
 	} else {
 		assert(false);
@@ -4484,13 +4477,14 @@ static int __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
 		base = cpu->gdt.base;
 		limit = cpu->gdt.limit;
 	}
-	if (off == 0 || off > limit) {
+	if ((sel & ~0x3) == 0 || off > limit) {
 		cpu->excno = EX_GP;
 		cpu->excerr = ext;
 		return 0;
 	}
 
-	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
+	if(!__translate_slow(cpu, &meml, 1, base + off + 4, 4, 0))
+		assert(false);
 	uword w2 = load32(cpu, &meml);
 	int s = (w2 >> 12) & 1;
 	bool code = (w2 >> 8) & 0x8;
@@ -4500,13 +4494,13 @@ static int __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
 	*csdpl = dpl;
 	if (!s || !code || dpl > cpu->cpl) {
 		cpu->excno = EX_GP;
-		cpu->excerr = off | ext;
+		cpu->excerr = (sel & ~0x3) | ext;
 		return 0;
 	}
 
 	if (!p) {
 		cpu->excno = EX_NP;
-		cpu->excerr = off | ext;
+		cpu->excerr = sel & ~0x3;
 		return 0;
 	}
 
@@ -4516,7 +4510,7 @@ static int __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
 		} else {
 			if (dpl != 0) {
 				cpu->excno = EX_GP;
-				cpu->excerr = off | ext;
+				cpu->excerr = (sel & ~0x3) | ext;
 				fprintf(stderr, "__call_isr_check_cs fail1: %d %d %d\n", conforming, dpl, cpu->cpl);
 				return 0;
 			} else {
@@ -4526,14 +4520,14 @@ static int __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
 	} else {
 		if (cpu->flags & VM) {
 			cpu->excno = EX_GP;
-			cpu->excerr = off | ext;
+			cpu->excerr = (sel & ~0x3) | ext;
 			return 0;
 		} else {
 			if (conforming || dpl == cpu->cpl) {
 				return 1;
 			} else {
 				cpu->excno = EX_GP;
-				cpu->excerr = off | ext;
+				cpu->excerr = (sel & ~0x3) | ext;
 				fprintf(stderr, "__call_isr_check_cs fail2: %d %d %d\n", conforming, dpl, cpu->cpl);
 				return 0;
 			}
@@ -4549,7 +4543,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 		OptAddr meml;
 		uword base = cpu->idt.base;
 		int off = no * 4;
-		if (!translate_slow(cpu, &meml, 1, base + off, 4)) {
+		if (!__translate_slow(cpu, &meml, 1, base + off, 4, 0)) {
 			cpu_abort(cpu, -104);
 		}
 		uword w1 = load32(cpu, &meml);
@@ -4558,9 +4552,9 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 
 		OptAddr meml1, meml2, meml3;
 		uword sp = lreg32(4);
-		if (!translate16(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask) ||
-		    !translate16(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask) ||
-		    !translate16(cpu, &meml3, 2, SEG_SS, (sp - 2 * 3) & sp_mask))
+		if (!translate(cpu, &meml1, 2, SEG_SS, (sp - 2 * 1) & sp_mask, 2, 0) ||
+		    !translate(cpu, &meml2, 2, SEG_SS, (sp - 2 * 2) & sp_mask, 2, 0) ||
+		    !translate(cpu, &meml3, 2, SEG_SS, (sp - 2 * 3) & sp_mask, 2, 0))
 			cpu_abort(cpu, -105);
 		refresh_flags(cpu);
 		cpu->cc.mask = 0;
@@ -4589,11 +4583,11 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 		return false;
 	}
 
-	if (!translate_slow(cpu, &meml, 1, base + off, 4)) {
+	if (!__translate_slow(cpu, &meml, 1, base + off, 4, 0)) {
 		cpu_abort(cpu, -100);
 	}
 	uword w1 = load32(cpu, &meml);
-	if (!translate_slow(cpu, &meml, 1, base + off + 4, 4)) {
+	if (!__translate_slow(cpu, &meml, 1, base + off + 4, 4, 0)) {
 		cpu_abort(cpu, -101);
 	}
 	uword w2 = load32(cpu, &meml);
@@ -4648,13 +4642,15 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 		uword oldsp = cpu->gpr[4];
 		uword newss, newsp;
 		if (!gate16) {//cpu->seg[SEG_TR].flags & SEG_D_BIT) {
-			TRY(translate32(cpu, &msp0, 1, SEG_TR, 4 + 8 * newpl));
-			TRY(translate32(cpu, &mss0, 1, SEG_TR, 8 + 8 * newpl));
+			assert(cpu->seg[SEG_TR].flags & 0x8);
+			TRY(translate(cpu, &msp0, 1, SEG_TR, 4 + 8 * newpl, 4, 0));
+			TRY(translate(cpu, &mss0, 1, SEG_TR, 8 + 8 * newpl, 4, 0));
 			newsp = load32(cpu, &msp0);
 			newss = load32(cpu, &mss0) & 0xfff;
 		} else {
-			TRY(translate16(cpu, &msp0, 1, SEG_TR, 2 + 4 * newpl));
-			TRY(translate16(cpu, &mss0, 1, SEG_TR, 4 + 4 * newpl));
+			assert(!(cpu->seg[SEG_TR].flags & 0x8));
+			TRY(translate(cpu, &msp0, 1, SEG_TR, 2 + 4 * newpl, 2, 0));
+			TRY(translate(cpu, &mss0, 1, SEG_TR, 4 + 4 * newpl, 2, 0));
 			newsp = load16(cpu, &msp0);
 			newss = load16(cpu, &mss0);
 		}
@@ -4680,13 +4676,15 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 		uword oldsp = cpu->gpr[4];
 		uword newss, newsp;
 		if (!gate16) { //cpu->seg[SEG_TR].flags & SEG_D_BIT) {
-			TRY(translate32(cpu, &msp0, 1, SEG_TR, 4 + 8 * newpl));
-			TRY(translate32(cpu, &mss0, 1, SEG_TR, 8 + 8 * newpl));
+			assert(cpu->seg[SEG_TR].flags & 0x8);
+			TRY(translate(cpu, &msp0, 1, SEG_TR, 4 + 8 * newpl, 4, 0));
+			TRY(translate(cpu, &mss0, 1, SEG_TR, 8 + 8 * newpl, 4, 0));
 			newsp = load32(cpu, &msp0);
 			newss = load32(cpu, &mss0) & 0xfff;
 		} else {
-			TRY(translate16(cpu, &msp0, 1, SEG_TR, 2 + 4 * newpl));
-			TRY(translate16(cpu, &mss0, 1, SEG_TR, 4 + 4 * newpl));
+			assert(!(cpu->seg[SEG_TR].flags & 0x8));
+			TRY(translate(cpu, &msp0, 1, SEG_TR, 2 + 4 * newpl, 2, 0));
+			TRY(translate(cpu, &mss0, 1, SEG_TR, 4 + 4 * newpl, 2, 0));
 			newsp = load16(cpu, &msp0);
 			newss = load16(cpu, &mss0);
 		}
@@ -4698,6 +4696,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 			cpu->gpr[4] = oldsp;
 			return false;
 		}
+		assert(!gate16);
 		if (!ex_push_helper1vm(cpu, oldss, oldsp, pusherr)) {
 			cpu->flags = oldflags;
 			cpu->gpr[4] = oldsp;
@@ -4705,10 +4704,10 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 			return false;
 		}
 		newcs = (newcs & (~3)) | newpl;
-		TRY(set_seg(cpu, SEG_DS, 0));
-		TRY(set_seg(cpu, SEG_ES, 0));
-		TRY(set_seg(cpu, SEG_FS, 0));
-		TRY(set_seg(cpu, SEG_GS, 0));
+		if (!set_seg(cpu, SEG_DS, 0)) abort();
+		if (!set_seg(cpu, SEG_ES, 0)) abort();
+		if (!set_seg(cpu, SEG_FS, 0)) abort();
+		if (!set_seg(cpu, SEG_GS, 0)) abort();
 		cpu->flags &= ~(TF | RF | NT);
 		if (!set_seg(cpu, SEG_CS, newcs)) {
 			cpu->flags = oldflags;
@@ -4724,7 +4723,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	}
 	default: assert(false);
 	}
-	TRY(set_seg(cpu, SEG_CS, newcs));
+	TRY1(set_seg(cpu, SEG_CS, newcs));
 	cpu->next_ip = newip;
 	cpu->ip = newip;
 	if (gt == 0x6 || gt == 0xe)
@@ -4746,13 +4745,13 @@ static bool __pmiret_check_cs_same(CPUI386 *cpu, int sel)
 		base = cpu->gdt.base;
 		limit = cpu->gdt.limit;
 	}
-	if (off == 0 || off > limit) {
+	if ((sel & ~0x3) == 0 || off > limit) {
 		cpu->excno = EX_GP;
-		cpu->excerr = off;
+		cpu->excerr = sel & ~0x3;
 		fprintf(stderr, "__pmiret_check_cs_same: sel %04x base %x limit %x off %x\n", sel, base, limit, off);
 		return false;
 	}
-	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off + 4, 4, 0));
 	uword w2 = load32(cpu, &meml);
 
 	int s = (w2 >> 12) & 1;
@@ -4763,28 +4762,28 @@ static bool __pmiret_check_cs_same(CPUI386 *cpu, int sel)
 
 	if (!s || !code) {
 		cpu->excno = EX_GP;
-		cpu->excerr = off;
+		cpu->excerr = sel & ~0x3;
 		return false;
 	}
 
 	if (!conforming) {
 		if (dpl != cpu->cpl) {
 			cpu->excno = EX_GP;
-			cpu->excerr = off;
+			cpu->excerr = sel & ~0x3;
 			return false;
 		}
 	} else {
 		if (dpl > cpu->cpl) {
 			cpu->excno = EX_GP;
-			cpu->excerr = off;
+			cpu->excerr = sel & ~0x3;
 			return false;
 		}
 	}
 
 	if (!p) {
-		fprintf(stderr, "__pmiret_check_cs_same: seg not present %0x4\n", sel);
+		fprintf(stderr, "__pmiret_check_cs_same: seg not present %04x\n", sel);
 		cpu->excno = EX_NP;
-		cpu->excerr = off;
+		cpu->excerr = sel & ~0x3;
 		return false;
 	}
 	return true;
@@ -4804,13 +4803,13 @@ static bool __pmiret_check_cs_outer(CPUI386 *cpu, int sel)
 		base = cpu->gdt.base;
 		limit = cpu->gdt.limit;
 	}
-	if (off == 0 || off > limit) {
+	if ((sel & ~0x3) == 0 || off > limit) {
 		cpu->excno = EX_GP;
-		cpu->excerr = off;
+		cpu->excerr = sel & ~0x3;
 		fprintf(stderr, "__pmiret_check_cs_outer: sel %04x base %x off %x\n", sel, base, off);
 		return false;
 	}
-	TRY(translate_slow(cpu, &meml, 1, base + off + 4, 4));
+	TRY(__translate_slow(cpu, &meml, 1, base + off + 4, 4, 0));
 	uword w2 = load32(cpu, &meml);
 
 	int s = (w2 >> 12) & 1;
@@ -4822,28 +4821,28 @@ static bool __pmiret_check_cs_outer(CPUI386 *cpu, int sel)
 
 	if (!s || !code) {
 		cpu->excno = EX_GP;
-		cpu->excerr = off;
+		cpu->excerr = sel & ~0x3;
 		return false;
 	}
 
 	if (!conforming) {
 		if (dpl != rpl) {
 			cpu->excno = EX_GP;
-			cpu->excerr = off;
+			cpu->excerr = sel & ~0x3;
 			return false;
 		}
 	} else {
 		if (dpl <= cpu->cpl) {
 			cpu->excno = EX_GP;
-			cpu->excerr = off;
+			cpu->excerr = sel & ~0x3;
 			return false;
 		}
 	}
 
 	if (!p) {
-		fprintf(stderr, "__pmiret_check_cs_outer: seg not present %0x4\n", sel);
+		fprintf(stderr, "__pmiret_check_cs_outer: seg not present %04x\n", sel);
 		cpu->excno = EX_NP;
-		cpu->excerr = off;
+		cpu->excerr = sel & ~0x3;
 		return false;
 	}
 	return true;
@@ -4857,7 +4856,7 @@ static bool pmiret(CPUI386 *cpu, bool opsz16)
 		cpu->excerr = 0;
 		return false;
 	}
-	if ((cpu->flags & NT) && !(cpu->flags & VM)) {
+	if ((cpu->flags & NT)) {
 		fprintf(stderr, "IRET NT\n");
 		cpu_debug(cpu);
 		abort();
@@ -4871,16 +4870,16 @@ static bool pmiret(CPUI386 *cpu, bool opsz16)
 	int newcs;
 	uword newflags;
 	if (opsz16) {
-		/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask));
-		/* cs */ TRY(translate16(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask));
-		/* flags */ TRY(translate16(cpu, &meml3, 1, SEG_SS, (sp + 4) & sp_mask));
+		/* ip */ TRY(translate(cpu, &meml1, 1, SEG_SS, sp & sp_mask, 2, 0));
+		/* cs */ TRY(translate(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask, 2, 0));
+		/* flags */ TRY(translate(cpu, &meml3, 1, SEG_SS, (sp + 4) & sp_mask, 2, 0));
 		newip = laddr16(&meml1);
 		newcs = laddr16(&meml2);
 		newflags = (oldflags & 0xffff0000) | laddr16(&meml3);
 	} else {
-		/* ip */ TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask));
-		/* cs */ TRY(translate32(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask));
-		/* flags */ TRY(translate32(cpu, &meml3, 1, SEG_SS, (sp + 8) & sp_mask));
+		/* ip */ TRY(translate(cpu, &meml1, 1, SEG_SS, sp & sp_mask, 4, 0));
+		/* cs */ TRY(translate(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask, 4, 0));
+		/* flags */ TRY(translate(cpu, &meml3, 1, SEG_SS, (sp + 8) & sp_mask, 4, 0));
 		newip = laddr32(&meml1);
 		newcs = laddr32(&meml2);
 		newflags = laddr32(&meml3);
@@ -4893,17 +4892,20 @@ static bool pmiret(CPUI386 *cpu, bool opsz16)
 	newflags |= 0x2;
 
 	if (newflags & VM) {
+		assert(cpu->cpl == 0);
 		// return to v8086
 //		fprintf(stderr, "pmiret PVL %d => %d (vm) %04x:%08x\n", cpu->cpl, 3, newcs, newip);
 		OptAddr meml_vmes, meml_vmds, meml_vmfs, meml_vmgs;
-		TRY(translate32(cpu, &meml4, 1, SEG_SS, (sp + 12) & sp_mask));
-		TRY(translate32(cpu, &meml5, 1, SEG_SS, (sp + 16) & sp_mask));
-		TRY(translate32(cpu, &meml_vmes, 1, SEG_SS, (sp + 20) & sp_mask));
-		TRY(translate32(cpu, &meml_vmds, 1, SEG_SS, (sp + 24) & sp_mask));
-		TRY(translate32(cpu, &meml_vmfs, 1, SEG_SS, (sp + 28) & sp_mask));
-		TRY(translate32(cpu, &meml_vmgs, 1, SEG_SS, (sp + 32) & sp_mask));
+		assert (!opsz16);
+		TRY(translate(cpu, &meml4, 1, SEG_SS, (sp + 12) & sp_mask, 4, 0));
+		TRY(translate(cpu, &meml5, 1, SEG_SS, (sp + 16) & sp_mask, 4, 0));
+		TRY(translate(cpu, &meml_vmes, 1, SEG_SS, (sp + 20) & sp_mask, 4, 0));
+		TRY(translate(cpu, &meml_vmds, 1, SEG_SS, (sp + 24) & sp_mask, 4, 0));
+		TRY(translate(cpu, &meml_vmfs, 1, SEG_SS, (sp + 28) & sp_mask, 4, 0));
+		TRY(translate(cpu, &meml_vmgs, 1, SEG_SS, (sp + 32) & sp_mask, 4, 0));
 		cpu->flags = newflags;
 		if (!set_seg(cpu, SEG_CS, newcs)) {
+			assert(false);
 			cpu->flags = oldflags;
 			return false;
 		}
@@ -4920,13 +4922,14 @@ static bool pmiret(CPUI386 *cpu, bool opsz16)
 		int rpl = newcs & 3;
 		if (rpl < cpu->cpl) {
 			cpu->excno = EX_GP;
-			cpu->excerr = newcs & ~0x7;
+			cpu->excerr = newcs & ~0x3;
 			return false;
 		}
 
 		if (rpl == cpu->cpl) {
 			// return to same level
 			TRY(__pmiret_check_cs_same(cpu, newcs));
+//			fprintf(stderr, "pmiret PVL %d => %d %04x:%08x\n", cpu->cpl, newcs & 3, newcs, newip);
 			cpu->flags = newflags;
 			if (!set_seg(cpu, SEG_CS, newcs)) {
 				assert(false);
@@ -4945,13 +4948,13 @@ static bool pmiret(CPUI386 *cpu, bool opsz16)
 			uword newss;
 //			fprintf(stderr, "pmiret PVL %d => %d %04x:%08x\n", cpu->cpl, newcs & 3, newcs, newip);
 			if (opsz16) {
-				/* sp */ TRY(translate16(cpu, &meml4, 1, SEG_SS, (sp + 6) & sp_mask));
-				/* ss */ TRY(translate16(cpu, &meml5, 1, SEG_SS, (sp + 8) & sp_mask));
+				/* sp */ TRY(translate(cpu, &meml4, 1, SEG_SS, (sp + 6) & sp_mask, 2, 0));
+				/* ss */ TRY(translate(cpu, &meml5, 1, SEG_SS, (sp + 8) & sp_mask, 2, 0));
 				newsp = laddr16(&meml4);
 				newss = laddr16(&meml5);
 			} else {
-				/* sp */ TRY(translate32(cpu, &meml4, 1, SEG_SS, (sp + 12) & sp_mask));
-				/* ss */ TRY(translate32(cpu, &meml5, 1, SEG_SS, (sp + 16) & sp_mask));
+				/* sp */ TRY(translate(cpu, &meml4, 1, SEG_SS, (sp + 12) & sp_mask, 4, 0));
+				/* ss */ TRY(translate(cpu, &meml5, 1, SEG_SS, (sp + 16) & sp_mask, 4, 0));
 				newsp = laddr32(&meml4);
 				newss = laddr32(&meml5);
 			}
@@ -4963,6 +4966,7 @@ static bool pmiret(CPUI386 *cpu, bool opsz16)
 				assert(false);
 			}
 			if (!set_seg(cpu, SEG_SS, newss)) {
+				assert(false);
 				cpu->flags = oldflags;
 				cpu->seg[SEG_CS].sel = oldcs; /* XXX */
 				cpu->cpl = oldcpl;
@@ -4975,6 +4979,78 @@ static bool pmiret(CPUI386 *cpu, bool opsz16)
 		}
 	}
 	cpu->cc.mask = 0;
+	return true;
+}
+
+static bool pmretf(CPUI386 *cpu, bool opsz16, int off)
+{
+	OptAddr meml1, meml2, meml4, meml5;
+	uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
+	uword sp = lreg32(4);
+	uword newip;
+	int newcs;
+	if (opsz16) {
+		/* ip */ TRY(translate(cpu, &meml1, 1, SEG_SS, sp & sp_mask, 2, 0));
+		/* cs */ TRY(translate(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask, 2, 0));
+		newip = laddr16(&meml1);
+		newcs = laddr16(&meml2);
+	} else {
+		/* ip */ TRY(translate(cpu, &meml1, 1, SEG_SS, sp & sp_mask, 4, 0));
+		/* cs */ TRY(translate(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask, 4, 0));
+		newip = laddr32(&meml1);
+		newcs = laddr32(&meml2);
+	}
+	newcs = newcs & 0xffff;
+
+	int rpl = newcs & 3;
+	if (rpl < cpu->cpl) {
+		cpu->excno = EX_GP;
+		cpu->excerr = newcs & ~0x3;
+		return false;
+	}
+
+	if (rpl == cpu->cpl) {
+		// return to same level
+		TRY(__pmiret_check_cs_same(cpu, newcs));
+
+		TRY(set_seg(cpu, SEG_CS, newcs));
+		if (opsz16) {
+			set_sp(sp + 4 + off, sp_mask);
+		} else {
+			set_sp(sp + 8 + off, sp_mask);
+		}
+		cpu->next_ip = newip;
+	} else {
+		// return to outer level
+		TRY(__pmiret_check_cs_outer(cpu, newcs));
+		uword newsp;
+		uword newss;
+//			fprintf(stderr, "pmiret PVL %d => %d %04x:%08x\n", cpu->cpl, newcs & 3, newcs, newip);
+		if (opsz16) {
+			/* sp */ TRY(translate(cpu, &meml4, 1, SEG_SS, (sp + 4 + off) & sp_mask, 2, 0));
+			/* ss */ TRY(translate(cpu, &meml5, 1, SEG_SS, (sp + 6 + off) & sp_mask, 2, 0));
+			newsp = laddr16(&meml4);
+			newss = laddr16(&meml5);
+		} else {
+			/* sp */ TRY(translate(cpu, &meml4, 1, SEG_SS, (sp + 8 + off) & sp_mask, 4, 0));
+			/* ss */ TRY(translate(cpu, &meml5, 1, SEG_SS, (sp + 12 + off) & sp_mask, 4, 0));
+			newsp = laddr32(&meml4);
+			newss = laddr32(&meml5);
+		}
+
+		int oldcs = cpu->seg[SEG_CS].sel;
+		int oldcpl = cpu->cpl;
+		TRY(set_seg(cpu, SEG_CS, newcs));
+		if (!set_seg(cpu, SEG_SS, newss)) {
+			cpu->seg[SEG_CS].sel = oldcs; /* XXX */
+			cpu->cpl = oldcpl;
+			return false;
+		}
+		uword newsp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
+		set_sp(newsp, newsp_mask);
+		cpu->next_ip = newip;
+		clear_segs(cpu);
+	}
 	return true;
 }
 
@@ -5002,11 +5078,6 @@ void cpu_step(CPUI386 *cpu, int stepcount)
 			pusherr = true;
 		}
 		cpu->next_ip = cpu->ip;
-
-//		if (cpu->excno == EX_PF) {
-//			cpu_debug(cpu);
-//		}
-//		fprintf(stderr, "exception %x errno=%x\n", cpu->excno, cpu->excerr);
 
 		if (!call_isr(cpu, cpu->excno, pusherr, 1))
 			cpu_abort(cpu, -998);
@@ -5434,15 +5505,12 @@ u8 pc_io_read(void *o, int addr)
 		return val;
 	case 0x61:
 		return 0xff;
-	case 0x220: case 0x221: case 0x222: case 0x223:
-	case 0x224: case 0x225: case 0x226: case 0x227:
-	case 0x228: case 0x229: case 0x22a: case 0x22b:
-	case 0x22c: case 0x22d: case 0x22e: case 0x22f:
+	case 0x228: case 0x229:
 	case 0x388: case 0x389:
 		return adlib_read(pc->adlib, addr);
 	default:
-		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0);
-		return 0;
+		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0xff);
+		return 0xff;
 	}
 }
 
@@ -5461,8 +5529,8 @@ u16 pc_io_read16(void *o, int addr)
 		val = ide_read16(pc->ide2, addr - 0x170);
 		return val;
 	default:
-		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0);
-		return 0;
+		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0xffff);
+		return 0xffff;
 	}
 }
 
@@ -5471,8 +5539,8 @@ u32 pc_io_read32(void *o, int addr)
 	PC *pc = o;
 	if (addr == 0x3cc)
 		return (get_uticks() - pc->boot_start_time) / 1000;
-	fprintf(stderr, "ind 0x%x <= 0x%x\n", addr, 0);
-	return 0;
+	fprintf(stderr, "ind 0x%x <= 0x%x\n", addr, 0xffffffff);
+	return 0xffffffff;
 }
 
 void pc_io_write(void *o, int addr, u8 val)
@@ -5540,10 +5608,7 @@ void pc_io_write(void *o, int addr, u8 val)
 		return;
 	case 0x61:
 		return;
-	case 0x220: case 0x221: case 0x222: case 0x223:
-	case 0x224: case 0x225: case 0x226: case 0x227:
-	case 0x228: case 0x229: case 0x22a: case 0x22b:
-	case 0x22c: case 0x22d: case 0x22e: case 0x22f:
+	case 0x228: case 0x229:
 	case 0x388: case 0x389:
 		adlib_write(pc->adlib, addr, val);
 		return;
@@ -5652,7 +5717,7 @@ void pc_step(PC *pc)
 #ifdef USEKVM
 	cpukvm_step(pc->cpu, 4096);
 #else
-	cpu_step(pc->cpu, 4096);
+	cpu_step(pc->cpu, 1024);
 #endif
 }
 
@@ -6067,9 +6132,10 @@ int main(int argc, char *argv[])
 		pc_step(pc);
 #ifndef USEKVM
 		k += pc->cpu->cycle - last;
-		if (k >= 4096) {
+		if (k >= 1024) {
 //			usleep(4000);
-			usleep(100);
+//			usleep(20);
+			usleep(4);
 			k = 0;
 		}
 #endif
@@ -6081,12 +6147,18 @@ int main(int argc, char *argv[])
 void activate()
 {
 	verbose = true;
+	freopen("/tmp/xlog", "w", stderr);
+	setlinebuf(stderr);
 }
 
 void cpu_debug(CPUI386 *cpu)
 {
+	static int nest;
+	if (nest >= 1)
+		return;
+	nest++;
 	static bool trig = false;
-//	trig = true;
+	trig = true;
 	if (!trig) {
 		fprintf(stderr, "IP %04x:%04x\n", SEGi(SEG_CS), cpu->ip);
 //		fprintf(stderr, "IP %08x|AX %08x|CX %08x|DX %08x|BX %08x|SP %08x|BP %08x|SI %08x|DI %08x|FL %08x|CS %04x|DS %04x|SS %04x|CR0 %08x\n",
@@ -6099,7 +6171,7 @@ void cpu_debug(CPUI386 *cpu)
 	bool code32 = cpu->seg[SEG_CS].flags & SEG_D_BIT;
 	bool stack32 = cpu->seg[SEG_SS].flags & SEG_B_BIT;
 
-	fprintf(stderr, "IP %08x|AX %08x|CX %08x|DX %08x|BX %08x|SP %08x|BP %08x|SI %08x|DI %08x|FL %08x|CS %04x|DS %04x|SS %04x|ES %04x|FS %04x|GS %04x|CR0 %08x|CR2 %08x|CR3 %08x|CPL %d|IOPL %d|CSBASE %08x/%08x|DSBASE %08x/%08x|SSBASE %08x/%08x %c%c\n",
+	fprintf(stderr, "IP %08x|AX %08x|CX %08x|DX %08x|BX %08x|SP %08x|BP %08x|SI %08x|DI %08x|FL %08x|CS %04x|DS %04x|SS %04x|ES %04x|FS %04x|GS %04x|CR0 %08x|CR2 %08x|CR3 %08x|CPL %d|IOPL %d|CSBASE %08x/%08x|DSBASE %08x/%08x|SSBASE %08x/%08x|ESBASE %08x/%08x|GSBASE %08x/%08x %c%c\n",
 		cpu->ip, cpu->gpr[0], cpu->gpr[1], cpu->gpr[2], cpu->gpr[3],
 		cpu->gpr[4], cpu->gpr[5], cpu->gpr[6], cpu->gpr[7],
 		cpu->flags, SEGi(SEG_CS), SEGi(SEG_DS), SEGi(SEG_SS),
@@ -6108,7 +6180,13 @@ void cpu_debug(CPUI386 *cpu)
 		cpu->seg[SEG_CS].base, cpu->seg[SEG_CS].limit,
 		cpu->seg[SEG_DS].base, cpu->seg[SEG_DS].limit,
 		cpu->seg[SEG_SS].base, cpu->seg[SEG_SS].limit,
+		cpu->seg[SEG_ES].base, cpu->seg[SEG_ES].limit,
+		cpu->seg[SEG_GS].base, cpu->seg[SEG_GS].limit,
 		code32 ? 'D' : ' ', stack32 ? 'B' : ' ');
+	uword cr2, excno, excerr;
+	cr2 = cpu->cr2;
+	excno = cpu->excno;
+	excerr = cpu->excerr;
 	fprintf(stderr, "code: ");
 	for (int i = 0; i < 32; i++) {
 		OptAddr res;
@@ -6128,21 +6206,18 @@ void cpu_debug(CPUI386 *cpu)
 			fprintf(stderr, " ??");
 	}
 	fprintf(stderr, "\n");
-
-	if (cpu->cr0 & CR0_PG) {
-	fprintf(stderr, "stkf:  ");
+	fprintf(stderr, "stkf : ");
 	for (int i = 0; i < 32; i++) {
-		uword laddr = cpu->seg[SEG_SS].base + ((cpu->gpr[5] + i) & sp_mask);
-		uword lpgno = laddr >> 12;
-		struct tlb_entry ent;
-		if (!tlb_refill(cpu, &ent, lpgno)) {
+		OptAddr res;
+		if(translate8(cpu, &res, 1, SEG_SS, (cpu->gpr[5] + i) & sp_mask))
+			fprintf(stderr, " %02x", load8(cpu, &res));
+		else
 			fprintf(stderr, " ??");
-		} else {
-			u32 paddr = (ent.pte & ~0xfff) | (laddr & 0xfff);
-			if (paddr < cpu->phys_mem_size)
-				fprintf(stderr, " %02x", (u8) cpu->phys_mem[paddr]);
-		}
 	}
 	fprintf(stderr, "\n");
-	}
+
+	cpu->cr2 = cr2;
+	cpu->excno = excno;
+	cpu->excerr = excerr;
+	nest--;
 }

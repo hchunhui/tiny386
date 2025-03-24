@@ -77,7 +77,7 @@ I(C(0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f), PlusRegv, 0, POPReg)
 I(C(0x60), _,      0, PUSHA)
 I(C(0x61), _,      0, POPA)
 /*I(C(0x62), GvMa,   0, BOUND)*/
-I(C(0x63), EwGw,   0, ARPL)
+I(C(0x63), PMEwGw,   0, ARPL)
 //  0x64   SEG FS
 //  0x65   SEG GS
 //  0x66   Operand Size
@@ -375,3 +375,7 @@ I2(C(0xc1), EvGv,    3, XADD)
 I2(C(0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf), PlusRegv, _, BSWAP)
 IG7(C(0x07), Ms,     0, INVLPG)
 I2(C(0x09), _,       0, WBINVD)
+
+//used by win98se
+I2(C(0xa2), _,       0, UD0) // CPUID
+I2(C(0x77), _,       0, UD0) // EMMS
