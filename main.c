@@ -5269,6 +5269,8 @@ typedef struct {
 	PS2KbdState *kbd;
 	PS2MouseState *mouse;
 	AdlibState *adlib;
+
+	int shutdown_state;
 } PC;
 
 void u8250_update_interrupts(PC *pc, U8250 *uart)
@@ -5612,6 +5614,19 @@ void pc_io_write(void *o, int addr, u8 val)
 	case 0x388: case 0x389:
 		adlib_write(pc->adlib, addr, val);
 		return;
+	case 0x8900:
+		switch (val) {
+		case 'S': if (pc->shutdown_state == 0) pc->shutdown_state = 1; break;
+		case 'h': if (pc->shutdown_state == 1) pc->shutdown_state = 2; break;
+		case 'u': if (pc->shutdown_state == 2) pc->shutdown_state = 3; break;
+		case 't': if (pc->shutdown_state == 3) pc->shutdown_state = 4; break;
+		case 'd': if (pc->shutdown_state == 4) pc->shutdown_state = 5; break;
+		case 'o': if (pc->shutdown_state == 5) pc->shutdown_state = 6; break;
+		case 'w': if (pc->shutdown_state == 6) pc->shutdown_state = 7; break;
+		case 'n': if (pc->shutdown_state == 7) pc->shutdown_state = 8; break;
+		default : pc->shutdown_state = 0; break;
+		}
+		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
 		return;
@@ -5852,6 +5867,8 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data, ch
 	pc->i8042 = i8042_init(&(pc->kbd), &(pc->mouse),
 			       1, 12, pc->pic, set_irq);
 	pc->adlib = adlib_new();
+
+	pc->shutdown_state = 0;
 	return pc;
 }
 
@@ -6127,7 +6144,7 @@ int main(int argc, char *argv[])
 
 	pc->boot_start_time = get_uticks();
 	long k = 0;
-	for (;;) {
+	for (; pc->shutdown_state != 8;) {
 		long last = pc->cpu->cycle;
 		pc_step(pc);
 #ifndef USEKVM

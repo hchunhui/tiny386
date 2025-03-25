@@ -1,3 +1,48 @@
+diff --git a/src/apm.c b/src/apm.c
+index f7c2306c..1778c003 100644
+--- a/src/apm.c
++++ b/src/apm.c
+@@ -86,12 +86,25 @@ handle_155306(struct bregs *regs)
+     set_success(regs);
+ }
+ 
++#define PORT_BIOS_APM 0x8900
++static void
++out_str(const char *str_cs)
++{
++    u8 *s = (u8*)str_cs;
++    for (;;) {
++        u8 c = GET_GLOBAL(*s);
++        if (!c)
++            break;
++        outb(c, PORT_BIOS_APM);
++        s++;
++    }
++}
++
+ void
+ apm_shutdown(void)
+ {
+-    u16 pm1a_cnt = GET_GLOBAL(acpi_pm1a_cnt);
+-    if (pm1a_cnt)
+-        outw(0x2000, pm1a_cnt);
++    dprintf(1, "APM shutdown request\n");
++    out_str("Shutdown");
+ 
+     irq_disable();
+     for (;;)
+@@ -109,9 +122,11 @@ handle_155307(struct bregs *regs)
+     switch (regs->cx) {
+     case 1:
+         dprintf(1, "APM standby request\n");
++        out_str("Standby");
+         break;
+     case 2:
+         dprintf(1, "APM suspend request\n");
++        out_str("Suspend");
+         break;
+     case 3:
+         apm_shutdown();
 diff --git a/src/hw/serialio.c b/src/hw/serialio.c
 index fa663b99..48efda12 100644
 --- a/src/hw/serialio.c
