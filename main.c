@@ -6030,9 +6030,9 @@ static void sdl_handle_mouse_button_event(const SDL_Event *ev, PC *pc)
 	dz = 0;
 	if (ev->type == SDL_MOUSEBUTTONDOWN) {
 		if (ev->button.button == SDL_BUTTON_WHEELUP) {
-			dz = 1;
-		} else if (ev->button.button == SDL_BUTTON_WHEELDOWN) {
 			dz = -1;
+		} else if (ev->button.button == SDL_BUTTON_WHEELDOWN) {
+			dz = 1;
 		}
 	}
 
