@@ -43,6 +43,20 @@ index f7c2306c..1778c003 100644
          break;
      case 3:
          apm_shutdown();
+diff --git a/src/fw/shadow.c b/src/fw/shadow.c
+index 8930616e..1ad6c482 100644
+--- a/src/fw/shadow.c
++++ b/src/fw/shadow.c
+@@ -169,8 +169,7 @@ make_bios_readonly(void)
+ void
+ qemu_reboot(void)
+ {
+-    if (!CONFIG_QEMU || runningOnXen())
+-        return;
++    return;
+     // QEMU doesn't map 0xc0000-0xfffff back to the original rom on a
+     // reset, so do that manually before invoking a hard reset.
+     void *flash = (void*)BIOS_SRC_OFFSET;
 diff --git a/src/hw/serialio.c b/src/hw/serialio.c
 index fa663b99..48efda12 100644
 --- a/src/hw/serialio.c

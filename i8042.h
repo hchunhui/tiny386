@@ -27,6 +27,8 @@ KBDState *i8042_init(PS2KbdState **pkbd,
                      PS2MouseState **pmouse,
                      int kbd_irq, int mouse_irq,
 		     void *pic,
-                     void (*set_irq)(void *pic, int irq, int level));
+                     void (*set_irq)(void *pic, int irq, int level),
+                     void *sys,
+                     void (*system_reset_request)(void *sys));
 
 #endif /* I8042_H */

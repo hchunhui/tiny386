@@ -5084,9 +5084,8 @@ void cpu_step(CPUI386 *cpu, int stepcount)
 	}
 }
 
-CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size)
+void cpui386_reset(CPUI386 *cpu)
 {
-	CPUI386 *cpu = malloc(sizeof(CPUI386));
 	for (int i = 0; i < 8; i++) {
 		cpu->gpr[i] = 0;
 	}
@@ -5120,17 +5119,19 @@ CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size)
 		cpu->dr[i] = 0;
 
 	cpu->cc.mask = 0;
+	tlb_clear(cpu);
+}
 
+CPUI386 *cpui386_new(char *phys_mem, long phys_mem_size)
+{
+	CPUI386 *cpu = malloc(sizeof(CPUI386));
 	cpu->tlb.size = tlb_size;
 	cpu->tlb.tab = malloc(sizeof(struct tlb_entry) * tlb_size);
-	tlb_clear(cpu);
 
 	cpu->phys_mem = phys_mem;
 	cpu->phys_mem_size = phys_mem_size;
 
 	cpu->cycle = 0;
-
-	cpu->ifetch.lpgno = -1;
 
 	cpu->intr = false;
 	cpu->pic = NULL;
@@ -5151,6 +5152,8 @@ CPUI386 *cpu386_new(char *phys_mem, long phys_mem_size)
 	cpu->iomem_write16 = NULL;
 	cpu->iomem_read32 = NULL;
 	cpu->iomem_write32 = NULL;
+
+	cpui386_reset(cpu);
 	return cpu;
 }
 
@@ -5271,6 +5274,7 @@ typedef struct {
 	AdlibState *adlib;
 
 	int shutdown_state;
+	int reset_request;
 } PC;
 
 void u8250_update_interrupts(PC *pc, U8250 *uart)
@@ -5712,9 +5716,17 @@ static int IsKBHit()
 }
 
 static void cmos_update_irq(CMOS *s);
+static void load_bios(PC *pc);
 
 void pc_step(PC *pc)
 {
+#ifndef USEKVM
+	if (pc->reset_request) {
+		pc->reset_request = 0;
+		load_bios(pc);
+		cpui386_reset(pc->cpu);
+	}
+#endif
 	int refresh = vga_step(pc->vga);
 	i8254_update_irq(pc->pit);
 	cmos_update_irq(pc->cmos);
@@ -5790,6 +5802,12 @@ static void iomem_write32(void *iomem, uword addr, u32 val)
 	iomem_write16(iomem, addr + 2, val >> 16);
 }
 
+static void pc_reset_request(void *p)
+{
+	PC *pc = p;
+	pc->reset_request = 1;
+}
+
 PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data, char **disks)
 {
 	PC *pc = malloc(sizeof(PC));
@@ -5805,7 +5823,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data, ch
 #ifdef USEKVM
 	pc->cpu = cpukvm_new(mem, mem_size);
 #else
-	pc->cpu = cpu386_new(mem, mem_size);
+	pc->cpu = cpui386_new(mem, mem_size);
 #endif
 
 	pc->pic = i8259_init(raise_irq, pc->cpu);
@@ -5865,10 +5883,12 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data, ch
 	pc->poll = poll;
 
 	pc->i8042 = i8042_init(&(pc->kbd), &(pc->mouse),
-			       1, 12, pc->pic, set_irq);
+			       1, 12, pc->pic, set_irq,
+			       pc, pc_reset_request);
 	pc->adlib = adlib_new();
 
 	pc->shutdown_state = 0;
+	pc->reset_request = 0;
 	return pc;
 }
 
@@ -6076,6 +6096,10 @@ static void poll(void *opaque)
 #endif
 
 #if 0
+static void load_bios(PC *pc)
+{
+}
+
 int main(int argc, char *argv[])
 {
 	const char *vmlinux = "vmlinux.bin";
@@ -6125,12 +6149,20 @@ int main(int argc, char *argv[])
 	return 0;
 }
 #else
+static void load_bios(PC *pc)
+{
+	load(pc, "bios.bin", 0xe0000);
+	load(pc, "vgabios.bin", 0xc0000);
+}
+
 int main(int argc, char *argv[])
 {
 	Console *console = console_init();
 	PC *pc = pc_new(redraw, poll, console, argv + 1);
 	if (console)
 		console->pc = pc;
+
+	load_bios(pc);
 
 	SDL_AudioSpec audio_spec = {0};
 	audio_spec.freq = 44100;
@@ -6140,9 +6172,6 @@ int main(int argc, char *argv[])
 	audio_spec.callback = adlib_callback;
 	audio_spec.userdata = pc->adlib;
 	SDL_OpenAudio(&audio_spec, 0);
-
-	load(pc, "bios.bin", 0xe0000);
-	load(pc, "vgabios.bin", 0xc0000);
 
 	pc->boot_start_time = get_uticks();
 	long k = 0;

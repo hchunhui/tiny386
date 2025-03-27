@@ -93,14 +93,9 @@ struct KBDState {
     int irq_mouse;
     void *pic;
     void (*set_irq)(void *pic, int irq, int level);
+    void *sys;
+    void (*system_reset_request)(void *sys);
 };
-
-static void qemu_system_reset_request(void)
-{
-    printf("system_reset_request\n");
-    exit(1);
-    /* XXX */
-}
 
 static void ioport_set_a20(int val)
 {
@@ -240,7 +235,7 @@ void kbd_write_command(void *opaque, uint32_t addr, uint32_t val)
         ioport_set_a20(0);
         break;
     case KBD_CCMD_RESET:
-        qemu_system_reset_request();
+        s->system_reset_request(s->sys);
         break;
     case 0xff:
         /* ignore that - I don't know what is its use */
@@ -292,7 +287,7 @@ void kbd_write_data(void *opaque, uint32_t addr, uint32_t val)
     case KBD_CCMD_WRITE_OUTPORT:
         ioport_set_a20((val >> 1) & 1);
         if (!(val & 1)) {
-            qemu_system_reset_request();
+            s->system_reset_request(s->sys);
         }
         break;
     case KBD_CCMD_WRITE_MOUSE:
@@ -316,7 +311,9 @@ KBDState *i8042_init(PS2KbdState **pkbd,
                      PS2MouseState **pmouse,
                      int kbd_irq, int mouse_irq,
                      void *pic,
-                     void (*set_irq)(void *pic, int irq, int level))
+                     void (*set_irq)(void *pic, int irq, int level),
+                     void *sys,
+                     void (*system_reset_request)(void *sys))
 {
     KBDState *s;
     
@@ -327,6 +324,8 @@ KBDState *i8042_init(PS2KbdState **pkbd,
     s->irq_mouse = mouse_irq;
     s->pic = pic;
     s->set_irq = set_irq;
+    s->sys = sys;
+    s->system_reset_request = system_reset_request;
 
     kbd_reset(s);
 
