@@ -27,8 +27,7 @@
 #include <string.h>
 
 #include <stdio.h>
-typedef struct PITState PITState;
-#define PIT_FREQ 1193182
+#include "i8254.h"
 //#define DEBUG_PIT
 
 #define RW_STATE_LSB 1

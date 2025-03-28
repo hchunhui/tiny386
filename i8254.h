@@ -2,6 +2,8 @@
 #define I8254_H
 #include <stdint.h>
 
+#define PIT_FREQ 1193182
+
 typedef struct PITState PITState;
 PITState *i8254_init(int irq, void *pic, void (*set_irq)(void *pic, int irq, int level));
 void i8254_update_irq(PITState *pit);
