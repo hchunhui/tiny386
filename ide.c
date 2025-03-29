@@ -1,948 +1,1014 @@
 /*
- *	IDE Emulation Layer for retro-style PIO interfaces
+ * IDE emulation
+ * 
+ * Copyright (c) 2003-2016 Fabrice Bellard
  *
- *	(c) Copyright Alan Cox, 2015-2019
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- *	IDE-emu is free software: you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License as published by
- *	the Free Software Foundation, either version 2 of the License, or
- *	(at your option) any later version.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
- *	IDE-emu is distributed in the hope that it will be useful,
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *	GNU General Public License for more details.
- *
- *	You should have received a copy of the GNU General Public License
- *	along with IDE-emu.  If not, see <http://www.gnu.org/licenses/>.
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
-
-#include <stdio.h>
-#include <stdint.h>
-#include <unistd.h>
-#include <string.h>
 #include <stdlib.h>
-#include <errno.h>
-#include <time.h>
-#include <arpa/inet.h>
+#include <stdio.h>
+#include <string.h>
+#include <inttypes.h>
+#include <assert.h>
 
+//#include "cutils.h"
 #include "ide.h"
 
-#define IDE_IDLE	0
-#define IDE_CMD		1
-#define IDE_DATA_IN	2
-#define IDE_DATA_OUT	3
-  
-#define DCR_NIEN 	2
-#define DCR_SRST 	4
+//#define DEBUG_IDE
 
-#define DEVH_HEAD	15
-#define DEVH_DEV	16
-#define DEVH_LBA	64
+/* Bits of HD_STATUS */
+#define ERR_STAT		0x01
+#define INDEX_STAT		0x02
+#define ECC_STAT		0x04	/* Corrected error */
+#define DRQ_STAT		0x08
+#define SEEK_STAT		0x10
+#define SRV_STAT		0x10
+#define WRERR_STAT		0x20
+#define READY_STAT		0x40
+#define BUSY_STAT		0x80
 
-#define ERR_AMNF	1
-#define ERR_TKNONF	2
-#define ERR_ABRT	4
-#define ERR_MCR		8
-#define ERR_IDNF	16
-#define	ERR_MC		32
-#define ERR_UNC		64
+/* Bits for HD_ERROR */
+#define MARK_ERR		0x01	/* Bad address mark */
+#define TRK0_ERR		0x02	/* couldn't find track 0 */
+#define ABRT_ERR		0x04	/* Command aborted */
+#define MCR_ERR			0x08	/* media change request */
+#define ID_ERR			0x10	/* ID field not found */
+#define MC_ERR			0x20	/* media changed */
+#define ECC_ERR			0x40	/* Uncorrectable ECC error */
+#define BBD_ERR			0x80	/* pre-EIDE meaning:  block marked bad */
+#define ICRC_ERR		0x80	/* new meaning:  CRC error during transfer */
 
-#define ST_ERR		1
-#define ST_IDX		2
-#define ST_CORR		4
-#define ST_DRQ		8
-#define ST_DSC		16
-#define ST_DF		32
-#define ST_DRDY		64
-#define ST_BSY		128
+/* Bits of HD_NSECTOR */
+#define CD			0x01
+#define IO			0x02
+#define REL			0x04
+#define TAG_MASK		0xf8
 
-#define DCL_SRST	4
-#define DCL_NIEN	2
+#define IDE_CMD_RESET           0x04
+#define IDE_CMD_DISABLE_IRQ     0x02
 
-#define IDE_CMD_CALIB		0x10
-#define IDE_CMD_READ		0x20
-#define IDE_CMD_READ_NR		0x21
-#define IDE_CMD_WRITE		0x30
-#define IDE_CMD_WRITE_NR	0x31
-#define IDE_CMD_VERIFY		0x40
-#define IDE_CMD_VERIFY_NR	0x41
-#define IDE_CMD_SEEK		0x70
-#define IDE_CMD_EDD		0x90
-#define IDE_CMD_INTPARAMS	0x91
-#define IDE_CMD_IDENTIFY	0xEC
-#define IDE_CMD_SETFEATURES	0xEF
+/* ATA/ATAPI Commands pre T13 Spec */
+#define WIN_NOP				0x00
+/*
+ *	0x01->0x02 Reserved
+ */
+#define CFA_REQ_EXT_ERROR_CODE		0x03 /* CFA Request Extended Error Code */
+/*
+ *	0x04->0x07 Reserved
+ */
+#define WIN_SRST			0x08 /* ATAPI soft reset command */
+#define WIN_DEVICE_RESET		0x08
+/*
+ *	0x09->0x0F Reserved
+ */
+#define WIN_RECAL			0x10
+#define WIN_RESTORE			WIN_RECAL
+/*
+ *	0x10->0x1F Reserved
+ */
+#define WIN_READ			0x20 /* 28-Bit */
+#define WIN_READ_ONCE			0x21 /* 28-Bit without retries */
+#define WIN_READ_LONG			0x22 /* 28-Bit */
+#define WIN_READ_LONG_ONCE		0x23 /* 28-Bit without retries */
+#define WIN_READ_EXT			0x24 /* 48-Bit */
+#define WIN_READDMA_EXT			0x25 /* 48-Bit */
+#define WIN_READDMA_QUEUED_EXT		0x26 /* 48-Bit */
+#define WIN_READ_NATIVE_MAX_EXT		0x27 /* 48-Bit */
+/*
+ *	0x28
+ */
+#define WIN_MULTREAD_EXT		0x29 /* 48-Bit */
+/*
+ *	0x2A->0x2F Reserved
+ */
+#define WIN_WRITE			0x30 /* 28-Bit */
+#define WIN_WRITE_ONCE			0x31 /* 28-Bit without retries */
+#define WIN_WRITE_LONG			0x32 /* 28-Bit */
+#define WIN_WRITE_LONG_ONCE		0x33 /* 28-Bit without retries */
+#define WIN_WRITE_EXT			0x34 /* 48-Bit */
+#define WIN_WRITEDMA_EXT		0x35 /* 48-Bit */
+#define WIN_WRITEDMA_QUEUED_EXT		0x36 /* 48-Bit */
+#define WIN_SET_MAX_EXT			0x37 /* 48-Bit */
+#define CFA_WRITE_SECT_WO_ERASE		0x38 /* CFA Write Sectors without erase */
+#define WIN_MULTWRITE_EXT		0x39 /* 48-Bit */
+/*
+ *	0x3A->0x3B Reserved
+ */
+#define WIN_WRITE_VERIFY		0x3C /* 28-Bit */
+/*
+ *	0x3D->0x3F Reserved
+ */
+#define WIN_VERIFY			0x40 /* 28-Bit - Read Verify Sectors */
+#define WIN_VERIFY_ONCE			0x41 /* 28-Bit - without retries */
+#define WIN_VERIFY_EXT			0x42 /* 48-Bit */
+/*
+ *	0x43->0x4F Reserved
+ */
+#define WIN_FORMAT			0x50
+/*
+ *	0x51->0x5F Reserved
+ */
+#define WIN_INIT			0x60
+/*
+ *	0x61->0x5F Reserved
+ */
+#define WIN_SEEK			0x70 /* 0x70-0x7F Reserved */
+#define CFA_TRANSLATE_SECTOR		0x87 /* CFA Translate Sector */
+#define WIN_DIAGNOSE			0x90
+#define WIN_SPECIFY			0x91 /* set drive geometry translation */
+#define WIN_DOWNLOAD_MICROCODE		0x92
+#define WIN_STANDBYNOW2			0x94
+#define WIN_STANDBY2			0x96
+#define WIN_SETIDLE2			0x97
+#define WIN_CHECKPOWERMODE2		0x98
+#define WIN_SLEEPNOW2			0x99
+/*
+ *	0x9A VENDOR
+ */
+#define WIN_PACKETCMD			0xA0 /* Send a packet command. */
+#define WIN_PIDENTIFY			0xA1 /* identify ATAPI device	*/
+#define WIN_QUEUED_SERVICE		0xA2
+#define WIN_SMART			0xB0 /* self-monitoring and reporting */
+#define CFA_ERASE_SECTORS       	0xC0
+#define WIN_MULTREAD			0xC4 /* read sectors using multiple mode*/
+#define WIN_MULTWRITE			0xC5 /* write sectors using multiple mode */
+#define WIN_SETMULT			0xC6 /* enable/disable multiple mode */
+#define WIN_READDMA_QUEUED		0xC7 /* read sectors using Queued DMA transfers */
+#define WIN_READDMA			0xC8 /* read sectors using DMA transfers */
+#define WIN_READDMA_ONCE		0xC9 /* 28-Bit - without retries */
+#define WIN_WRITEDMA			0xCA /* write sectors using DMA transfers */
+#define WIN_WRITEDMA_ONCE		0xCB /* 28-Bit - without retries */
+#define WIN_WRITEDMA_QUEUED		0xCC /* write sectors using Queued DMA transfers */
+#define CFA_WRITE_MULTI_WO_ERASE	0xCD /* CFA Write multiple without erase */
+#define WIN_GETMEDIASTATUS		0xDA	
+#define WIN_ACKMEDIACHANGE		0xDB /* ATA-1, ATA-2 vendor */
+#define WIN_POSTBOOT			0xDC
+#define WIN_PREBOOT			0xDD
+#define WIN_DOORLOCK			0xDE /* lock door on removable drives */
+#define WIN_DOORUNLOCK			0xDF /* unlock door on removable drives */
+#define WIN_STANDBYNOW1			0xE0
+#define WIN_IDLEIMMEDIATE		0xE1 /* force drive to become "ready" */
+#define WIN_STANDBY             	0xE2 /* Set device in Standby Mode */
+#define WIN_SETIDLE1			0xE3
+#define WIN_READ_BUFFER			0xE4 /* force read only 1 sector */
+#define WIN_CHECKPOWERMODE1		0xE5
+#define WIN_SLEEPNOW1			0xE6
+#define WIN_FLUSH_CACHE			0xE7
+#define WIN_WRITE_BUFFER		0xE8 /* force write only 1 sector */
+#define WIN_WRITE_SAME			0xE9 /* read ata-2 to use */
+	/* SET_FEATURES 0x22 or 0xDD */
+#define WIN_FLUSH_CACHE_EXT		0xEA /* 48-Bit */
+#define WIN_IDENTIFY			0xEC /* ask drive to identify itself	*/
+#define WIN_MEDIAEJECT			0xED
+#define WIN_IDENTIFY_DMA		0xEE /* same as WIN_IDENTIFY, but DMA */
+#define WIN_SETFEATURES			0xEF /* set special drive features */
+#define EXABYTE_ENABLE_NEST		0xF0
+#define WIN_SECURITY_SET_PASS		0xF1
+#define WIN_SECURITY_UNLOCK		0xF2
+#define WIN_SECURITY_ERASE_PREPARE	0xF3
+#define WIN_SECURITY_ERASE_UNIT		0xF4
+#define WIN_SECURITY_FREEZE_LOCK	0xF5
+#define WIN_SECURITY_DISABLE		0xF6
+#define WIN_READ_NATIVE_MAX		0xF8 /* return the native maximum address */
+#define WIN_SET_MAX			0xF9
+#define DISABLE_SEAGATE			0xFB
 
+#define MAX_MULT_SECTORS 2
+
+typedef void BlockDeviceCompletionFunc(void *opaque, int ret);
+
+struct BlockDevice {
+    int64_t (*get_sector_count)(BlockDevice *bs);
+    int (*get_chs)(BlockDevice *bs, int *cylinders, int *heads, int *sectors);
+    int (*read_async)(BlockDevice *bs,
+                      uint64_t sector_num, uint8_t *buf, int n,
+                      BlockDeviceCompletionFunc *cb, void *opaque);
+    int (*write_async)(BlockDevice *bs,
+                       uint64_t sector_num, const uint8_t *buf, int n,
+                       BlockDeviceCompletionFunc *cb, void *opaque);
+    void *opaque;
+};
+
+typedef struct IDEState IDEState;
+
+typedef void EndTransferFunc(IDEState *);
+
+struct IDEState {
+    IDEIFState *ide_if;
+    BlockDevice *bs;
+    int cylinders, heads, sectors;
+    int mult_sectors;
+    int64_t nb_sectors;
+
+    /* ide regs */
+    uint8_t feature;
+    uint8_t error;
+    uint16_t nsector; /* 0 is 256 to ease computations */
+    uint8_t sector;
+    uint8_t lcyl;
+    uint8_t hcyl;
+    uint8_t select;
+    uint8_t status;
+
+    int io_nb_sectors;
+    int req_nb_sectors;
+    EndTransferFunc *end_transfer_func;
+    
+    int data_index;
+    int data_end;
+    uint8_t io_buffer[MAX_MULT_SECTORS*512 + 4];
+};
+
+struct IDEIFState {
+    int irq;
+    void *pic;
+    void (*set_irq)(void *pic, int irq, int level);
+
+    IDEState *cur_drive;
+    IDEState *drives[2];
+    /* 0x3f6 command */
+    uint8_t cmd;
+};
+
+static void ide_sector_read_cb(void *opaque, int ret);
+static void ide_sector_read_cb_end(IDEState *s);
+static void ide_sector_write_cb2(void *opaque, int ret);
+
+static void padstr(char *str, const char *src, int len)
+{
+    int i, v;
+    for(i = 0; i < len; i++) {
+        if (*src)
+            v = *src++;
+        else
+            v = ' ';
+        *(char *)((long)str ^ 1) = v;
+        str++;
+    }
+}
+
+/* little endian assume */
+static void stw(uint16_t *buf, int v)
+{
+    *buf = v;
+}
+
+static void ide_identify(IDEState *s)
+{
+    uint16_t *tab;
+    uint32_t oldsize;
+    
+    tab = (uint16_t *)s->io_buffer;
+
+    memset(tab, 0, 512 * 2);
+
+    stw(tab + 0, 0x0040);
+    stw(tab + 1, s->cylinders); 
+    stw(tab + 3, s->heads);
+    stw(tab + 4, 512 * s->sectors); /* sectors */
+    stw(tab + 5, 512); /* sector size */
+    stw(tab + 6, s->sectors); 
+    stw(tab + 20, 3); /* buffer type */
+    stw(tab + 21, 512); /* cache size in sectors */
+    stw(tab + 22, 4); /* ecc bytes */
+    padstr((char *)(tab + 27), "TINY386 HARDDISK", 40);
+    stw(tab + 47, 0x8000 | MAX_MULT_SECTORS);
+    stw(tab + 48, 0); /* dword I/O */
+    stw(tab + 49, 1 << 9); /* LBA supported, no DMA */
+    stw(tab + 51, 0x200); /* PIO transfer cycle */
+    stw(tab + 52, 0x200); /* DMA transfer cycle */
+    stw(tab + 54, s->cylinders);
+    stw(tab + 55, s->heads);
+    stw(tab + 56, s->sectors);
+    oldsize = s->cylinders * s->heads * s->sectors;
+    stw(tab + 57, oldsize);
+    stw(tab + 58, oldsize >> 16);
+    if (s->mult_sectors)
+        stw(tab + 59, 0x100 | s->mult_sectors);
+    stw(tab + 60, s->nb_sectors);
+    stw(tab + 61, s->nb_sectors >> 16);
+    stw(tab + 80, (1 << 1) | (1 << 2));
+    stw(tab + 82, (1 << 14));
+    stw(tab + 83, (1 << 14));
+    stw(tab + 84, (1 << 14));
+    stw(tab + 85, (1 << 14));
+    stw(tab + 86, 0);
+    stw(tab + 87, (1 << 14));
+}
+
+static void ide_set_signature(IDEState *s) 
+{
+    s->select &= 0xf0;
+    s->nsector = 1;
+    s->sector = 1;
+    s->lcyl = 0;
+    s->hcyl = 0;
+}
+
+static void ide_abort_command(IDEState *s) 
+{
+    s->status = READY_STAT | ERR_STAT;
+    s->error = ABRT_ERR;
+}
+
+static void ide_set_irq(IDEState *s) 
+{
+    IDEIFState *ide_if = s->ide_if;
+    if (!(ide_if->cmd & IDE_CMD_DISABLE_IRQ)) {
+        ide_if->set_irq(ide_if->pic, ide_if->irq, 1);
+    }
+}
+
+/* prepare data transfer and tell what to do after */
+static void ide_transfer_start(IDEState *s, int size,
+                               EndTransferFunc *end_transfer_func)
+{
+    s->end_transfer_func = end_transfer_func;
+    s->data_index = 0;
+    s->data_end = size;
+}
+
+static void ide_transfer_stop(IDEState *s)
+{
+    s->end_transfer_func = ide_transfer_stop;
+    s->data_index = 0;
+    s->data_end = 0;
+}
+
+static int64_t ide_get_sector(IDEState *s)
+{
+    int64_t sector_num;
+    if (s->select & 0x40) {
+        /* lba */
+        sector_num = ((s->select & 0x0f) << 24) | (s->hcyl << 16) |
+            (s->lcyl << 8) | s->sector;
+    } else {
+        sector_num = ((s->hcyl << 8) | s->lcyl) * 
+            s->heads * s->sectors +
+            (s->select & 0x0f) * s->sectors + (s->sector - 1);
+    }
+    return sector_num;
+}
+
+static void ide_set_sector(IDEState *s, int64_t sector_num)
+{
+    unsigned int cyl, r;
+    if (s->select & 0x40) {
+        s->select = (s->select & 0xf0) | ((sector_num >> 24) & 0x0f);
+        s->hcyl = (sector_num >> 16) & 0xff;
+        s->lcyl = (sector_num >> 8) & 0xff;
+        s->sector = sector_num & 0xff;
+    } else {
+        cyl = sector_num / (s->heads * s->sectors);
+        r = sector_num % (s->heads * s->sectors);
+        s->hcyl = (cyl >> 8) & 0xff;
+        s->lcyl = cyl & 0xff;
+        s->select = (s->select & 0xf0) | ((r / s->sectors) & 0x0f);
+        s->sector = (r % s->sectors) + 1;
+    }
+}
+
+static void ide_sector_read(IDEState *s)
+{
+    int64_t sector_num;
+    int ret, n;
+
+    sector_num = ide_get_sector(s);
+    n = s->nsector;
+    if (n == 0) 
+        n = 256;
+    if (n > s->req_nb_sectors)
+        n = s->req_nb_sectors;
+#if defined(DEBUG_IDE)
+    printf("read sector=%" PRId64 " count=%d\n", sector_num, n);
+#endif
+    s->io_nb_sectors = n;
+    ret = s->bs->read_async(s->bs, sector_num, s->io_buffer, n, 
+                            ide_sector_read_cb, s);
+    if (ret < 0) {
+        /* error */
+        ide_abort_command(s);
+        ide_set_irq(s);
+    } else if (ret == 0) {
+        /* synchronous case (needed for performance) */
+        ide_sector_read_cb(s, 0);
+    } else {
+        /* async case */
+        s->status = READY_STAT | SEEK_STAT | BUSY_STAT;
+        s->error = 0; /* not needed by IDE spec, but needed by Windows */
+    }
+}
+
+static void ide_sector_read_cb(void *opaque, int ret)
+{
+    IDEState *s = opaque;
+    int n;
+    EndTransferFunc *func;
+    
+    n = s->io_nb_sectors;
+    ide_set_sector(s, ide_get_sector(s) + n);
+    s->nsector = (s->nsector - n) & 0xff;
+    if (s->nsector == 0)
+        func = ide_sector_read_cb_end;
+    else
+        func = ide_sector_read;
+    ide_transfer_start(s, 512 * n, func);
+    ide_set_irq(s);
+    s->status = READY_STAT | SEEK_STAT | DRQ_STAT;
+    s->error = 0; /* not needed by IDE spec, but needed by Windows */
+}
+
+static void ide_sector_read_cb_end(IDEState *s)
+{
+    /* no more sector to read from disk */
+    s->status = READY_STAT | SEEK_STAT;
+    s->error = 0; /* not needed by IDE spec, but needed by Windows */
+    ide_transfer_stop(s);
+}
+
+static void ide_sector_write_cb1(IDEState *s)
+{
+    int64_t sector_num;
+    int ret;
+
+    ide_transfer_stop(s);
+    sector_num = ide_get_sector(s);
+#if defined(DEBUG_IDE)
+    printf("write sector=%" PRId64 "  count=%d\n",
+           sector_num, s->io_nb_sectors);
+#endif
+    ret = s->bs->write_async(s->bs, sector_num, s->io_buffer, s->io_nb_sectors, 
+                             ide_sector_write_cb2, s);
+    if (ret < 0) {
+        /* error */
+        ide_abort_command(s);
+        ide_set_irq(s);
+    } else if (ret == 0) {
+        /* synchronous case (needed for performance) */
+        ide_sector_write_cb2(s, 0);
+    } else {
+        /* async case */
+        s->status = READY_STAT | SEEK_STAT | BUSY_STAT;
+    }
+}
+
+static void ide_sector_write_cb2(void *opaque, int ret)
+{
+    IDEState *s = opaque;
+    int n;
+
+    n = s->io_nb_sectors;
+    ide_set_sector(s, ide_get_sector(s) + n);
+    s->nsector = (s->nsector - n) & 0xff;
+    if (s->nsector == 0) {
+        /* no more sectors to write */
+        s->status = READY_STAT | SEEK_STAT;
+    } else {
+        n = s->nsector;
+        if (n > s->req_nb_sectors)
+            n = s->req_nb_sectors;
+        s->io_nb_sectors = n;
+        ide_transfer_start(s, 512 * n, ide_sector_write_cb1);
+        s->status = READY_STAT | SEEK_STAT | DRQ_STAT;
+    }
+    ide_set_irq(s);
+}
+
+static void ide_sector_write(IDEState *s)
+{
+    int n;
+    n = s->nsector;
+    if (n == 0)
+        n = 256;
+    if (n > s->req_nb_sectors)
+        n = s->req_nb_sectors;
+    s->io_nb_sectors = n;
+    ide_transfer_start(s, 512 * n, ide_sector_write_cb1);
+    s->status = READY_STAT | SEEK_STAT | DRQ_STAT;
+}
+
+static void ide_identify_cb(IDEState *s)
+{
+    ide_transfer_stop(s);
+    s->status = READY_STAT;
+}
+
+static void ide_exec_cmd(IDEState *s, int val)
+{
+#if defined(DEBUG_IDE)
+    printf("ide: exec_cmd=0x%02x\n", val);
+#endif
+    switch(val) {
+    case WIN_IDENTIFY:
+        ide_identify(s);
+        s->status = READY_STAT | SEEK_STAT | DRQ_STAT;
+        ide_transfer_start(s, 512, ide_identify_cb);
+        ide_set_irq(s);
+        break;
+    case WIN_SPECIFY:
+    case WIN_RECAL:
+        s->error = 0;
+        s->status = READY_STAT | SEEK_STAT;
+        ide_set_irq(s);
+        break;
+    case WIN_SETMULT:
+        if (s->nsector > MAX_MULT_SECTORS || 
+            (s->nsector & (s->nsector - 1)) != 0) {
+            ide_abort_command(s);
+        } else {
+            s->mult_sectors = s->nsector;
+#if defined(DEBUG_IDE)
+            printf("ide: setmult=%d\n", s->mult_sectors);
+#endif
+            s->status = READY_STAT;
+        }
+        ide_set_irq(s);
+        break;
+    case WIN_READ:
+    case WIN_READ_ONCE:
+        s->req_nb_sectors = 1;
+        ide_sector_read(s);
+        break;
+    case WIN_WRITE:
+    case WIN_WRITE_ONCE:
+        s->req_nb_sectors = 1;
+        ide_sector_write(s);
+        break;
+    case WIN_MULTREAD:
+        if (!s->mult_sectors) {
+            ide_abort_command(s);
+            ide_set_irq(s);
+        } else {
+            s->req_nb_sectors = s->mult_sectors;
+            ide_sector_read(s);
+        }
+        break;
+    case WIN_MULTWRITE:
+        if (!s->mult_sectors) {
+            ide_abort_command(s);
+            ide_set_irq(s);
+        } else {
+            s->req_nb_sectors = s->mult_sectors;
+            ide_sector_write(s);
+        }
+        break;
+    case WIN_READ_NATIVE_MAX:
+        ide_set_sector(s, s->nb_sectors - 1);
+        s->status = READY_STAT;
+        ide_set_irq(s);
+        break;
+    default:
+        ide_abort_command(s);
+        ide_set_irq(s);
+        break;
+    }
+}
+
+void ide_ioport_write(void *opaque, uint32_t addr, uint32_t val)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s = s1->cur_drive;
+    
+#ifdef DEBUG_IDE
+    printf("ide: write addr=0x%02x val=0x%02x\n", addr, val);
+#endif
+    switch(addr) {
+    case 0:
+        break;
+    case 1:
+        if (s) {
+            s->feature = val;
+        }
+        break;
+    case 2:
+        if (s) {
+            s->nsector = val;
+        }
+        break;
+    case 3:
+        if (s) {
+            s->sector = val;
+        }
+        break;
+    case 4:
+        if (s) {
+            s->lcyl = val;
+        }
+        break;
+    case 5:
+        if (s) {
+            s->hcyl = val;
+        }
+        break;
+    case 6:
+        /* select drive */
+        s = s1->cur_drive = s1->drives[(val >> 4) & 1];
+        if (s) {
+            s->select = val;
+        }
+        break;
+    default:
+    case 7:
+        /* command */
+        if (s) {
+            ide_exec_cmd(s, val);
+        }
+        break;
+    }
+}
+
+uint32_t ide_ioport_read(void *opaque, uint32_t addr)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s = s1->cur_drive;
+    int ret;
+
+    if (!s) {
+        ret = 0x00;
+    } else {
+        switch(addr) {
+        case 0:
+           ret = 0xff;
+           break;
+        case 1:
+            ret = s->error;
+            break;
+        case 2:
+            ret = s->nsector;
+            break;
+        case 3:
+            ret = s->sector;
+            break;
+        case 4:
+            ret = s->lcyl;
+            break;
+        case 5:
+            ret = s->hcyl;
+            break;
+        case 6:
+            ret = s->select;
+            break;
+        default:
+        case 7:
+            ret = s->status;
+            s1->set_irq(s1->pic, s1->irq, 0);
+            break;
+        }
+    }
+#ifdef DEBUG_IDE
+    printf("ide: read addr=0x%02x val=0x%02x\n", addr, ret);
+#endif
+    return ret;
+}
+
+uint32_t ide_status_read(void *opaque)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s = s1->cur_drive;
+    int ret;
+
+    if (s) {
+        ret = s->status;
+    } else {
+        ret = 0;
+    }
+#ifdef DEBUG_IDE
+    printf("ide: read status=0x%02x\n", ret);
+#endif
+    return ret;
+}
+
+void ide_cmd_write(void *opaque, uint32_t val)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s;
+    int i;
+    
+#ifdef DEBUG_IDE
+    printf("ide: cmd write=0x%02x\n", val);
+#endif
+    if (!(s1->cmd & IDE_CMD_RESET) && (val & IDE_CMD_RESET)) {
+        /* low to high */
+        for(i = 0; i < 2; i++) {
+            s = s1->drives[i];
+            if (s) {
+                s->status = BUSY_STAT | SEEK_STAT;
+                s->error = 0x01;
+            }
+        }
+    } else if ((s1->cmd & IDE_CMD_RESET) && !(val & IDE_CMD_RESET)) {
+        /* high to low */
+        for(i = 0; i < 2; i++) {
+            s = s1->drives[i];
+            if (s) {
+                s->status = READY_STAT | SEEK_STAT;
+                ide_set_signature(s);
+            }
+        }
+    }
+    s1->cmd = val;
+}
+
+void ide_data_writew(void *opaque, uint32_t val)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s = s1->cur_drive;
+    int p;
+    uint8_t *tab;
+    
+    if (!s)
+        return;
+    p = s->data_index;
+    tab = s->io_buffer;
+    tab[p] = val & 0xff;
+    tab[p + 1] = (val >> 8) & 0xff;
+    p += 2;
+    s->data_index = p;
+    if (p >= s->data_end)
+        s->end_transfer_func(s);
+}
+
+uint32_t ide_data_readw(void *opaque)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s = s1->cur_drive;
+    int p, ret;
+    uint8_t *tab;
+    
+    if (!s) {
+        ret = 0;
+    } else {
+        p = s->data_index;
+        tab = s->io_buffer;
+        ret = tab[p] | (tab[p + 1] << 8);
+        p += 2;
+        s->data_index = p;
+        if (p >= s->data_end)
+            s->end_transfer_func(s);
+    }
+    return ret;
+}
+
+static IDEState *ide_drive_init(IDEIFState *ide_if, BlockDevice *bs)
+{
+    IDEState *s;
+    uint32_t cylinders;
+    uint64_t nb_sectors;
+
+    s = malloc(sizeof(*s));
+    memset(s, 0, sizeof(*s));
+
+    s->ide_if = ide_if;
+    s->bs = bs;
+
+    nb_sectors = s->bs->get_sector_count(s->bs);
+    cylinders = nb_sectors / (16 * 63);
+    if (cylinders > 16383)
+        cylinders = 16383;
+    else if (cylinders < 2)
+        cylinders = 2;
+    s->cylinders = cylinders;
+    s->heads = 16;
+    s->sectors = 63;
+    s->nb_sectors = nb_sectors;
+    if (s->bs->get_chs)
+        s->bs->get_chs(s->bs, &s->cylinders, &s->heads, &s->sectors);
+
+    s->mult_sectors = MAX_MULT_SECTORS;
+    /* ide regs */
+    s->feature = 0;
+    s->error = 0;
+    s->nsector = 0;
+    s->sector = 0;
+    s->lcyl = 0;
+    s->hcyl = 0;
+    s->select = 0xa0;
+    s->status = READY_STAT | SEEK_STAT;
+
+    /* init I/O buffer */
+    s->data_index = 0;
+    s->data_end = 0;
+    s->end_transfer_func = ide_transfer_stop;
+
+    s->req_nb_sectors = 0; /* temp for read/write */
+    s->io_nb_sectors = 0; /* temp for read/write */
+    return s;
+}
+
+// old img format
 const uint8_t ide_magic[8] = {
   '1','D','E','D','1','5','C','0'
 };
 
-static char *charmap(uint8_t v)
+typedef enum {
+    BF_MODE_RO,
+    BF_MODE_RW,
+    BF_MODE_SNAPSHOT,
+} BlockDeviceModeEnum;
+
+#define SECTOR_SIZE 512
+
+typedef struct BlockDeviceFile {
+    FILE *f;
+    int start_offset;
+    int cylinders, heads, sectors;
+    int64_t nb_sectors;
+    BlockDeviceModeEnum mode;
+    uint8_t **sector_table;
+} BlockDeviceFile;
+
+static int64_t bf_get_sector_count(BlockDevice *bs)
 {
-  static char cbuf[3];
-  if (v < 32)
-    sprintf(cbuf, "^%c", '@'+v);
-  else if (v < 127)
-    sprintf(cbuf, " %c", v);
-  else if (v == 127)
-    sprintf(cbuf, "DL");
-  else if (v < 160)
-    sprintf(cbuf, ":%c", '@' + v - 128);
-  else if (v < 255)
-    sprintf(cbuf, "~%c", v - 128);
-  else
-    sprintf(cbuf, "!D");
-  return cbuf;
+    BlockDeviceFile *bf = bs->opaque;
+    return bf->nb_sectors;
 }
 
-static void hexdump(uint8_t *bp)
+static int bf_get_chs(BlockDevice *bs, int *cylinders, int *heads, int *sectors)
 {
-  int i,j;
-  for (i = 0; i < 512; i+= 16) {
-    for(j = 0; j < 16; j++)
-      fprintf(stderr, "%02X ", bp[i+j]);
-    fprintf(stderr, "|");
-    for(j = 0; j < 16; j++)
-      fprintf(stderr, "%2s", charmap(bp[i+j]));
-    fprintf(stderr, "\n");
-  }
+    BlockDeviceFile *bf = bs->opaque;
+    *cylinders = bf->cylinders;
+    *heads = bf->heads;
+    *sectors = bf->sectors;
+    return 0;
 }
 
-/* FIXME: use proper endian convertors! */
-static uint16_t le16(uint16_t v)
+//#define DUMP_BLOCK_READ
+
+static int bf_read_async(BlockDevice *bs,
+                         uint64_t sector_num, uint8_t *buf, int n,
+                         BlockDeviceCompletionFunc *cb, void *opaque)
 {
-  uint8_t *p = (uint8_t *)&v;
-  return p[0] | (p[1] << 8);
+    BlockDeviceFile *bf = bs->opaque;
+    //    printf("bf_read_async: sector_num=%" PRId64 " n=%d\n", sector_num, n);
+#ifdef DUMP_BLOCK_READ
+    {
+        static FILE *f;
+        if (!f)
+            f = fopen("/tmp/read_sect.txt", "wb");
+        fprintf(f, "%" PRId64 " %d\n", sector_num, n);
+    }
+#endif
+    if (!bf->f)
+        return -1;
+    if (bf->mode == BF_MODE_SNAPSHOT) {
+        int i;
+        for(i = 0; i < n; i++) {
+            if (!bf->sector_table[sector_num]) {
+                fseek(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
+                fread(buf, 1, SECTOR_SIZE, bf->f);
+            } else {
+                memcpy(buf, bf->sector_table[sector_num], SECTOR_SIZE);
+            }
+            sector_num++;
+            buf += SECTOR_SIZE;
+        }
+    } else {
+        fseek(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, SEEK_SET);
+        fread(buf, 1, n * SECTOR_SIZE, bf->f);
+    }
+    /* synchronous read */
+    return 0;
 }
 
-static void ide_xlate_errno(struct ide_taskfile *t, int len)
+static int bf_write_async(BlockDevice *bs,
+                          uint64_t sector_num, const uint8_t *buf, int n,
+                          BlockDeviceCompletionFunc *cb, void *opaque)
 {
-  t->status |= ST_ERR;
-  if (len == -1) {
-    if (errno == EIO)
-      t->error = ERR_UNC;
-    else
-      t->error = ERR_AMNF;
-  } else
-    t->error = ERR_AMNF;
-}
+    BlockDeviceFile *bf = bs->opaque;
+    int ret;
 
-static void ide_fault(struct ide_drive *d, const char *p)
-{
-  fprintf(stderr, "ide: %s: %d: %s\n", d->controller->name,
-			(int)(d - d->controller->drive), p);
-}
-
-/* Disk translation */
-static off_t xlate_block(struct ide_taskfile *t)
-{
-  struct ide_drive *d = t->drive;
-  uint16_t cyl;
-
-  if (t->lba4 & DEVH_LBA) {
-/*    fprintf(stderr, "XLATE LBA %02X:%02X:%02X:%02X\n", 
-      t->lba4, t->lba3, t->lba2, t->lba1);*/
-    if (d->lba)
-      return 2 + (((t->lba4 & DEVH_HEAD) << 24) | (t->lba3 << 16) | (t->lba2 << 8) | t->lba1);
-    ide_fault(d, "LBA on non LBA drive");
-  }
-
-  /* Some well known software asks for 0/0/0 when it means 0/0/1. Drives appear
-     to interpret sector 0 as sector 1 */
-  if (t->lba1 == 0) {
-    fprintf(stderr, "[Bug: request for sector offset 0].\n");
-    t->lba1 = 1;
-  }
-  cyl = (t->lba3 << 8) | t->lba2;
-  /* fprintf(stderr, "(H %d C %d S %d)\n", t->lba4 & DEVH_HEAD, cyl, t->lba1); */
-  if (t->lba1 == 0 || t->lba1 > d->sectors || t->lba4 >= d->heads || cyl >= d->cylinders) {
-    return -1;
-  }
-  /* Sector 1 is first */
-  /* Images generally go cylinder/head/sector. This also matters if we ever
-     implement more advanced geometry setting */
-  return 1 + ((cyl * d->heads) + (t->lba4 & DEVH_HEAD)) * d->sectors + t->lba1;
-}
-
-/* Indicate the drive is ready */
-static void ready(struct ide_taskfile *tf)
-{
-  tf->status &= ~(ST_BSY|ST_DRQ);
-  tf->status |= ST_DRDY;
-  tf->drive->state = IDE_IDLE;
-}
-
-/* Return to idle state, completing a command */
-static void completed(struct ide_taskfile *tf)
-{
-  ready(tf);
-  tf->drive->intrq = 1;
-  struct ide_controller *c = tf->drive->controller;
-  c->set_irq(c->pic, c->irq, 1);
-}
-
-static void drive_failed(struct ide_taskfile *tf)
-{
-  tf->status |= ST_ERR;
-  tf->error = ERR_IDNF;
-  ready(tf);
-}
-
-static void data_in_state(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  d->state = IDE_DATA_IN;
-  d->dptr = d->data + 512;
-  /* We don't clear DRDY here, drives may well accept a command at this
-     point and at least one firmware for RC2014 assumes this */
-  tf->status &= ~ST_BSY;
-  tf->status |= ST_DRQ;
-  d->intrq = 1;			/* Double check */
-  struct ide_controller *c = tf->drive->controller;
-  c->set_irq(c->pic, c->irq, 1);
-}
-
-static void data_out_state(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  d->state = IDE_DATA_OUT;
-  d->dptr = d->data;
-  tf->status &= ~ST_BSY;
-  tf->status |= ST_DRQ;
-  d->intrq = 1;			/* Double check */
-  struct ide_controller *c = tf->drive->controller;
-  c->set_irq(c->pic, c->irq, 1);
-}
-
-static void edd_setup(struct ide_taskfile *tf)
-{
-  tf->error = 0x01;		/* All good */
-  tf->lba1 = 0x01;		/* EDD always updates drive 0 */
-  tf->lba2 = 0x00;
-  tf->lba3 = 0x00;
-  tf->lba4 = 0x00;
-  tf->count = 0x01;
-  ready(tf);
-}
-
-void ide_reset(struct ide_controller *c)
-{
-  if (c->drive[0].present) {
-    edd_setup(&c->drive[0].taskfile);
-    /* A drive could clear busy then set DRDY up to 2 minutes later if its
-       mindnumbingly slow to start up ! We don't emulate any of that */
-    c->drive[0].taskfile.status = ST_DRDY;
-    c->drive[0].eightbit = 0;
-  }
-  if (c->drive[1].present) {
-    edd_setup(&c->drive[1].taskfile);
-    c->drive[1].taskfile.status = ST_DRDY;
-    c->drive[1].eightbit = 0;
-  }
-  c->selected = 0;
-}
-
-void ide_reset_begin(struct ide_controller *c)
-{
-  if (c->drive[0].present)
-    c->drive[0].taskfile.status |= ST_BSY;
-  if (c->drive[1].present)
-    c->drive[1].taskfile.status |= ST_BSY;
-  /* Ought to be a time delay relative to reset or power on */
-  ide_reset(c);
-}
-
-static void ide_srst_begin(struct ide_controller *c)
-{
-  ide_reset(c);
-  if (c->drive[0].present)
-    c->drive[0].taskfile.status |= ST_BSY;
-  if (c->drive[1].present)
-    c->drive[1].taskfile.status |= ST_BSY;
-}  
-
-static void ide_srst_end(struct ide_controller *c)
-{
-  /* Could be time delays here */
-  ready(&c->drive[0].taskfile);
-  ready(&c->drive[1].taskfile);
-}
-
-static void cmd_edd_complete(struct ide_taskfile *tf)
-{
-  struct ide_controller *c = tf->drive->controller;
-  if (c->drive[0].present)
-    edd_setup(&c->drive[0].taskfile);
-  if (c->drive[1].present)
-    edd_setup(&c->drive[1].taskfile);
-  c->selected = 0;
-}
-
-static void cmd_identify_complete(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  memcpy(d->data, d->identify, 512);
-  data_in_state(tf);
-  /* Arrange to copy just the identify buffer */
-  d->dptr = d->data;
-  d->length = 1;
-}
-
-static void cmd_initparam_complete(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  /* We only support the current mapping */
-  if (tf->count != d->sectors || (tf->lba4 & DEVH_HEAD) + 1 != d->heads) {
-    tf->status |= ST_ERR;
-    tf->error |= ERR_ABRT;
-    tf->drive->failed = 1;		/* Report ID NF until fixed */
-/*    fprintf(stderr, "geo is %d %d, asked for %d %d\n",
-      d->sectors, d->heads, tf->count, (tf->lba4 & DEVH_HEAD) + 1); */
-    ide_fault(d, "invalid geometry");
-  } else if (tf->drive->failed == 1)
-    tf->drive->failed = 0;		/* Valid translation */
-  completed(tf);
-}
-
-static void cmd_readsectors_complete(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  /* Move to data xfer */
-  if (d->failed) {
-    drive_failed(tf);
-    return;
-  }
-  d->offset = xlate_block(tf);
-  /* DRDY is not guaranteed here but at least one buggy RC2014 firmware
-     expects it */
-  tf->status |= ST_DRQ | ST_DSC | ST_DRDY;
-  tf->status &= ~ST_BSY;
-  /* 0 = 256 sectors */
-  d->length = tf->count ? tf->count : 256;
-  /* fprintf(stderr, "READ %d SECTORS @ %ld\n", d->length, d->offset); */
-  if (d->offset == -1 ||  lseek(d->fd, 512 * d->offset, SEEK_SET) == -1) {
-    tf->status |= ST_ERR;
-    tf->status &= ~ST_DSC;
-    tf->error |= ERR_IDNF;
-    /* return null data */
-    completed(tf);
-    return;
-  }
-  /* do the xfer */
-  data_in_state(tf);
-}
-
-static void cmd_verifysectors_complete(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  /* Move to data xfer */
-  if (d->failed) {
-    drive_failed(tf);
-    return;
-  }
-  d->offset = xlate_block(tf);
-  /* 0 = 256 sectors */
-  d->length = tf->count ? tf->count : 256;
-  if (d->offset == -1 || lseek(d->fd, 512 * (d->offset + d->length - 1), SEEK_SET) == -1) {
-    tf->status &= ~ST_DSC;
-    tf->status |= ST_ERR;
-    tf->error |= ERR_IDNF;
-  }
-  tf->status |= ST_DSC;
-  completed(tf);
-}
-
-static void cmd_recalibrate_complete(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  if (d->failed)
-    drive_failed(tf);
-  if (d->offset == -1) { //XXX: || xlate_block(tf) != 0L) {
-    tf->status &= ~ST_DSC;
-    tf->status |= ST_ERR;
-    tf->error |= ERR_ABRT;
-  }
-  tf->status |= ST_DSC;
-  completed(tf);
-}
-
-static void cmd_seek_complete(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  if (d->failed)
-    drive_failed(tf);
-  d->offset = xlate_block(tf);
-  if (d->offset == -1 || lseek(d->fd, 512 * d->offset, SEEK_SET) == -1) {
-    tf->status &= ~ST_DSC;
-    tf->status |= ST_ERR;
-    tf->error |= ERR_IDNF;
-  }
-  tf->status |= ST_DSC;
-  completed(tf);
-}
-
-static void cmd_setfeatures_complete(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  switch(tf->feature) {
-    case 0x01:
-      d->eightbit = 1;
-      break;
-    case 0x03:
-      if ((tf->count & 0xF0) >= 0x20) {
-        tf->status |= ST_ERR;
-        tf->error |= ERR_ABRT;
-      }
-      /* Silently accept PIO mode settings */
-      break;
-    case 0x81:
-      d->eightbit = 0;
-      break;
+    switch(bf->mode) {
+    case BF_MODE_RO:
+        ret = -1; /* error */
+        break;
+    case BF_MODE_RW:
+        fseek(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, SEEK_SET);
+        fwrite(buf, 1, n * SECTOR_SIZE, bf->f);
+        ret = 0;
+        break;
+    case BF_MODE_SNAPSHOT:
+        {
+            int i;
+            if ((sector_num + n) > bf->nb_sectors)
+                return -1;
+            for(i = 0; i < n; i++) {
+                if (!bf->sector_table[sector_num]) {
+                    bf->sector_table[sector_num] = malloc(SECTOR_SIZE);
+                }
+                memcpy(bf->sector_table[sector_num], buf, SECTOR_SIZE);
+                sector_num++;
+                buf += SECTOR_SIZE;
+            }
+            ret = 0;
+        }
+        break;
     default:
-      tf->status |= ST_ERR;
-      tf->error |= ERR_ABRT;
-  }
-  completed(tf);
-}
-
-static void cmd_writesectors_complete(struct ide_taskfile *tf)
-{
-  struct ide_drive *d = tf->drive;
-  /* Move to data xfer */
-  if (d->failed) {
-    drive_failed(tf);
-    return;
-  }
-  d->offset = xlate_block(tf);
-  tf->status |= ST_DRQ | ST_DRDY;
-  /* 0 = 256 sectors */
-  d->length = tf->count ? tf->count : 256;
-/*  fprintf(stderr, "WRITE %d SECTORS @ %ld\n", d->length, d->offset); */
-  if (d->offset == -1 ||  lseek(d->fd, 512 * d->offset, SEEK_SET) == -1) {
-    tf->status |= ST_ERR;
-    tf->error |= ERR_IDNF;
-    tf->status &= ~ST_DSC;
-    /* return null data */
-    completed(tf);
-    return;
-  }
-  /* do the xfer */
-  data_out_state(tf);
-}
-
-static void ide_set_error(struct ide_drive *d)
-{
-  d->taskfile.lba4 &= ~DEVH_HEAD;
-
-  if (d->taskfile.lba4 & DEVH_LBA) {
-    d->taskfile.lba1 = d->offset & 0xFF;
-    d->taskfile.lba2 = (d->offset >> 8) & 0xFF;
-    d->taskfile.lba3 = (d->offset >> 16) & 0xFF;
-    d->taskfile.lba4 |= (d->offset >> 24) & DEVH_HEAD;
-  } else {
-    d->taskfile.lba1 = d->offset % d->sectors + 1;
-    d->offset /= d->sectors;
-    d->taskfile.lba4 |= d->offset / (d->cylinders * d->sectors);
-    d->offset %= (d->cylinders * d->sectors);
-    d->taskfile.lba2 = d->offset & 0xFF;
-    d->taskfile.lba3 = (d->offset >> 8) & 0xFF;
-  }
-  d->taskfile.count = d->length;
-  d->taskfile.status |= ST_ERR;
-  d->state = IDE_IDLE;
-  completed(&d->taskfile);
-}
-
-static int ide_read_sector(struct ide_drive *d)
-{
-  int len;
-
-  d->dptr = d->data;
-  if ((len = read(d->fd, d->data, 512)) != 512) {
-    perror("ide_read_sector");
-    d->taskfile.status |= ST_ERR;
-    d->taskfile.status &= ~ST_DSC;
-    ide_xlate_errno(&d->taskfile, len);
-    return -1;
-  }
-//  hexdump(d->data);
-  d->offset += 512;
-  return 0;
-}
-
-static int ide_write_sector(struct ide_drive *d)
-{
-  int len;
-
-  d->dptr = d->data;
-  if ((len = write(d->fd, d->data, 512)) != 512) {
-    d->taskfile.status |= ST_ERR;
-    d->taskfile.status &= ~ST_DSC;
-    ide_xlate_errno(&d->taskfile, len);
-    return -1;
-  }
-//  hexdump(d->data);
-  d->offset += 512;
-  return 0;
-}
-
-static uint16_t ide_data_in(struct ide_drive *d, int len)
-{
-  uint16_t v;
-  if (d->state == IDE_DATA_IN) {
-    if (d->dptr == d->data + 512) {
-      if (ide_read_sector(d) < 0) {
-        ide_set_error(d);	/* Set the LBA or CHS etc */
-        return 0xFFFF;		/* and error bits set by read_sector */
-      }
+        abort();
     }
-    v = *d->dptr;
-    if (!d->eightbit) {
-      if (len == 2)
-        v |= (d->dptr[1] << 8);
-      d->dptr+=2;
-    } else
-      d->dptr++;
-    d->taskfile.data = v;
-    if (d->dptr == d->data + 512) {
-      d->length--;
-      d->intrq = 1;		/* we don't yet emulate multimode */
-      struct ide_controller *c = d->controller;
-      c->set_irq(c->pic, c->irq, 1);
-      if (d->length == 0) {
-        d->state = IDE_IDLE;
-        completed(&d->taskfile);
-      }
+
+    return ret;
+}
+
+static BlockDevice *block_device_init(const char *filename,
+                                      BlockDeviceModeEnum mode)
+{
+    BlockDevice *bs;
+    BlockDeviceFile *bf;
+    int64_t file_size;
+    FILE *f;
+    const char *mode_str;
+
+    if (mode == BF_MODE_RW) {
+        mode_str = "r+b";
+    } else {
+        mode_str = "rb";
     }
-  } else
-    ide_fault(d, "bad data read");
-
-  if (len == 1)
-    return d->taskfile.data & 0xFF;
-  return d->taskfile.data;
-}
-
-static void ide_data_out(struct ide_drive *d, uint16_t v, int len)
-{
-  if (d->state != IDE_DATA_OUT) {
-    ide_fault(d, "bad data write");
-    d->taskfile.data = v;
-  } else {
-    if (d->eightbit)
-      v &= 0xFF;
-    *d->dptr++ = v;
-    d->taskfile.data = v;
-    if (!d->eightbit) {
-      *d->dptr++ = v >> 8;
-      d->taskfile.data = v >> 8;
+    
+    f = fopen(filename, mode_str);
+    if (!f) {
+        perror(filename);
+        exit(1);
     }
-    if (d->dptr == d->data + 512) {
-      if (ide_write_sector(d) < 0) {
-        ide_set_error(d);
-        return;	
-      }
-      d->length--;
-      d->intrq = 1;
-      struct ide_controller *c = d->controller;
-      c->set_irq(c->pic, c->irq, 1);
-      if (d->length == 0) {
-        d->state = IDE_IDLE;
-        d->taskfile.status |= ST_DSC;
-        completed(&d->taskfile);
-      }
+    char buf[8];
+    int start_offset = 0;
+    if (mode == BF_MODE_RO || mode == BF_MODE_RW) {
+        fread(buf, 1, 8, f);
+        if (memcmp(buf, ide_magic, 8) == 0)
+            start_offset = 1024;
     }
-  }
-}
+    fseek(f, 0, SEEK_END);
+    file_size = ftello(f) - start_offset;
 
-static void ide_issue_command(struct ide_taskfile *t)
-{
-  t->status &= ~(ST_ERR|ST_DRDY);
-  t->status |= ST_BSY;
-  t->error = 0;
-  t->drive->state = IDE_CMD;
-  
-  /* We could complete with delays but don't do so yet */
-  switch(t->command) {
-    case IDE_CMD_EDD:	/* 0x90 */
-      cmd_edd_complete(t);
-      break;
-    case IDE_CMD_IDENTIFY:	/* 0xEC */
-      cmd_identify_complete(t);
-      break;
-    case IDE_CMD_INTPARAMS:	/* 0x91 */
-      cmd_initparam_complete(t);
-      break;
-    case IDE_CMD_READ:		/* 0x20 */
-    case IDE_CMD_READ_NR:	/* 0x21 */
-      cmd_readsectors_complete(t);
-      break;
-    case IDE_CMD_SETFEATURES:	/* 0xEF */
-      cmd_setfeatures_complete(t);
-      break;
-    case IDE_CMD_VERIFY:	/* 0x40 */
-    case IDE_CMD_VERIFY_NR:	/* 0x41 */
-      cmd_verifysectors_complete(t);
-      break;
-    case IDE_CMD_WRITE:		/* 0x30 */
-    case IDE_CMD_WRITE_NR:	/* 0x31 */
-      cmd_writesectors_complete(t);
-      break;
-    default:
-      if ((t->command & 0xF0) == IDE_CMD_CALIB)	/* 1x */
-        cmd_recalibrate_complete(t);
-      else if ((t->command & 0xF0) == IDE_CMD_SEEK) /* 7x */
-        cmd_seek_complete(t);
-      else {
-        /* Unknown */
-        t->status |= ST_ERR;
-        t->error |= ERR_ABRT;
-        completed(t);
-      }
-  }
-}
+    bs = malloc(sizeof(*bs));
+    bf = malloc(sizeof(*bf));
+    memset(bs, 0, sizeof(*bs));
+    memset(bf, 0, sizeof(*bf));
 
-/*
- *	8bit IDE controller emulation
- */
+    bf->mode = mode;
+    bf->nb_sectors = file_size / 512;
+    bf->f = f;
+    bf->start_offset = start_offset;
 
-uint8_t ide_read8(struct ide_controller *c, uint8_t r)
-{
-  struct ide_drive *d = &c->drive[c->selected];
-  struct ide_taskfile *t = &d->taskfile;
-  switch(r) {
-    case ide_data:
-      return ide_data_in(d, 1);
-    case ide_error_r:
-      return t->error;
-    case ide_sec_count:
-      return t->count;
-    case ide_lba_low:
-      return t->lba1;
-    case ide_lba_mid:
-      return t->lba2;
-    case ide_lba_hi:
-      return t->lba3;
-    case ide_lba_top:
-      return t->lba4 | 0xa0;
-    case ide_status_r:
-      d->intrq = 0;		/* Acked */
-      c->set_irq(c->pic, c->irq, 0);
-    case ide_altst_r:
-      return t->status;
-    default:
-      ide_fault(d, "bogus register");
-      return 0xFF;
-  }
-}
-
-void ide_write8(struct ide_controller *c, uint8_t r, uint8_t v)
-{
-  struct ide_drive *d = &c->drive[c->selected];
-  struct ide_taskfile *t = &d->taskfile;
-
-  if (r != ide_devctrl_w) {
-    if (t->status & ST_BSY) {
-      ide_fault(d, "command written while busy");
-      return;
+    if (mode == BF_MODE_SNAPSHOT) {
+        bf->sector_table = malloc(sizeof(bf->sector_table[0]) *
+                                  bf->nb_sectors);
+        memset(bf->sector_table, 0,
+               sizeof(bf->sector_table[0]) * bf->nb_sectors);
     }
-    /* Not clear this is the right emulation */
-    if (d->present == 0 && r != ide_lba_top) {
-      ide_fault(d, "not present");
-      return;
+    
+    bs->opaque = bf;
+    bs->get_sector_count = bf_get_sector_count;
+    bs->get_chs = NULL;
+    if (start_offset) {
+        fseek(f, 512, SEEK_SET);
+        unsigned char buf[7 * 2];
+        fread(buf, 1, 7 * 2, f);
+        bf->cylinders = buf[2] | (buf[3] << 8);
+        bf->heads = buf[6] | (buf[7] << 8);
+        bf->sectors = buf[12] | (buf[13] << 8);
+        bs->get_chs = bf_get_chs;
+        fseek(f, 0, SEEK_END);
     }
-  }
-
-  switch(r) {
-    case ide_data:
-      ide_data_out(d, v, 1);
-      break;
-    case ide_feature_w:
-      t->feature = v;
-      break;
-    case ide_sec_count:
-      t->count = v;
-      break;
-    case ide_lba_low:
-      t->lba1 = v;
-      break;
-    case ide_lba_mid:
-      t->lba2 = v;
-      break;
-    case ide_lba_hi:
-      t->lba3 = v;
-      break;
-    case ide_lba_top:
-      c->selected = (v & DEVH_DEV) ? 1 : 0;
-      c->drive[c->selected].taskfile.lba4 = v & (DEVH_HEAD|DEVH_DEV|DEVH_LBA);
-      break;
-    case ide_command_w:
-      t->command = v; 
-      ide_issue_command(t);
-      break;
-    case ide_devctrl_w:
-      /* ATA: "When the Device Control register is written, both devices
-         respond to the write regardless of which device is selected" */
-      if ((v ^ t->devctrl) & DCL_SRST) {
-        if (v & DCL_SRST)
-          ide_srst_begin(c);
-        else
-          ide_srst_end(c);
-      }
-      c->drive[0].taskfile.devctrl = v;	/* Check versus real h/w does this end up cleared */
-      c->drive[1].taskfile.devctrl = v;
-      break;
-  }
+    bs->read_async = bf_read_async;
+    bs->write_async = bf_write_async;
+    return bs;
 }
 
-/*
- *	16bit IDE controller emulation
- */
-
-uint16_t ide_read16(struct ide_controller *c, uint8_t r)
+IDEIFState *ide_allocate(int irq, void *pic, void (*set_irq)(void *pic, int irq, int level))
 {
-  struct ide_drive *d = &c->drive[c->selected];
-  if (r == ide_data)
-    return ide_data_in(d,2);
-  return ide_read8(c, r);
+    int i;
+    IDEIFState *s;
+    
+    s = malloc(sizeof(IDEIFState));
+    memset(s, 0, sizeof(*s));
+
+    s->irq = irq;
+    s->pic = pic;
+    s->set_irq = set_irq;
+
+    s->cur_drive = s->drives[0];
+    return s;
 }
 
-void ide_write16(struct ide_controller *c, uint8_t r, uint16_t v)
+int ide_attach(IDEIFState *s, int drive, const char *filename)
 {
-  struct ide_drive *d = &c->drive[c->selected];
-  struct ide_taskfile *t = &d->taskfile;
-
-  if (r != ide_devctrl_w && (t->status & ST_BSY)) {
-    ide_fault(d, "command written while busy");
-    return;
-  }
-  if (r == ide_data)
-    ide_data_out(d, v, 2);
-  else
-    ide_write8(c, r, v);
-}
-
-/*
- *	Allocate a new IDE controller emulation
- */
-struct ide_controller *ide_allocate(const char *name, int irq, void *pic, void (*set_irq)(void *pic, int irq, int level))
-{
-  struct ide_controller *c = calloc(1, sizeof(*c));
-  if (c == NULL)
-    return NULL;
-  c->name = strdup(name);
-  if (c->name == NULL) {
-    free(c);
-    return NULL;
-  }
-  c->irq = irq;
-  c->pic = pic;
-  c->set_irq = set_irq;
-  c->drive[0].controller = c;
-  c->drive[1].controller = c;
-  c->drive[0].taskfile.drive = &c->drive[0];
-  c->drive[1].taskfile.drive = &c->drive[1];
-  return c;
-}
-
-/*
- *	Attach a file to a device on the controller
- */
-int ide_attach(struct ide_controller *c, int drive, int fd)
-{
-  struct ide_drive *d = &c->drive[drive];
-  if (d->present) {
-    ide_fault(d, "double attach");
-    return -1;
-  }
-  d->fd = fd;
-  if (read(d->fd, d->data, 512) != 512 ||
-      read(d->fd, d->identify, 512) != 512) {
-    ide_fault(d, "i/o error on attach");
-    return -1;
-  }
-  if (memcmp(d->data, ide_magic, 8)) {
-    ide_fault(d, "bad magic");
-    return -1;
-  }
-  d->fd = fd;
-  d->present = 1;
-  d->heads = d->identify[3];
-  d->sectors = d->identify[6];
-  d->cylinders = le16(d->identify[1]);
-  if (d->identify[49] & le16(1 << 9))
-    d->lba = 1;
-  else
-    d->lba = 0;
-  return 0;
-}
-
-/*
- *	Detach an IDE device from the interface (not hot pluggable)
- */
-void ide_detach(struct ide_drive *d)
-{
-  close(d->fd);
-  d->fd = -1;
-  d->present = 0;
-}
-
-/*
- *	Free up and release and IDE controller
- */  
-void ide_free(struct ide_controller *c)
-{
-  if (c->drive[0].present)
-    ide_detach(&c->drive[0]);
-  if (c->drive[1].present)
-    ide_detach(&c->drive[1]);
-  free((void *)c->name);
-  free(c);
-}
-
-/*
- *	Emulation interface for an 8bit controller using latches on the
- *	data register
- */
-uint8_t ide_read_latched(struct ide_controller *c, uint8_t reg)
-{
-  uint16_t v;
-  if (reg == ide_data_latch)
-    return c->data_latch;
-  v = ide_read16(c, reg);
-  if (reg == ide_data) {
-    c->data_latch = v >> 8;
-    v &= 0xFF;
-  }
-  return v;
-}
-
-void ide_write_latched(struct ide_controller *c, uint8_t reg, uint8_t v)
-{
-  uint16_t d = v;
-
-  if (reg == ide_data_latch) {
-    c->data_latch = v;
-    return;
-  }
-  if (reg == ide_data)
-    d |=  (c->data_latch << 8);
-  ide_write16(c, reg, d);  
-}
-
-static void make_ascii(uint16_t *p, const char *t, int len)
-{
-  int i;
-  char *d = (char *)p;
-  strncpy(d, t, len);
-
-  for (i = 0; i < len; i += 2) {
-    char c = *d;
-    *d = d[1];
-    d[1] = c;
-    d += 2;
-  }  
-}
-
-static void make_serial(uint16_t *p)
-{
-  char buf[21];
-  srand(getpid()^time(NULL));
-  snprintf(buf, 21, "%08d%08d%04d", rand(), rand(), rand());
-  make_ascii(p, buf, 20);
-}
-
-int ide_make_drive(uint8_t type, int fd)
-{
-  uint8_t s, h;
-  uint16_t c;
-  uint32_t sectors;
-  uint16_t ident[256];
-
-  if (type < 1 || type > MAX_DRIVE_TYPE)
-    return -2;
-  
-  memset(ident, 0, 512);
-  memcpy(ident, ide_magic, 8);
-  if (write(fd, ident, 512) != 512)
-    return -1;
-
-  memset(ident, 0, 8);
-  ident[0] = le16((1 << 15) | (1 << 6));	/* Non removable */
-  make_serial(ident + 10);
-  ident[47] = 0; /* no read multi for now */
-  ident[51] = le16(240 /* PIO2 */ << 8);	/* PIO cycle time */
-  ident[53] = le16(1);		/* Geometry words are valid */
-  
-  switch(type) {
-    case ACME_ROADRUNNER:
-      /* 504MB drive with LBA support */
-      c = 1024;
-      h = 16;
-      s = 63;
-      make_ascii(ident + 23, "A001.001", 8);
-      make_ascii(ident + 27, "ACME ROADRUNNER v0.1", 40);
-      ident[49] = le16(1 << 9); /* LBA */
-      break;  
-    case ACME_ULTRASONICUS:
-      /* 40MB drive with LBA support */
-      c = 977;
-      h = 5;
-      s = 16;
-      ident[49] = le16(1 << 9); /* LBA */
-      make_ascii(ident + 23, "A001.001", 8);
-      make_ascii(ident + 27, "ACME ULTRASONICUS AD INFINITUM v0.1", 40);
-      break;
-    case ACME_NEMESIS:
-      /* 20MB drive with LBA support */
-      c = 615;
-      h = 4;
-      s = 16;
-      ident[49] = le16(1 << 9); /* LBA */
-      make_ascii(ident + 23, "A001.001", 8);
-      make_ascii(ident + 27, "ACME NEMESIS RIDICULII v0.1", 40);
-      break;
-    case ACME_COYOTE:
-      /* 20MB drive without LBA support */
-      c = 615;
-      h = 4;
-      s = 16;
-      make_ascii(ident + 23, "A001.001", 8);
-      make_ascii(ident + 27, "ACME COYOTE v0.1", 40);
-      break;  
-    case ACME_ACCELLERATTI:
-      c = 1024;
-      h = 16;
-      s = 16;
-      ident[49] = le16(1 << 9); /* LBA */
-      make_ascii(ident + 23, "A001.001", 8);
-      make_ascii(ident + 27, "ACME ACCELLERATTI INCREDIBILUS v0.1", 40);
-      break;
-    case ACME_ZIPPIBUS:
-      c = 1024;
-      h = 16;
-      s = 32;
-      ident[49] = le16(1 << 9); /* LBA */
-      make_ascii(ident + 23, "A001.001", 8);
-      make_ascii(ident + 27, "ACME ZIPPIBUS v0.1", 40);
-      break;
-  }
-  ident[1] = le16(c);
-  ident[3] = le16(h);
-  ident[6] = le16(s);
-  ident[54] = ident[1];
-  ident[55] = ident[3];
-  ident[56] = ident[6];
-  sectors = c * h * s;
-  ident[57] = le16(sectors & 0xFFFF);
-  ident[58] = le16(sectors >> 16);
-  ident[60] = ident[57];
-  ident[61] = ident[58];
-  if (write(fd, ident, 512) != 512)
-    return -1;
-  
-  memset(ident, 0xE5, 512);
-  while(sectors--)
-    if (write(fd, ident, 512) != 512)
-      return -1;  
-  return 0;
+    BlockDevice *bs = block_device_init(filename, BF_MODE_RW);
+    s->drives[drive] = ide_drive_init(s, bs);
+    return 0;
 }

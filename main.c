@@ -41,7 +41,7 @@ typedef struct {
 	PITState *pit;
 	U8250 *serial;
 	CMOS *cmos;
-	struct ide_controller *ide, *ide2;
+	IDEIFState *ide, *ide2;
 	VGAState *vga;
 	FBDevice *fb_dev;
 	char *phys_mem;
@@ -91,17 +91,17 @@ u8 pc_io_read(void *o, int addr)
 		return val;
 	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
 	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
-		val = ide_read8(pc->ide, addr - 0x1f0);
+		val = ide_ioport_read(pc->ide, addr - 0x1f0);
 		return val;
 	case 0x170: case 0x171: case 0x172: case 0x173:
 	case 0x174: case 0x175: case 0x176: case 0x177:
-		val = ide_read8(pc->ide2, addr - 0x170);
+		val = ide_ioport_read(pc->ide2, addr - 0x170);
 		return val;
 	case 0x3f6:
-		val = ide_read8(pc->ide, 8);
+		val = ide_status_read(pc->ide);
 		return val;
 	case 0x376:
-		val = ide_read8(pc->ide2, 8);
+		val = ide_status_read(pc->ide2);
 		return val;
 	case 0x3c0: case 0x3c1: case 0x3c2: case 0x3c3:
 	case 0x3c4: case 0x3c5: case 0x3c6: case 0x3c7:
@@ -138,13 +138,11 @@ u16 pc_io_read16(void *o, int addr)
 	u16 val;
 
 	switch(addr) {
-	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
-	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
-		val = ide_read16(pc->ide, addr - 0x1f0);
+	case 0x1f0:
+		val = ide_data_readw(pc->ide);
 		return val;
-	case 0x170: case 0x171: case 0x172: case 0x173:
-	case 0x174: case 0x175: case 0x176: case 0x177:
-		val = ide_read16(pc->ide2, addr - 0x170);
+	case 0x170:
+		val = ide_data_readw(pc->ide2);
 		return val;
 	default:
 		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0xffff);
@@ -189,17 +187,17 @@ void pc_io_write(void *o, int addr, u8 val)
 		return;
 	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
 	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
-		ide_write8(pc->ide, addr - 0x1f0, val);
+		ide_ioport_write(pc->ide, addr - 0x1f0, val);
 		return;
 	case 0x170: case 0x171: case 0x172: case 0x173:
 	case 0x174: case 0x175: case 0x176: case 0x177:
-		ide_write8(pc->ide2, addr - 0x170, val);
+		ide_ioport_write(pc->ide2, addr - 0x170, val);
 		return;
 	case 0x3f6:
-		ide_write8(pc->ide, 8, val);
+		ide_cmd_write(pc->ide, val);
 		return;
 	case 0x376:
-		ide_write8(pc->ide2, 8, val);
+		ide_cmd_write(pc->ide2, val);
 		return;
 	case 0x3c0: case 0x3c1: case 0x3c2: case 0x3c3:
 	case 0x3c4: case 0x3c5: case 0x3c6: case 0x3c7:
@@ -253,13 +251,11 @@ void pc_io_write16(void *o, int addr, u16 val)
 {
 	PC *pc = o;
 	switch(addr) {
-	case 0x1f0: case 0x1f1: case 0x1f2: case 0x1f3:
-	case 0x1f4: case 0x1f5: case 0x1f6: case 0x1f7:
-		ide_write16(pc->ide, addr - 0x1f0, val);
+	case 0x1f0:
+		ide_data_writew(pc->ide, val);
 		return;
-	case 0x170: case 0x171: case 0x172: case 0x173:
-	case 0x174: case 0x175: case 0x176: case 0x177:
-		ide_write16(pc->ide2, addr - 0x170, val);
+	case 0x170:
+		ide_data_writew(pc->ide2, val);
 		return;
 	case 0x3c0: case 0x3c1: case 0x3c2: case 0x3c3:
 	case 0x3c4: case 0x3c5: case 0x3c6: case 0x3c7:
@@ -397,22 +393,18 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data, ch
 	pc->pit = i8254_init(0, pc->pic, set_irq);
 	pc->serial = u8250_init(4, pc->pic, set_irq);
 	pc->cmos = cmos_init(mem_size, 8, pc->pic, set_irq);
-	pc->ide = ide_allocate("ide", 14, pc->pic, set_irq);
-	pc->ide2 = ide_allocate("ide2", 15, pc->pic, set_irq);
+	pc->ide = ide_allocate(14, pc->pic, set_irq);
+	pc->ide2 = ide_allocate(15, pc->pic, set_irq);
 	if (disks) {
 		for (int i = 0; disks[i] && i < 4; i++) {
-			int idefd = open(disks[i], O_RDWR);
-			assert(idefd >= 0);
 			if (i < 2) {
-				int ret = ide_attach(pc->ide, i, idefd);
+				int ret = ide_attach(pc->ide, i, disks[i]);
 				assert(ret == 0);
 			} else {
-				int ret = ide_attach(pc->ide2, i - 2, idefd);
+				int ret = ide_attach(pc->ide2, i - 2, disks[i]);
 				assert(ret == 0);
 			}
 		}
-		ide_reset_begin(pc->ide);
-		ide_reset_begin(pc->ide2);
 	}
 
 	pc->phys_mem = mem;
