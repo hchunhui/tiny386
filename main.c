@@ -72,10 +72,12 @@ u8 pc_io_read(void *o, int addr)
 	case 0x20: case 0x21: case 0xa0: case 0xa1:
 		val = i8259_ioport_read(pc->pic, addr);
 		return val;
+#ifdef LINUXSTART
 	case 0x3f8: case 0x3f9: case 0x3fa: case 0x3fb:
 	case 0x3fc: case 0x3fd: case 0x3fe: case 0x3ff:
 		val = u8250_reg_read(pc->serial, addr - 0x3f8);
 		return val;
+#endif
 	case 0x2f8: case 0x2f9: case 0x2fa: case 0x2fb:
 	case 0x2fc: case 0x2fd: case 0x2fe: case 0x2ff:
 	case 0x2e8: case 0x2e9: case 0x2ea: case 0x2eb:
