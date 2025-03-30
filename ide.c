@@ -1012,3 +1012,11 @@ int ide_attach(IDEIFState *s, int drive, const char *filename)
     s->drives[drive] = ide_drive_init(s, bs);
     return 0;
 }
+
+PCIDevice *piix3_ide_init(PCIBus *pci_bus, int devfn)
+{
+    PCIDevice *d;
+    d = pci_register_device(pci_bus, "PIIX3 IDE", devfn, 0x8086, 0x7010, 0x00, 0x0101);
+    pci_device_set_config8(d, 0x09, 0x00); /* ISA IDE ports, no DMA */
+    return d;
+}

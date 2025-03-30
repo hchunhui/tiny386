@@ -18,6 +18,7 @@
 #include "i8042.h"
 #include "misc.h"
 #include "adlib.h"
+#include "pci.h"
 
 #include <time.h>
 static uint32_t get_uticks()
@@ -57,6 +58,9 @@ typedef struct {
 	PS2KbdState *kbd;
 	PS2MouseState *mouse;
 	AdlibState *adlib;
+
+	I440FXState *i440fx;
+	PCIBus *pcibus;
 
 	u8 port92;
 	int shutdown_state;
@@ -128,6 +132,9 @@ u8 pc_io_read(void *o, int addr)
 	case 0x228: case 0x229:
 	case 0x388: case 0x389: case 0x38a:
 		return adlib_read(pc->adlib, addr);
+	case 0xcfc:
+		val = i440fx_read_data(pc->i440fx, 0, 0);
+		return val;
 	default:
 		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0xff);
 		return 0xff;
@@ -146,6 +153,12 @@ u16 pc_io_read16(void *o, int addr)
 	case 0x170:
 		val = ide_data_readw(pc->ide2);
 		return val;
+	case 0xcfc:
+		val = i440fx_read_data(pc->i440fx, 0, 1);
+		return val;
+	case 0xcfe:
+		val = i440fx_read_data(pc->i440fx, 0, 2) >> 16;
+		return val;
 	default:
 		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0xffff);
 		return 0xffff;
@@ -155,9 +168,19 @@ u16 pc_io_read16(void *o, int addr)
 u32 pc_io_read32(void *o, int addr)
 {
 	PC *pc = o;
-	if (addr == 0x3cc)
+	u32 val;
+	switch(addr) {
+	case 0x3cc:
 		return (get_uticks() - pc->boot_start_time) / 1000;
-	fprintf(stderr, "ind 0x%x <= 0x%x\n", addr, 0xffffffff);
+	case 0xcf8:
+		val = i440fx_read_addr(pc->i440fx, 0, 2);
+		return val;
+	case 0xcfc:
+		val = i440fx_read_data(pc->i440fx, 0, 2);
+		return val;
+	default:
+		fprintf(stderr, "ind 0x%x <= 0x%x\n", addr, 0xffffffff);
+	}
 	return 0xffffffff;
 }
 
@@ -243,6 +266,9 @@ void pc_io_write(void *o, int addr, u8 val)
 		default : pc->shutdown_state = 0; break;
 		}
 		return;
+	case 0xcfc:
+		i440fx_write_data(pc->i440fx, 0, val, 0);
+		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
 		return;
@@ -270,6 +296,9 @@ void pc_io_write16(void *o, int addr, u16 val)
 		vga_ioport_write(pc->vga, addr, val & 0xff);
 		vga_ioport_write(pc->vga, addr + 1, (val >> 8) & 0xff);
 		return;
+	case 0xcfc:
+		i440fx_write_data(pc->i440fx, 0, val, 1);
+		return;
 	default:
 		fprintf(stderr, "outw 0x%x => 0x%x\n", val, addr);
 		return;
@@ -278,7 +307,18 @@ void pc_io_write16(void *o, int addr, u16 val)
 
 void pc_io_write32(void *o, int addr, u32 val)
 {
-	fprintf(stderr, "outd 0x%x => 0x%x\n", val, addr);
+	PC *pc = o;
+	switch(addr) {
+	case 0xcf8:
+		i440fx_write_addr(pc->i440fx, 0, val, 2);
+		return;
+	case 0xcfc:
+		i440fx_write_data(pc->i440fx, 0, val, 2);
+		return;
+	default:
+		fprintf(stderr, "outd 0x%x => 0x%x\n", val, addr);
+		return;
+	}
 }
 
 
@@ -408,6 +448,10 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data, ch
 			}
 		}
 	}
+
+	int piix3_devfn;
+	pc->i440fx = i440fx_init(&pc->pcibus, &piix3_devfn);
+	piix3_ide_init(pc->pcibus, piix3_devfn + 1);
 
 	pc->phys_mem = mem;
 	pc->phys_mem_size = mem_size;

@@ -40,4 +40,7 @@ uint32_t ide_ioport_read(void *opaque, uint32_t offset);
 void ide_cmd_write(void *opaque, uint32_t val);
 uint32_t ide_status_read(void *opaque);
 
+#include "pci.h"
+PCIDevice *piix3_ide_init(PCIBus *pci_bus, int devfn);
+
 #endif /* IDE_H */
