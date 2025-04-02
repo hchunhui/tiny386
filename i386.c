@@ -1589,15 +1589,19 @@ static void clear_segs(CPUI386 *cpu)
 
 #define ROL_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = (lb(b)) & (BIT - 1); \
+	uword y0 = lb(b); \
+	uword y = y0 & (BIT - 1); \
+	uword res = x; \
 	if (y) { \
-		uword res = sext ## BIT((x << y) | (x >> (BIT - y))); \
+		res = sext ## BIT((x << y) | (x >> (BIT - y))); \
+		sa(a, res); \
+	} \
+	if (y0) { \
 		int cf1 = res & 1; \
 		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
 		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
 		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
 		cpu->cc.mask &= ~(CF | OF); \
-		sa(a, res); \
 	}
 
 #define ROLb(...) ROL_helper(8, __VA_ARGS__)
@@ -1629,7 +1633,7 @@ static void clear_segs(CPUI386 *cpu)
 		uword cf = get_CF(cpu); \
 		uword res = sext ## BIT((x >> y) | (cf << (BIT - y)) | (y != 1 ? (x << (BIT + 1 - y)) : 0)); \
 		int cf1 = (sext ## BIT(x << (BIT - y)) >> (BIT - 1)) & 1; \
-		int of1 = (res ^ (res << 1)) >> (sizeof(uword) * 8 - 1); \
+		int of1 = ((res ^ (res << 1)) >> (BIT - 1)) & 1; \
 		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
 		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
 		cpu->cc.mask &= ~(CF | OF); \
@@ -1642,15 +1646,19 @@ static void clear_segs(CPUI386 *cpu)
 
 #define ROR_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = (lb(b)) & (BIT - 1); \
+	uword y0 = lb(b); \
+	uword y = y0 & (BIT - 1); \
+	uword res = x; \
 	if (y) { \
-		uword res = sext ## BIT((x >> y) | (x << (BIT - y))); \
-		int cf1 = res >> (sizeof(uword) * 8 - 1); \
-		int of1 = (res ^ (res << 1)) >> (sizeof(uword) * 8 - 1); \
+		res = sext ## BIT((x >> y) | (x << (BIT - y))); \
+		sa(a, res); \
+	} \
+	if (y0) { \
+		int cf1 = (res >> (BIT - 1)) & 1; \
+		int of1 = ((res ^ (res << 1)) >> (BIT - 1)) & 1; \
 		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
 		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
 		cpu->cc.mask &= ~(CF | OF); \
-		sa(a, res); \
 	}
 
 #define RORb(...) ROR_helper(8, __VA_ARGS__)
@@ -1679,6 +1687,10 @@ static void clear_segs(CPUI386 *cpu)
 	uword y = lb(b); \
 	if (count) { \
 		cpu->cc.src1 = sext ## BIT(x); \
+		if (BIT < count) {  /* undocumented */ \
+			uword z = x; x = y; y = z; \
+			count -= BIT; \
+		} \
 		cpu->cc.dst = sext ## BIT((x << count) | (y >> (BIT - count))); \
 		if (count == 1) { \
 			cpu->cc.dst2 = sext ## BIT(x); \
@@ -1698,6 +1710,10 @@ static void clear_segs(CPUI386 *cpu)
 	uword x = la(a); \
 	uword y = lb(b); \
 	if (count) { \
+		if (BIT < count) {  /* undocumented */ \
+			uword z = x; x = y; y = z; \
+			count -= BIT; \
+		} \
 		cpu->cc.src1 = sext ## BIT(x); \
 		cpu->cc.dst = sext ## BIT((x >> count) | (y << (BIT - count))); \
 		if (count == 1) { \
@@ -3108,6 +3124,7 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 	u8 res = al + ah * imm; \
 	sreg8(0, res); \
 	sreg8(4, 0); \
+	cpu->flags &= ~(OF | AF | CF); /* undocumented */ \
 	cpu->cc.dst = sext8(res); \
 	cpu->cc.mask = ZF | SF | PF;
 
@@ -3117,6 +3134,7 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 	u8 res = al % imm; \
 	sreg8(4, al / imm); \
 	sreg8(0, res); \
+	cpu->flags &= ~(OF | AF | CF); /* undocumented */ \
 	cpu->cc.dst = sext8(res); \
 	cpu->cc.mask = ZF | SF | PF;
 
@@ -3310,7 +3328,7 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 	} \
 	u16 dst = la(a); \
 	u16 src = lb(b); \
-	if (dst & 3 < src & 3) { \
+	if ((dst & 3) < (src & 3)) { \
 		cpu->flags |= ZF; \
 		sa(a, ((dst & ~3) | (src & 3))); \
 	} else { \
