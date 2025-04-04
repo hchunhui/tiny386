@@ -769,7 +769,7 @@ int main(int argc, char *argv[])
 {
 	const char *vmlinux = "vmlinux.bin";
 	Console *console = console_init(720, 480);
-	PC *pc = pc_new(redraw, poll, 720, 480, console, argv + 1);
+	PC *pc = pc_new(redraw, poll, console, 720, 480, argv + 1);
 	if (console)
 		console->pc = pc;
 
