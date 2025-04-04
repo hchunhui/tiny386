@@ -22,14 +22,21 @@ struct FBDevice {
 typedef struct VGAState VGAState;
 VGAState *vga_init(FBDevice *fb_dev,
 		   int width, int height,
-		   const uint8_t *vga_rom_buf, int vga_rom_size, uint8_t *vga_ram);
+		   uint8_t *vga_ram, int vga_ram_size);
 
 int vga_step(VGAState *vga);
 
 void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val);
 uint32_t vga_ioport_read(VGAState *s, uint32_t addr);
 
+void vbe_write(VGAState *s, uint32_t offset, uint32_t val);
+uint32_t vbe_read(VGAState *s, uint32_t offset);
+
 void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val);
 uint8_t vga_mem_read(VGAState *s, uint32_t addr);
 
+typedef struct PCIDevice PCIDevice;
+typedef struct PCIBus PCIBus;
+PCIDevice *vga_pci_init(VGAState *s, PCIBus *bus,
+                        void *o, void (*set_bar)(void *, int, uint32_t, bool));
 #endif /* VGA_H */

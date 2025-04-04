@@ -48,6 +48,7 @@ typedef struct {
 	char *phys_mem;
 	long phys_mem_size;
 	char *vga_mem;
+	int vga_mem_size;
 	int64_t boot_start_time;
 
 	SimpleFBDrawFunc *redraw;
@@ -61,6 +62,8 @@ typedef struct {
 
 	I440FXState *i440fx;
 	PCIBus *pcibus;
+	PCIDevice *pci_vga;
+	uword pci_vga_ram_addr;
 
 	u8 port92;
 	int shutdown_state;
@@ -147,6 +150,9 @@ u16 pc_io_read16(void *o, int addr)
 	u16 val;
 
 	switch(addr) {
+	case 0x1ce: case 0x1cf:
+		val = vbe_read(pc->vga, addr - 0x1ce);
+		return val;
 	case 0x1f0:
 		val = ide_data_readw(pc->ide);
 		return val;
@@ -296,6 +302,9 @@ void pc_io_write16(void *o, int addr, u16 val)
 		vga_ioport_write(pc->vga, addr, val & 0xff);
 		vga_ioport_write(pc->vga, addr + 1, (val >> 8) & 0xff);
 		return;
+	case 0x1ce: case 0x1cf:
+		vbe_write(pc->vga, addr - 0x1ce, val);
+		return;
 	case 0xcfc:
 		i440fx_write_data(pc->i440fx, 0, val, 1);
 		return;
@@ -368,15 +377,39 @@ static void set_irq(void *o, int irq, int level)
 	return i8259_set_irq(s, irq, level);
 }
 
+static void set_pci_vga_bar(void *opaque, int bar_num, uint32_t addr, bool enabled)
+{
+	PC *pc = opaque;
+	if (enabled)
+		pc->pci_vga_ram_addr = addr;
+	else
+		pc->pci_vga_ram_addr = -1;
+}
+
 static u8 iomem_read8(void *iomem, uword addr)
 {
 	PC *pc = iomem;
+	uword vga_addr2 = pc->pci_vga_ram_addr;
+	if (addr >= vga_addr2) {
+		addr -= vga_addr2;
+		if (addr < pc->vga_mem_size)
+			return pc->vga_mem[addr];
+		else
+			return 0;
+	}
 	return vga_mem_read(pc->vga, addr - 0xa0000);
 }
 
 static void iomem_write8(void *iomem, uword addr, u8 val)
 {
 	PC *pc = iomem;
+	uword vga_addr2 = pc->pci_vga_ram_addr;
+	if (addr >= vga_addr2) {
+		addr -= vga_addr2;
+		if (addr < pc->vga_mem_size)
+			pc->vga_mem[addr] = val;
+		return;
+	}
 	vga_mem_write(pc->vga, addr - 0xa0000, val);
 }
 
@@ -388,6 +421,15 @@ static u16 iomem_read16(void *iomem, uword addr)
 
 static void iomem_write16(void *iomem, uword addr, u16 val)
 {
+	PC *pc = iomem;
+	// fast path for vga ram
+	uword vga_addr2 = pc->pci_vga_ram_addr;
+	if (addr >= vga_addr2) {
+		addr -= vga_addr2;
+		if (addr + 1 < pc->vga_mem_size)
+			*(uint16_t *)&(pc->vga_mem[addr]) = val;
+		return;
+	}
 	iomem_write8(iomem, addr, val);
 	iomem_write8(iomem, addr + 1, val >> 8);
 }
@@ -400,6 +442,16 @@ static u32 iomem_read32(void *iomem, uword addr)
 
 static void iomem_write32(void *iomem, uword addr, u32 val)
 {
+	PC *pc = iomem;
+	// fast path for vga ram
+	uword vga_addr2 = pc->pci_vga_ram_addr;
+	if (addr >= vga_addr2) {
+		uword vga_addr2 = pc->pci_vga_ram_addr;
+		addr -= vga_addr2;
+		if (addr + 3 < pc->vga_mem_size)
+			*(uint32_t *)&(pc->vga_mem[addr]) = val;
+		return;
+	}
 	iomem_write16(iomem, addr, val);
 	iomem_write16(iomem, addr + 2, val >> 16);
 }
@@ -410,10 +462,12 @@ static void pc_reset_request(void *p)
 	pc->reset_request = 1;
 }
 
-PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data, char **disks)
+PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
+	   int width, int height, char **disks)
 {
 	PC *pc = malloc(sizeof(PC));
 	long mem_size = 16 * 1024 * 1024;
+	int vga_mem_size = 4 * 1024 * 1024;
 #ifdef USEKVM
 	char *mem = mmap(NULL, mem_size, PROT_READ | PROT_WRITE,
 			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -468,9 +522,13 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data, ch
 
 	FBDevice *fb_dev = malloc(sizeof(FBDevice));
 	memset(fb_dev, 0, sizeof(FBDevice));
-	pc->vga_mem = malloc(256 * 1024);
-	memset(pc->vga_mem, 0, 256 * 1024);
-	pc->vga = vga_init(fb_dev, 720, 480, NULL, 0, pc->vga_mem);
+	pc->vga_mem_size = vga_mem_size;
+	pc->vga_mem = malloc(pc->vga_mem_size);
+	memset(pc->vga_mem, 0, pc->vga_mem_size);
+	pc->vga = vga_init(fb_dev, width, height, pc->vga_mem, pc->vga_mem_size);
+	pc->pci_vga = vga_pci_init(pc->vga, pc->pcibus, pc, set_pci_vga_bar);
+	pc->pci_vga_ram_addr = -1;
+
 	pc->cpu->iomem = pc;
 	pc->cpu->iomem_read8 = iomem_read8;
 	pc->cpu->iomem_write8 = iomem_write8;
@@ -515,11 +573,11 @@ typedef struct {
 	PC *pc;
 } Console;
 
-Console *console_init()
+Console *console_init(int width, int height)
 {
 	Console *s = malloc(sizeof(Console));
-	s->width = 720;
-	s->height = 480;
+	s->width = width;
+	s->height = height;
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
 	s->screen = SDL_SetVideoMode(s->width, s->height, 32, 0);
 	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY,
@@ -531,7 +589,11 @@ static void redraw(FBDevice *fb_dev, void *opaque,
 		   int x, int y, int w, int h)
 {
 	Console *s = opaque;
-	memcpy(s->screen->pixels, fb_dev->fb_data, s->width * s->height * 4);
+	for (int j = 0; j < fb_dev->height; j++) {
+		memcpy(s->screen->pixels + 4 * j * s->width,
+		       fb_dev->fb_data + j * fb_dev->stride,
+		       fb_dev->stride);
+	}
 	SDL_Flip(s->screen);
 	SDL_PumpEvents();
 }
@@ -683,7 +745,7 @@ typedef struct {
 	PC *pc;
 } Console;
 
-Console *console_init()
+Console *console_init(int width, int height)
 {
 	return NULL;
 }
@@ -706,8 +768,8 @@ static void load_bios(PC *pc)
 int main(int argc, char *argv[])
 {
 	const char *vmlinux = "vmlinux.bin";
-	Console *console = console_init();
-	PC *pc = pc_new(redraw, poll, console, argv + 1);
+	Console *console = console_init(720, 480);
+	PC *pc = pc_new(redraw, poll, 720, 480, console, argv + 1);
 	if (console)
 		console->pc = pc;
 
@@ -754,8 +816,10 @@ static void load_bios(PC *pc)
 
 int main(int argc, char *argv[])
 {
-	Console *console = console_init();
-	PC *pc = pc_new(redraw, poll, console, argv + 1);
+	int width = 1024;
+	int height = 768;
+	Console *console = console_init(width, height);
+	PC *pc = pc_new(redraw, poll, console, width, height, argv + 1);
 	if (console)
 		console->pc = pc;
 

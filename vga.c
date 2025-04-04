@@ -31,6 +31,7 @@
 #include <time.h>
 
 #include "vga.h"
+#include "pci.h"
 
 //#define DEBUG_VBE
 //#define DEBUG_VGA_REG
@@ -75,17 +76,14 @@
 
 struct VGAState {
     FBDevice *fb_dev;
-    int fb_page_count;
     int graphic_mode;
     uint32_t cursor_blink_time;
     int cursor_visible_phase;
     uint32_t retrace_time;
     int retrace_phase;
-//    PhysMemoryRange *mem_range;
-//    PhysMemoryRange *mem_range2;
-//    PhysMemoryRange *rom_range;
 
     uint8_t *vga_ram; /* 128K at 0xa0000 */
+    int vga_ram_size;
     
     uint8_t sr_index;
     uint8_t sr[8];
@@ -106,6 +104,7 @@ struct VGAState {
     uint8_t dac_write_index;
     uint8_t dac_cache[3]; /* used when writing */
     uint8_t palette[768];
+    int32_t bank_offset;
 
     uint32_t latch;
     
@@ -123,6 +122,8 @@ struct VGAState {
     /* VBE extension */
     uint16_t vbe_index;
     uint16_t vbe_regs[VBE_DISPI_INDEX_NB];
+    uint32_t vbe_start_addr;
+    uint32_t vbe_line_offset;
 };
 
 static uint32_t get_uticks()
@@ -257,6 +258,197 @@ static int update_palette16(VGAState *s, uint32_t *palette)
         }
     }
     return full_update;
+}
+
+/* VGA CRT controller register indices */
+#define VGA_CRTC_H_TOTAL        0
+#define VGA_CRTC_H_DISP         1
+#define VGA_CRTC_H_BLANK_START  2
+#define VGA_CRTC_H_BLANK_END    3
+#define VGA_CRTC_H_SYNC_START   4
+#define VGA_CRTC_H_SYNC_END     5
+#define VGA_CRTC_V_TOTAL        6
+#define VGA_CRTC_OVERFLOW       7
+#define VGA_CRTC_PRESET_ROW     8
+#define VGA_CRTC_MAX_SCAN       9
+#define VGA_CRTC_CURSOR_START   0x0A
+#define VGA_CRTC_CURSOR_END     0x0B
+#define VGA_CRTC_START_HI       0x0C
+#define VGA_CRTC_START_LO       0x0D
+#define VGA_CRTC_CURSOR_HI      0x0E
+#define VGA_CRTC_CURSOR_LO      0x0F
+#define VGA_CRTC_V_SYNC_START   0x10
+#define VGA_CRTC_V_SYNC_END     0x11
+#define VGA_CRTC_V_DISP_END     0x12
+#define VGA_CRTC_OFFSET         0x13
+#define VGA_CRTC_UNDERLINE      0x14
+#define VGA_CRTC_V_BLANK_START  0x15
+#define VGA_CRTC_V_BLANK_END    0x16
+#define VGA_CRTC_MODE           0x17
+#define VGA_CRTC_LINE_COMPARE   0x18
+#define VGA_CRTC_REGS           VGA_CRT_C
+
+/* VGA sequencer register indices */
+#define VGA_SEQ_RESET           0x00
+#define VGA_SEQ_CLOCK_MODE      0x01
+#define VGA_SEQ_PLANE_WRITE     0x02
+#define VGA_SEQ_CHARACTER_MAP   0x03
+#define VGA_SEQ_MEMORY_MODE     0x04
+
+/* VGA sequencer register bit masks */
+#define VGA_SR01_CHAR_CLK_8DOTS 0x01 /* bit 0: character clocks 8 dots wide are generated */
+#define VGA_SR01_SCREEN_OFF     0x20 /* bit 5: Screen is off */
+#define VGA_SR02_ALL_PLANES     0x0F /* bits 3-0: enable access to all planes */
+#define VGA_SR04_EXT_MEM        0x02 /* bit 1: allows complete mem access to 256K */
+#define VGA_SR04_SEQ_MODE       0x04 /* bit 2: directs system to use a sequential addressing mode */
+#define VGA_SR04_CHN_4M         0x08 /* bit 3: selects modulo 4 addressing for CPU access to display memory */
+
+/* VGA graphics controller register indices */
+#define VGA_GFX_SR_VALUE        0x00
+#define VGA_GFX_SR_ENABLE       0x01
+#define VGA_GFX_COMPARE_VALUE   0x02
+#define VGA_GFX_DATA_ROTATE     0x03
+#define VGA_GFX_PLANE_READ      0x04
+#define VGA_GFX_MODE            0x05
+#define VGA_GFX_MISC            0x06
+#define VGA_GFX_COMPARE_MASK    0x07
+#define VGA_GFX_BIT_MASK        0x08
+
+/* VGA graphics controller bit masks */
+#define VGA_GR06_GRAPHICS_MODE  0x01
+
+static bool vbe_enabled(VGAState *s)
+{
+    return s->vbe_regs[VBE_DISPI_INDEX_ENABLE] & VBE_DISPI_ENABLED;
+}
+
+/*
+ * Sanity check vbe register writes.
+ *
+ * As we don't have a way to signal errors to the guest in the bochs
+ * dispi interface we'll go adjust the registers to the closest valid
+ * value.
+ */
+static void vbe_fixup_regs(VGAState *s)
+{
+    uint16_t *r = s->vbe_regs;
+    uint32_t bits, linelength, maxy, offset;
+
+    if (!vbe_enabled(s)) {
+        /* vbe is turned off -- nothing to do */
+        return;
+    }
+
+    /* check depth */
+    switch (r[VBE_DISPI_INDEX_BPP]) {
+    case 4:
+    case 8:
+    case 16:
+    case 24:
+    case 32:
+        bits = r[VBE_DISPI_INDEX_BPP];
+        break;
+    case 15:
+        bits = 16;
+        break;
+    default:
+        bits = r[VBE_DISPI_INDEX_BPP] = 8;
+        break;
+    }
+
+    /* check width */
+    r[VBE_DISPI_INDEX_XRES] &= ~7u;
+    if (r[VBE_DISPI_INDEX_XRES] == 0) {
+        r[VBE_DISPI_INDEX_XRES] = 8;
+    }
+//    if (r[VBE_DISPI_INDEX_XRES] > VBE_DISPI_MAX_XRES) {
+//        r[VBE_DISPI_INDEX_XRES] = VBE_DISPI_MAX_XRES;
+//    }
+    r[VBE_DISPI_INDEX_VIRT_WIDTH] &= ~7u;
+//    if (r[VBE_DISPI_INDEX_VIRT_WIDTH] > VBE_DISPI_MAX_XRES) {
+//        r[VBE_DISPI_INDEX_VIRT_WIDTH] = VBE_DISPI_MAX_XRES;
+//    }
+    if (r[VBE_DISPI_INDEX_VIRT_WIDTH] < r[VBE_DISPI_INDEX_XRES]) {
+        r[VBE_DISPI_INDEX_VIRT_WIDTH] = r[VBE_DISPI_INDEX_XRES];
+    }
+
+    /* check height */
+    linelength = r[VBE_DISPI_INDEX_VIRT_WIDTH] * bits / 8;
+//    maxy = s->vbe_size / linelength;
+    if (r[VBE_DISPI_INDEX_YRES] == 0) {
+        r[VBE_DISPI_INDEX_YRES] = 1;
+    }
+//    if (r[VBE_DISPI_INDEX_YRES] > VBE_DISPI_MAX_YRES) {
+//        r[VBE_DISPI_INDEX_YRES] = VBE_DISPI_MAX_YRES;
+//    }
+//    if (r[VBE_DISPI_INDEX_YRES] > maxy) {
+//        r[VBE_DISPI_INDEX_YRES] = maxy;
+//    }
+
+    /* check offset */
+//    if (r[VBE_DISPI_INDEX_X_OFFSET] > VBE_DISPI_MAX_XRES) {
+//        r[VBE_DISPI_INDEX_X_OFFSET] = VBE_DISPI_MAX_XRES;
+//    }
+//    if (r[VBE_DISPI_INDEX_Y_OFFSET] > VBE_DISPI_MAX_YRES) {
+//        r[VBE_DISPI_INDEX_Y_OFFSET] = VBE_DISPI_MAX_YRES;
+//    }
+    offset = r[VBE_DISPI_INDEX_X_OFFSET] * bits / 8;
+    offset += r[VBE_DISPI_INDEX_Y_OFFSET] * linelength;
+//    if (offset + r[VBE_DISPI_INDEX_YRES] * linelength > s->vbe_size) {
+//        r[VBE_DISPI_INDEX_Y_OFFSET] = 0;
+//        offset = r[VBE_DISPI_INDEX_X_OFFSET] * bits / 8;
+//        if (offset + r[VBE_DISPI_INDEX_YRES] * linelength > s->vbe_size) {
+//            r[VBE_DISPI_INDEX_X_OFFSET] = 0;
+//            offset = 0;
+//        }
+//    }
+
+    /* update vga state */
+    r[VBE_DISPI_INDEX_VIRT_HEIGHT] = maxy;
+    s->vbe_line_offset = linelength;
+    s->vbe_start_addr  = offset / 4;
+}
+
+static void vbe_update_vgaregs(VGAState *s)
+{
+    int h, shift_control;
+
+    if (!vbe_enabled(s)) {
+        /* vbe is turned off -- nothing to do */
+        return;
+    }
+
+    /* graphic mode + memory map 1 */
+    s->gr[VGA_GFX_MISC] = (s->gr[VGA_GFX_MISC] & ~0x0c) | 0x04 |
+        VGA_GR06_GRAPHICS_MODE;
+    s->cr[VGA_CRTC_MODE] |= 3; /* no CGA modes */
+    s->cr[VGA_CRTC_OFFSET] = s->vbe_line_offset >> 3;
+    /* width */
+    s->cr[VGA_CRTC_H_DISP] =
+        (s->vbe_regs[VBE_DISPI_INDEX_XRES] >> 3) - 1;
+    /* height (only meaningful if < 1024) */
+    h = s->vbe_regs[VBE_DISPI_INDEX_YRES] - 1;
+    s->cr[VGA_CRTC_V_DISP_END] = h;
+    s->cr[VGA_CRTC_OVERFLOW] = (s->cr[VGA_CRTC_OVERFLOW] & ~0x42) |
+        ((h >> 7) & 0x02) | ((h >> 3) & 0x40);
+    /* line compare to 1023 */
+    s->cr[VGA_CRTC_LINE_COMPARE] = 0xff;
+    s->cr[VGA_CRTC_OVERFLOW] |= 0x10;
+    s->cr[VGA_CRTC_MAX_SCAN] |= 0x40;
+
+    if (s->vbe_regs[VBE_DISPI_INDEX_BPP] == 4) {
+        shift_control = 0;
+        s->sr/*_vbe*/[VGA_SEQ_CLOCK_MODE] &= ~8; /* no double line */
+    } else {
+        shift_control = 2;
+        /* set chain 4 mode */
+        s->sr/*_vbe*/[VGA_SEQ_MEMORY_MODE] |= VGA_SR04_CHN_4M;
+        /* activate all planes */
+        s->sr/*_vbe*/[VGA_SEQ_PLANE_WRITE] |= VGA_SR02_ALL_PLANES;
+    }
+    s->gr[VGA_GFX_MODE] = (s->gr[VGA_GFX_MODE] & ~0x60) |
+        (shift_control << 5);
+    s->cr[VGA_CRTC_MAX_SCAN] &= ~0x9f; /* no double scan */
 }
 
 /* the text refresh is just for debugging and initial boot message, so
@@ -482,18 +674,31 @@ static void vga_refresh(FBDevice *fb_dev,
         uint32_t line_compare = s->cr[0x18] |
             ((s->cr[0x07] & 0x10) << 4) |
             ((s->cr[0x09] & 0x40) << 3);
+        if (vbe_enabled(s)) {
+            line_offset = s->vbe_line_offset;
+            start_addr = s->vbe_start_addr;
+            line_compare = 65535;
+        }
         uint32_t addr1 = 4 * start_addr;
         uint8_t *vram = s->vga_ram;
         uint32_t palette[256];
         int xdiv = 1;
+        int bpp = 4;
         if (shift_control == 0 || shift_control == 1) {
             update_palette16(s, palette);
             if (s->sr[0x01] & 8) {
                 xdiv = 2;
             }
         } else {
-            update_palette256(s, palette);
-            xdiv = 2;
+            if (!vbe_enabled(s)) {
+                update_palette256(s, palette);
+                xdiv = 2;
+                bpp = 8;
+            } else {
+                bpp = s->vbe_regs[VBE_DISPI_INDEX_BPP];
+                if (bpp == 8)
+                    update_palette256(s, palette);
+            }
         }
 
         int y1 = 0;
@@ -519,8 +724,45 @@ static void vga_refresh(FBDevice *fb_dev,
                     k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x1 & 7))) & 1) << 3;
                     color = palette[k];
                 } else {
-                    int k = vram[addr + x1];
-                    color = palette[k];
+                    switch (bpp) {
+                    case 8: {
+                        int k = vram[addr + x1];
+                        color = palette[k];
+                        break;
+                    }
+                    case 15: {
+                        int k = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
+                        int b = (k & ((1 << 5) - 1)) << 3;
+                        int g = ((k >> 5) & ((1 << 5) - 1)) << 3;
+                        int r = ((k >> 10) & ((1 << 5) - 1)) << 3;
+                        color = b | (g << 8) | (r << 16);
+                        break;
+                    }
+                    case 16: {
+                        int k = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
+                        int b = (k & ((1 << 5) - 1)) << 3;
+                        int g = ((k >> 5) & ((1 << 6) - 1)) << 2;
+                        int r = ((k >> 11) & ((1 << 5) - 1)) << 3;
+                        color = b | (g << 8) | (r << 16);
+                        break;
+                    }
+                    case 24: {
+                        color = vram[addr + 3 * x1] |
+                            (vram[addr + 3 * x1 + 1] << 8) |
+                            (vram[addr + 3 * x1 + 2] << 16);
+                        break;
+                    }
+                    case 32: {
+                        color = vram[addr + 4 * x1] |
+                            (vram[addr + 4 * x1 + 1] << 8) |
+                            (vram[addr + 4 * x1 + 2] << 16) |
+                            (vram[addr + 4 * x1 + 3] << 24);
+                        break;
+                    }
+                    default:
+                        fprintf(stderr, "vga bpp is %d\n", bpp);
+                        abort();
+                    }
                 }
 
                 fb_dev->fb_data[i + 0] = color;
@@ -805,10 +1047,8 @@ VGA_IO(0x3d4)
 VGA_IO(0x3ba)
 VGA_IO(0x3da)
 
-static void vbe_write(void *opaque, uint32_t offset,
-                      uint32_t val, int size_log2)
+void vbe_write(VGAState *s, uint32_t offset, uint32_t val)
 {
-    VGAState *s = opaque;
     FBDevice *fb_dev = s->fb_dev;
 
     if (offset == 0) {
@@ -825,42 +1065,46 @@ static void vbe_write(void *opaque, uint32_t offset,
         case VBE_DISPI_INDEX_ENABLE:
             if ((val & VBE_DISPI_ENABLED) &&
                 !(s->vbe_regs[VBE_DISPI_INDEX_ENABLE] & VBE_DISPI_ENABLED)) {
-                /* set graphic mode */
-                /* XXX: resolution change not really supported */
-                if (s->vbe_regs[VBE_DISPI_INDEX_XRES] <= 4096 &&
-                    s->vbe_regs[VBE_DISPI_INDEX_YRES] <= 4096 &&
-                    (s->vbe_regs[VBE_DISPI_INDEX_XRES] * 4 *
-                     s->vbe_regs[VBE_DISPI_INDEX_YRES]) <= fb_dev->fb_size) {
-                    fb_dev->width = s->vbe_regs[VBE_DISPI_INDEX_XRES];
-                    fb_dev->height = s->vbe_regs[VBE_DISPI_INDEX_YRES];
-                    fb_dev->stride = fb_dev->width * 4;
-                }
                 s->vbe_regs[VBE_DISPI_INDEX_VIRT_WIDTH] =
                     s->vbe_regs[VBE_DISPI_INDEX_XRES];
                 s->vbe_regs[VBE_DISPI_INDEX_VIRT_HEIGHT] =
                     s->vbe_regs[VBE_DISPI_INDEX_YRES];
                 s->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] = 0;
                 s->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] = 0;
+            } else {
+                s->bank_offset = 0;
             }
             s->vbe_regs[s->vbe_index] = val;
+            vbe_fixup_regs(s);
+            vbe_update_vgaregs(s);
+            /* clear the screen */
+            if (!(val & VBE_DISPI_NOCLEARMEM)) {
+                memset(s->vga_ram, 0,
+                       s->vbe_regs[VBE_DISPI_INDEX_YRES] * s->vbe_line_offset);
+            }
             break;
         case VBE_DISPI_INDEX_XRES:
         case VBE_DISPI_INDEX_YRES:
         case VBE_DISPI_INDEX_BPP:
-        case VBE_DISPI_INDEX_BANK:
         case VBE_DISPI_INDEX_VIRT_WIDTH:
         case VBE_DISPI_INDEX_VIRT_HEIGHT:
         case VBE_DISPI_INDEX_X_OFFSET:
         case VBE_DISPI_INDEX_Y_OFFSET:
             s->vbe_regs[s->vbe_index] = val;
+            vbe_fixup_regs(s);
+            vbe_update_vgaregs(s);
+            break;
+        case VBE_DISPI_INDEX_BANK:
+            val &= (s->vga_ram_size >> 16) - 1;
+            s->vbe_regs[s->vbe_index] = val;
+            s->bank_offset = (val << 16);
             break;
         }
     }
 }
 
-static uint32_t vbe_read(void *opaque, uint32_t offset, int size_log2)
+uint32_t vbe_read(VGAState *s, uint32_t offset)
 {
-    VGAState *s = opaque;
     uint32_t val;
 
     if (offset == 0) {
@@ -977,7 +1221,7 @@ void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
     case 1:
         if (addr >= 0x10000)
             return;
-//        addr += s->bank_offset;
+        addr += s->bank_offset;
         break;
     case 2:
         addr -= 0x10000;
@@ -1119,7 +1363,7 @@ uint8_t vga_mem_read(VGAState *s, uint32_t addr)
     case 1:
         if (addr >= 0x10000)
             return 0xff;
-//        addr += s->bank_offset;
+        addr += s->bank_offset;
         break;
     case 2:
         addr -= 0x10000;
@@ -1170,28 +1414,13 @@ uint8_t vga_mem_read(VGAState *s, uint32_t addr)
 #endif
 }
 
-//static void simplefb_bar_set(void *opaque, int bar_num,
-//                              uint32_t addr, bool enabled)
-//{
-//    VGAState *s = opaque;
-//    if (bar_num == 0)
-//        phys_mem_set_addr(s->mem_range, addr, enabled);
-//    else
-//        phys_mem_set_addr(s->rom_range, addr, enabled);
-//}
-
 static void vga_initmode();
 
 VGAState *vga_init(FBDevice *fb_dev,
                    int width, int height,
-                   const uint8_t *vga_rom_buf, int vga_rom_size, uint8_t *vga_ram)
+                   uint8_t *vga_ram, int vga_ram_size)
 {
     VGAState *s;
-    uint32_t bar_size;
-//    PhysMemoryMap *mem_map, *port_map;
-//    d = pci_register_device(bus, "VGA", -1, 0x1234, 0x1111, 0x00, 0x0300);
-//    mem_map = pci_device_get_mem_map(d);
-//    port_map = pci_device_get_port_map(d);
 
     s = malloc(sizeof(*s));
     memset(s, 0, sizeof(*s));
@@ -1206,64 +1435,33 @@ VGAState *vga_init(FBDevice *fb_dev,
     fb_dev->stride = width * 4;
 
     fb_dev->fb_size = (height * fb_dev->stride + FB_ALLOC_ALIGN - 1) & ~(FB_ALLOC_ALIGN - 1);
-//    s->fb_page_count = fb_dev->fb_size >> DEVRAM_PAGE_SIZE_LOG2;
-
-//    s->mem_range =
-//        cpu_register_ram(mem_map, 0, fb_dev->fb_size,
-//                         DEVRAM_FLAG_DIRTY_BITS | DEVRAM_FLAG_DISABLED);
-//    fb_dev->fb_data = s->mem_range->phys_mem;
     fb_dev->fb_data = malloc(fb_dev->fb_size);
-    s->fb_page_count = fb_dev->fb_size >> 12;
 
-//    s->pci_dev = d;
-    bar_size = 1;
-    while (bar_size < fb_dev->fb_size)
-        bar_size <<= 1;
-//    pci_register_bar(d, 0, bar_size, PCI_ADDRESS_SPACE_MEM, s,
-//                     simplefb_bar_set);
-
-    if (vga_rom_size > 0) {
-        int rom_size;
-        /* align to page size */
-//        rom_size = (vga_rom_size + DEVRAM_PAGE_SIZE - 1) & ~(DEVRAM_PAGE_SIZE - 1);
-//        s->rom_range = cpu_register_ram(mem_map, 0, rom_size,
-//                                        DEVRAM_FLAG_ROM | DEVRAM_FLAG_DISABLED);
-//        memcpy(s->rom_range->phys_mem, vga_rom_buf, vga_rom_size);
-
-        bar_size = 1;
-        while (bar_size < rom_size)
-            bar_size <<= 1;
-//        pci_register_bar(d, PCI_ROM_SLOT, bar_size, PCI_ADDRESS_SPACE_MEM, s,
-//                         simplefb_bar_set);
-    }
-
-    /* VGA memory (for simple text mode no need for callbacks) */
-//    s->mem_range2 = cpu_register_ram(mem_map, 0xa0000, 0x20000, 0);
-//    s->vga_ram = s->mem_range2->phys_mem;
     s->vga_ram = vga_ram;
+    s->vga_ram_size = vga_ram_size;
 
-    /* standard VGA ports */
-//    cpu_register_device(port_map, 0x3c0, 16, s, vga_read_0x3c0, vga_write_0x3c0,
-//                        DEVIO_SIZE8);
-//    cpu_register_device(port_map, 0x3b4, 2, s, vga_read_0x3b4, vga_write_0x3b4,
-//                        DEVIO_SIZE8);
-//    cpu_register_device(port_map, 0x3d4, 2, s, vga_read_0x3d4, vga_write_0x3d4,
-//                        DEVIO_SIZE8);
-//    cpu_register_device(port_map, 0x3ba, 1, s, vga_read_0x3ba, vga_write_0x3ba,
-//                        DEVIO_SIZE8);
-//    cpu_register_device(port_map, 0x3da, 1, s, vga_read_0x3da, vga_write_0x3da,
-//                        DEVIO_SIZE8);
-    /* VBE extension */
-//    cpu_register_device(port_map, 0x1ce, 2, s, vbe_read, vbe_write, 
-//                        DEVIO_SIZE16);
     s->vbe_regs[VBE_DISPI_INDEX_ID] = VBE_DISPI_ID5;
-    s->vbe_regs[VBE_DISPI_INDEX_VIDEO_MEMORY_64K] = fb_dev->fb_size >> 16;
+    s->vbe_regs[VBE_DISPI_INDEX_VIDEO_MEMORY_64K] = s->vga_ram_size >> 16;
 
     fb_dev->device_opaque = s;
     fb_dev->refresh = vga_refresh;
 
     vga_initmode(s);
     return s;
+}
+
+PCIDevice *vga_pci_init(VGAState *s, PCIBus *bus,
+                        void *o, void (*set_bar)(void *, int, uint32_t, bool))
+{
+    PCIDevice *d;
+    d = pci_register_device(bus, "VGA", -1, 0x1234, 0x1111, 0x00, 0x0300);
+
+    uint32_t bar_size;
+    bar_size = 1;
+    while (bar_size < s->vga_ram_size)
+        bar_size <<= 1;
+    pci_register_bar(d, 0, bar_size, PCI_ADDRESS_SPACE_MEM, o, set_bar);
+    return d;
 }
 
 // from vgabios
