@@ -62,6 +62,7 @@ typedef struct {
 
 	I440FXState *i440fx;
 	PCIBus *pcibus;
+	PCIDevice *pci_ide;
 	PCIDevice *pci_vga;
 	uword pci_vga_ram_addr;
 
@@ -471,7 +472,6 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 #ifdef USEKVM
 	char *mem = mmap(NULL, mem_size, PROT_READ | PROT_WRITE,
 			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
 #else
 	char *mem = malloc(mem_size);
 #endif
@@ -505,7 +505,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 
 	int piix3_devfn;
 	pc->i440fx = i440fx_init(&pc->pcibus, &piix3_devfn);
-	piix3_ide_init(pc->pcibus, piix3_devfn + 1);
+	pc->pci_ide = piix3_ide_init(pc->pcibus, piix3_devfn + 1);
 
 	pc->phys_mem = mem;
 	pc->phys_mem_size = mem_size;

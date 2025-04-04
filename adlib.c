@@ -63,7 +63,6 @@ struct AdlibState {
 #ifdef DEBUG
     int64_t exp[2];
 #endif
-    uint64_t dexp[2];
     void *voice;
     FM_OPL *opl;
 };
@@ -128,7 +127,6 @@ static void timer_handler (void *opaque, int c, double interval_Sec)
     s->exp[n] = exp;
 #endif
 
-    s->dexp[n] = interval_Sec * 1000000.0;
 //    AUD_init_time_stamp_out (s->voice, &s->ats);
 }
 

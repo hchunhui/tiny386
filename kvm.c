@@ -159,7 +159,7 @@ void cpukvm_step(CPUKVM *cpu, int stepcount)
 		if (run->ready_for_interrupt_injection) {
 			cpu->intr = false;
 			int no = cpu->pic_read_irq(cpu->pic);
-			fprintf(stderr, "kvm: inject %d %x\n", no, no);
+//			fprintf(stderr, "kvm: inject %d %x\n", no, no);
 			kintr.irq = no;
 			ret = ioctl(cpu->vcpu_fd, KVM_INTERRUPT, &kintr);
 			if (ret < 0) {
