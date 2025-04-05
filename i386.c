@@ -431,8 +431,9 @@ static bool segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int size)
 {
 	if (cpu->cr0 & 1) {
 		/* null selector check */
-		if ((cpu->seg[seg].sel & ~0x3) == 0 && !(cpu->flags & VM)) {
-			fprintf(stderr, "segcheck: seg %d is null %x\n", seg, cpu->seg[seg].sel);
+		if ((cpu->seg[seg].sel & ~0x3) == 0 && cpu->seg[seg].limit == 0 &&
+		    !(cpu->flags & VM)) {
+//			fprintf(stderr, "segcheck: seg %d is null %x\n", seg, cpu->seg[seg].sel);
 			cpu->excno = EX_GP;
 			cpu->excerr = 0;
 			return false;
