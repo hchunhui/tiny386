@@ -943,7 +943,7 @@ static void clear_segs(CPUI386 *cpu)
 #define Eb(...) E_helper(8, , __VA_ARGS__)
 #define Ev(...) if (opsz16) { E_helper(16, w, __VA_ARGS__) } else { E_helper(32, d, __VA_ARGS__) }
 
-#define EG_helper(PM, BIT, SUFFIX, rwm, INST) \
+#define EG_helper(PM, BT, BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
@@ -956,30 +956,16 @@ static void clear_segs(CPUI386 *cpu)
 		INST ## SUFFIX(rm, reg, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
 	} else { \
 		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
+		if (BT) addr += lreg ## BIT(reg) / BIT * (BIT / 8); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, reg, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT) \
 	}
 
-#define EbGb(...) EG_helper(false, 8, , __VA_ARGS__)
-#define EwGw(...) EG_helper(false, 16, , __VA_ARGS__)
-#define PMEwGw(...) EG_helper(true, 16, , __VA_ARGS__)
-#define EvGv(...) if (opsz16) { EG_helper(false, 16, w, __VA_ARGS__) } else { EG_helper(false, 32, d, __VA_ARGS__) }
-
-#define BTEG_helper(BIT, BYTE, SUFFIX, rwm, INST) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		INST ## SUFFIX(rm, reg, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
-	} else { \
-		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
-		addr += lreg ## BIT(reg) / BIT * BYTE; \
-		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
-		INST ## SUFFIX(&meml, reg, laddr ## BIT, saddr ## BIT, lreg ## BIT, sreg ## BIT) \
-	}
-
-#define BTEvGv(...) if (opsz16) { BTEG_helper(16, 2, w, __VA_ARGS__) } else { BTEG_helper(32, 4, d, __VA_ARGS__) }
+#define EbGb(...) EG_helper(false, false, 8, , __VA_ARGS__)
+#define EwGw(...) EG_helper(false, false, 16, , __VA_ARGS__)
+#define PMEwGw(...) EG_helper(true, false, 16, , __VA_ARGS__)
+#define EvGv(...) if (opsz16) { EG_helper(false, false, 16, w, __VA_ARGS__) } else { EG_helper(false, false, 32, d, __VA_ARGS__) }
+#define BTEvGv(...) if (opsz16) { EG_helper(false, true, 16, w, __VA_ARGS__) } else { EG_helper(false, true, 32, d, __VA_ARGS__) }
 
 #define EGIb_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
@@ -1032,7 +1018,7 @@ static void clear_segs(CPUI386 *cpu)
 #define EbIb(...) EI_helper(8, , __VA_ARGS__)
 #define EvIv(...) if (opsz16) { EI_helper(16, w, __VA_ARGS__) } else { EI_helper(32, d, __VA_ARGS__) }
 
-#define EIb_helper(BIT, SUFFIX, rwm, INST) \
+#define EIb_helper(BT, BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
@@ -1046,32 +1032,13 @@ static void clear_segs(CPUI386 *cpu)
 		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
 		TRY(fetch8(cpu, &imm8)); \
 		imm ## BIT = (s ## BIT) ((s8) imm8); \
+		if (BT) addr += imm ## BIT / BIT * (BIT / 8); \
 		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## SUFFIX(&meml, imm ## BIT, laddr ## BIT, saddr ## BIT, limm, 0) \
 	}
 
-#define EvIb(...) if (opsz16) { EIb_helper(16, w, __VA_ARGS__) } else { EIb_helper(32, d, __VA_ARGS__) }
-
-#define BTEIb_helper(BIT, BYTE, SUFFIX, rwm, INST) \
-	TRY(fetch8(cpu, &modrm)); \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	u8 imm8; \
-	u ## BIT imm ## BIT; \
-	if (mod == 3) { \
-		TRY(fetch8(cpu, &imm8)); \
-		imm ## BIT = (s ## BIT) ((s8) imm8); \
-		INST ## SUFFIX(rm, imm ## BIT, lreg ## BIT, sreg ## BIT, limm, 0) \
-	} else { \
-		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
-		TRY(fetch8(cpu, &imm8)); \
-		imm ## BIT = (s ## BIT) ((s8) imm8); \
-		addr += imm ## BIT / BIT * BYTE; \
-		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
-		INST ## SUFFIX(&meml, imm ## BIT, laddr ## BIT, saddr ## BIT, limm, 0) \
-	}
-
-#define BTEvIb(...) if (opsz16) { BTEIb_helper(16, 2, w, __VA_ARGS__) } else { BTEIb_helper(32, 4, d, __VA_ARGS__) }
+#define EvIb(...) if (opsz16) { EIb_helper(false, 16, w, __VA_ARGS__) } else { EIb_helper(false, 32, d, __VA_ARGS__) }
+#define BTEvIb(...) if (opsz16) { EIb_helper(true, 16, w, __VA_ARGS__) } else { EIb_helper(true, 32, d, __VA_ARGS__) }
 
 #define E1_helper(BIT, SUFFIX, rwm, INST) \
 	TRY(fetch8(cpu, &modrm)); \
