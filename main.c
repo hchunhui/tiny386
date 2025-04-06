@@ -136,8 +136,8 @@ u8 pc_io_read(void *o, int addr)
 	case 0x228: case 0x229:
 	case 0x388: case 0x389: case 0x38a:
 		return adlib_read(pc->adlib, addr);
-	case 0xcfc:
-		val = i440fx_read_data(pc->i440fx, 0, 0);
+	case 0xcfc: case 0xcfd: case 0xcfe: case 0xcff:
+		val = i440fx_read_data(pc->i440fx, addr - 0xcfc, 0);
 		return val;
 	default:
 		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0xff);
@@ -160,11 +160,11 @@ u16 pc_io_read16(void *o, int addr)
 	case 0x170:
 		val = ide_data_readw(pc->ide2);
 		return val;
-	case 0xcfc:
-		val = i440fx_read_data(pc->i440fx, 0, 1);
+	case 0xcf8:
+		val = i440fx_read_addr(pc->i440fx, 0, 1);
 		return val;
-	case 0xcfe:
-		val = i440fx_read_data(pc->i440fx, 0, 2) >> 16;
+	case 0xcfc: case 0xcfe:
+		val = i440fx_read_data(pc->i440fx, addr - 0xcfc, 1);
 		return val;
 	default:
 		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0xffff);
@@ -273,8 +273,8 @@ void pc_io_write(void *o, int addr, u8 val)
 		default : pc->shutdown_state = 0; break;
 		}
 		return;
-	case 0xcfc:
-		i440fx_write_data(pc->i440fx, 0, val, 0);
+	case 0xcfc: case 0xcfd: case 0xcfe: case 0xcff:
+		i440fx_write_data(pc->i440fx, addr - 0xcfc, val, 0);
 		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
@@ -306,8 +306,8 @@ void pc_io_write16(void *o, int addr, u16 val)
 	case 0x1ce: case 0x1cf:
 		vbe_write(pc->vga, addr - 0x1ce, val);
 		return;
-	case 0xcfc:
-		i440fx_write_data(pc->i440fx, 0, val, 1);
+	case 0xcfc: case 0xcfe:
+		i440fx_write_data(pc->i440fx, addr - 0xcfc, val, 1);
 		return;
 	default:
 		fprintf(stderr, "outw 0x%x => 0x%x\n", val, addr);
