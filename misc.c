@@ -121,6 +121,8 @@ CMOS *cmos_init(long mem_size, int irq, void *pic, void (*set_irq)(void *pic, in
 	c->data[11] = 0x02;
 	c->data[12] = 0x00;
 	c->data[13] = 0x80;
+	// hard disk type, fixes "MS-DOS compatibility mode" in win9x
+	c->data[0x12] = 0xff;
 	if (mem_size >= 1024 * 1024) {
 		if (mem_size >= 64 * 1024 * 1024) {
 			mem_size -= 16 * 1024 * 1024;
