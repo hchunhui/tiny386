@@ -15,6 +15,8 @@ typedef int8_t s8;
 typedef u32 uword;
 typedef s32 sword;
 
+typedef struct FPU FPU;
+
 typedef struct {
 	uword gpr[8];
 	uword ip, next_ip;
@@ -90,11 +92,24 @@ typedef struct {
 	void (*iomem_write16)(void *, uword, u16);
 	u32 (*iomem_read32)(void *, uword);
 	void (*iomem_write32)(void *, uword, u32);
+
+	FPU *fpu;
 } CPUI386;
 
 CPUI386 *cpui386_new(char *phys_mem, long phys_mem_size);
 void cpui386_reset(CPUI386 *cpu);
 void cpui386_reset_pm(CPUI386 *cpu, uint32_t start_addr);
 void cpui386_step(CPUI386 *cpu, int stepcount);
+
+bool cpu_load8(CPUI386 *cpu, int seg, uword addr, u8 *res);
+bool cpu_store8(CPUI386 *cpu, int seg, uword addr, u8 val);
+bool cpu_load16(CPUI386 *cpu, int seg, uword addr, u16 *res);
+bool cpu_store16(CPUI386 *cpu, int seg, uword addr, u16 val);
+bool cpu_load32(CPUI386 *cpu, int seg, uword addr, u32 *res);
+bool cpu_store32(CPUI386 *cpu, int seg, uword addr, u32 val);
+void cpu_setax(CPUI386 *cpu, u16 ax);
+u16 cpu_getax(CPUI386 *cpu);
+void cpu_setexc(CPUI386 *cpu, int excno, uword excerr);
+void cpu_abort(CPUI386 *cpu, int code);
 
 #endif /* I386_H */

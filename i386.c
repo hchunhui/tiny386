@@ -1,4 +1,5 @@
 #include "i386.h"
+#include "fpu.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -67,7 +68,7 @@ enum {
 
 static void cpu_debug(CPUI386 *cpu);
 
-static void cpu_abort(CPUI386 *cpu, int code)
+void cpu_abort(CPUI386 *cpu, int code)
 {
 	fprintf(stderr, "abort: %d %x cycle %ld\n", code, code, cpu->cycle);
 	cpu_debug(cpu);
@@ -654,6 +655,27 @@ static void store32(CPUI386 *cpu, OptAddr *res, u32 val)
 		}
 	}
 }
+
+#define LOADSTORE(BIT) \
+bool cpu_load ## BIT(CPUI386 *cpu, int seg, uword addr, u ## BIT *res) \
+{ \
+	OptAddr o; \
+	TRY(translate ## BIT(cpu, &o, 1, seg, addr)); \
+	*res = load ## BIT(cpu, &o); \
+	return true; \
+} \
+\
+bool cpu_store ## BIT(CPUI386 *cpu, int seg, uword addr, u ## BIT val) \
+{ \
+	OptAddr o; \
+	TRY(translate ## BIT(cpu, &o, 2, seg, addr)); \
+	store ## BIT(cpu, &o, val); \
+	return true; \
+} \
+
+LOADSTORE(8)
+LOADSTORE(16)
+LOADSTORE(32)
 
 static bool peek8(CPUI386 *cpu, u8 *val)
 {
@@ -3073,8 +3095,18 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 		TRY(fetch8(cpu, &modrm)); \
 		int mod = modrm >> 6; \
 		int rm = modrm & 7; \
+		int op = b1 - 0xd8; \
+		int group = (modrm >> 3) & 7; \
 		if (mod != 3) { \
 			TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
+			if (cpu->fpu) { \
+				TRY(fpu_exec2(cpu->fpu, cpu, opsz16, op, group, curr_seg, addr)); \
+			} \
+		} else { \
+			int reg = modrm & 7; \
+			if (cpu->fpu) { \
+				TRY(fpu_exec1(cpu->fpu, cpu, op, group, reg)); \
+			} \
 		} \
 	}
 
@@ -4513,6 +4545,22 @@ void cpui386_step(CPUI386 *cpu, int stepcount)
 	}
 }
 
+void cpu_setax(CPUI386 *cpu, u16 ax)
+{
+	sreg16(0, ax);
+}
+
+u16 cpu_getax(CPUI386 *cpu)
+{
+	return lreg16(0);
+}
+
+void cpu_setexc(CPUI386 *cpu, int excno, uword excerr)
+{
+	cpu->excno = excno;
+	cpu->excerr = excerr;
+}
+
 void cpui386_reset(CPUI386 *cpu)
 {
 	for (int i = 0; i < 8; i++) {
@@ -4600,6 +4648,9 @@ CPUI386 *cpui386_new(char *phys_mem, long phys_mem_size)
 	cpu->iomem_write16 = NULL;
 	cpu->iomem_read32 = NULL;
 	cpu->iomem_write32 = NULL;
+
+	cpu->fpu = NULL;
+	// cpu->fpu = fpu_new();
 
 	cpui386_reset(cpu);
 	return cpu;
