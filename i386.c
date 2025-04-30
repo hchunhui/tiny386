@@ -532,7 +532,6 @@ static u8 load8(CPUI386 *cpu, OptAddr *res)
 	if (in_iomem(addr) && cpu->iomem_read8)
 		return cpu->iomem_read8(cpu->iomem, addr);
 	if (addr >= cpu->phys_mem_size) {
-		fprintf(stderr, "load8: bad addr %08x\n", addr);
 		return 0;
 	}
 	return ((u8 *) cpu->phys_mem)[addr];
@@ -543,7 +542,6 @@ static u16 load16(CPUI386 *cpu, OptAddr *res)
 	if (in_iomem(res->addr1) && cpu->iomem_read16)
 		return cpu->iomem_read16(cpu->iomem, res->addr1);
 	if (res->addr1 >= cpu->phys_mem_size) {
-		fprintf(stderr, "load16: bad addr %08x\n", res->addr1);
 		return 0;
 	}
 	u8 *mem = (u8 *) cpu->phys_mem;
@@ -558,7 +556,6 @@ static u32 load32(CPUI386 *cpu, OptAddr *res)
 	if (in_iomem(res->addr1) && cpu->iomem_read32)
 		return cpu->iomem_read32(cpu->iomem, res->addr1);
 	if (res->addr1 >= cpu->phys_mem_size) {
-		fprintf(stderr, "load32: bad addr %08x\n", res->addr1);
 		return 0;
 	}
 	u8 *mem = (u8 *) cpu->phys_mem;
@@ -590,7 +587,6 @@ static void store8(CPUI386 *cpu, OptAddr *res, u8 val)
 		return;
 	}
 	if (addr >= cpu->phys_mem_size) {
-		fprintf(stderr, "store8: bad addr %08x\n", addr);
 		return;
 	}
 	((u8 *) cpu->phys_mem)[addr] = val;
@@ -603,7 +599,6 @@ static void store16(CPUI386 *cpu, OptAddr *res, u16 val)
 		return;
 	}
 	if (res->addr1 >= cpu->phys_mem_size) {
-		fprintf(stderr, "store16: bad addr %08x\n", res->addr1);
 		return;
 	}
 	u8 *mem = (u8 *) cpu->phys_mem;
@@ -623,7 +618,6 @@ static void store32(CPUI386 *cpu, OptAddr *res, u32 val)
 		return;
 	}
 	if (res->addr1 >= cpu->phys_mem_size) {
-		fprintf(stderr, "store32: bad addr %08x\n", res->addr1);
 		return;
 	}
 	u8 *mem = (u8 *) cpu->phys_mem;
@@ -1780,7 +1774,6 @@ static void clear_segs(CPUI386 *cpu)
 	cpu->cc.src1 = sext8(lreg8(0)); \
 	cpu->cc.src2 = sext8(la(a)); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = ((sword) cpu->cc.dst) >> (sizeof(uword) * 8 - 1); \
 	cpu->cc.op = CC_IMUL8; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sreg16(0, cpu->cc.dst);
@@ -1789,7 +1782,6 @@ static void clear_segs(CPUI386 *cpu)
 	cpu->cc.src1 = sext16(lreg16(0)); \
 	cpu->cc.src2 = sext16(la(a)); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = ((sword) cpu->cc.dst) >> (sizeof(uword) * 8 - 1); \
 	cpu->cc.op = CC_IMUL16; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sreg16(0, cpu->cc.dst); \
@@ -1809,8 +1801,7 @@ static void clear_segs(CPUI386 *cpu)
 #define MULb(a, la, sa) \
 	cpu->cc.src1 = lreg8(0); \
 	cpu->cc.src2 = la(a); \
-	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
+	cpu->cc.dst = sext16(cpu->cc.src1 * cpu->cc.src2); \
 	cpu->cc.op = CC_MUL8; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sreg16(0, cpu->cc.dst);
@@ -1819,7 +1810,6 @@ static void clear_segs(CPUI386 *cpu)
 	cpu->cc.src1 = lreg16(0); \
 	cpu->cc.src2 = la(a); \
 	cpu->cc.dst = cpu->cc.src1 * cpu->cc.src2; \
-	cpu->cc.dst2 = 0; \
 	cpu->cc.op = CC_MUL16; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sreg16(0, cpu->cc.dst); \
@@ -1842,7 +1832,6 @@ static void clear_segs(CPUI386 *cpu)
 	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
 	sword res = src1 / src2; \
 	if (res > 127 || res < -128) { cpu->excno = EX_DE; return false; } \
-	cpu->cc.mask = 0; \
 	sreg8(0, res); \
 	sreg8(4, src1 % src2);
 
@@ -1852,7 +1841,6 @@ static void clear_segs(CPUI386 *cpu)
 	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
 	sword res = src1 / src2; \
 	if (res > 32767 || res < -32768) { cpu->excno = EX_DE; return false; } \
-	cpu->cc.mask = 0; \
 	sreg16(0, res); \
 	sreg16(2, src1 % src2);
 
@@ -1862,7 +1850,6 @@ static void clear_segs(CPUI386 *cpu)
 	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
 	int64_t res = src1 / src2; \
 	if (res > 2147483647 || res < -2147483648) { cpu->excno = EX_DE; return false; } \
-	cpu->cc.mask = 0; \
 	sreg32(0, res); \
 	sreg32(2, src1 % src2);
 
@@ -1872,7 +1859,6 @@ static void clear_segs(CPUI386 *cpu)
 	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
 	uword res = src1 / src2; \
 	if (res > 0xff) { cpu->excno = EX_DE; return false; } \
-	cpu->cc.mask = 0; \
 	sreg8(0, res); \
 	sreg8(4, src1 % src2);
 
@@ -1882,7 +1868,6 @@ static void clear_segs(CPUI386 *cpu)
 	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
 	uword res = src1 / src2; \
 	if (res > 0xffff) { cpu->excno = EX_DE; return false; } \
-	cpu->cc.mask = 0; \
 	sreg16(0, res); \
 	sreg16(2, src1 % src2);
 
@@ -1892,7 +1877,6 @@ static void clear_segs(CPUI386 *cpu)
 	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
 	uint64_t res = src1 / src2; \
 	if (res > 0xffffffff) { cpu->excno = EX_DE; return false; } \
-	cpu->cc.mask = 0; \
 	sreg32(0, res); \
 	sreg32(2, src1 % src2);
 
@@ -2959,28 +2943,20 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	sa(a, cpu->seg[SEG_TR].sel);
 
 #define MOVFD() \
-	fprintf(stderr, "MOVFD\n"); \
-	cpu_debug(cpu); \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int rm = modrm & 7; \
 	sreg32(rm, cpu->dr[reg]);
 
 #define MOVTD() \
-	fprintf(stderr, "MOVTD\n"); \
-	cpu_debug(cpu); \
 	TRY(fetch8(cpu, &modrm)); \
 	int reg = (modrm >> 3) & 7; \
 	int rm = modrm & 7; \
 	cpu->dr[reg] = lreg32(rm);
 
 #define MOVFT() \
-	fprintf(stderr, "MOVFT\n"); \
-	cpu_debug(cpu); \
 	TRY(fetch8(cpu, &modrm));
 #define MOVTT() \
-	fprintf(stderr, "MOVTT\n"); \
-	cpu_debug(cpu); \
 	TRY(fetch8(cpu, &modrm));
 
 #define SMSW(addr, laddr, saddr) \
@@ -3394,6 +3370,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #define ecase(a)   case a
 #define ebreak     break
 #define edefault   default
+#define default_ud cpu_debug(cpu); cpu->excno = EX_UD; return false
 #undef CX
 #define CX(_1) case _1:
 
@@ -3459,8 +3436,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG1b
 #define IG1b(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3473,8 +3449,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG1v
 #define IG1v(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3487,8 +3462,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG1vIb
 #define IG1vIb(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3501,8 +3475,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG2b
 #define IG2b(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3515,8 +3488,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG2v
 #define IG2v(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3529,8 +3501,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG2b1
 #define IG2b1(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3543,8 +3514,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG2v1
 #define IG2v1(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3557,8 +3527,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG2bC
 #define IG2bC(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3571,8 +3540,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG2vC
 #define IG2vC(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3585,8 +3553,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG3b
 #define IG3b(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3599,8 +3566,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG3v
 #define IG3v(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3613,8 +3579,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG4
 #define IG4(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3627,8 +3592,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG5
 #define IG5(...)
-		default:
-			cpu_abort(cpu, b1);
+		default: default_ud;
 		}
 		ebreak;
 	}
@@ -3650,8 +3614,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG6
 #define IG6(...)
-			default:
-				cpu_abort(cpu, b1);
+			default: default_ud;
 			}
 			ebreak;
 		}
@@ -3664,8 +3627,7 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG7
 #define IG7(...)
-			default:
-				cpu_abort(cpu, b1);
+			default: default_ud;
 			}
 			ebreak;
 		}
@@ -3678,20 +3640,29 @@ static bool cpu_exec1(CPUI386 *cpu, int stepcount)
 #include "i386ins.def"
 #undef IG8
 #define IG8(...)
-			default:
-				cpu_abort(cpu, b1);
+			default: default_ud;
 			}
 			ebreak;
 		}
 
-		default:
-			cpu_abort(cpu, b1);
+		case 0xc7: { // G9
+			TRY(peek8(cpu, &modrm));
+			switch((modrm >> 3) & 7) {
+#undef IG9
+#define IG9(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+#include "i386ins.def"
+#undef IG9
+#define IG9(...)
+			default: default_ud;
+			}
+			ebreak;
+		}
+		default: default_ud;
 		}
 		ebreak;
 	}
 
-	edefault:
-		cpu_abort(cpu, b1);
+	edefault: default_ud;
 	}
 	}
 	return true;
