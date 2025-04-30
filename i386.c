@@ -939,6 +939,7 @@ static void clear_segs(CPUI386 *cpu)
 #define IG6(...)
 #define IG7(...)
 #define IG8(...)
+#define IG9(...)
 
 /*
  * addressing modes
@@ -2015,6 +2016,8 @@ static void clear_segs(CPUI386 *cpu)
 		sreg32(rm, cpu->cr2); \
 	} else if (reg == 3) { \
 		sreg32(rm, cpu->cr3); \
+	} else if (reg == 4) { \
+		sreg32(rm, 0); \
 	} else { \
 		cpu->excno = EX_UD; \
 		return false; \
@@ -2039,6 +2042,7 @@ static void clear_segs(CPUI386 *cpu)
 	} else if (reg == 3) { \
 		cpu->cr3 = lreg32(rm); \
 		tlb_clear(cpu); \
+	} else if (reg == 4) { \
 	} else { \
 		cpu->excno = EX_UD; \
 		return false; \
@@ -2143,7 +2147,8 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 
 #define SAHF() \
 	cpu->cc.mask &= OF; \
-	cpu->flags = cpu->flags & (wordmask ^ 0xff) | lreg8(4);
+	cpu->flags = cpu->flags & (wordmask ^ 0xff) | lreg8(4); \
+	cpu->flags &= EFLAGS_MASK;
 
 #define CMC() \
 	int cf = get_CF(cpu); \
@@ -2295,6 +2300,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 
 #define EFLAGS_MASK_386 0x37fd7
 #define EFLAGS_MASK_486 0x77fd7
+#define EFLAGS_MASK_586 0x277fd7
 #define EFLAGS_MASK EFLAGS_MASK_486
 
 #define POPF() \
@@ -2847,10 +2853,65 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		cpu->next_ip = laddr32(&meml); \
 	}
 
+static bool enter_helper(CPUI386 *cpu, bool opsz16, uword sp_mask,
+			 int level, int allocsz)
+{
+	assert (level != 0);
+	uword temp;
+	OptAddr meml1;
+
+	uword sp = lreg32(4);
+	if (opsz16) {
+		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask));
+		set_sp(sp - 2, sp_mask);
+		saddr16(&meml1, lreg16(5));
+		temp = lreg16(4);
+	} else {
+		TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask));
+		set_sp(sp - 4, sp_mask);
+		saddr32(&meml1, lreg32(5));
+		temp = lreg32(4);
+	}
+
+	for (int i = 0; i < level - 1; i++) {
+		if (opsz16) {
+			if (sp_mask == 0xffff) {
+				sreg16(5, lreg16(5) - 2);
+			} else {
+				sreg32(5, lreg32(5) - 2);
+			}
+			TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask));
+			set_sp(sp - 2, sp_mask);
+			saddr16(&meml1, lreg16(5));
+		} else {
+			if (sp_mask == 0xffff) {
+				sreg16(5, lreg16(5) - 4);
+			} else {
+				sreg32(5, lreg32(5) - 4);
+			}
+			TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask));
+			set_sp(sp - 4, sp_mask);
+			saddr32(&meml1, lreg32(5));
+		}
+	}
+
+	if (opsz16) {
+		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask));
+		set_sp(sp - 2 - allocsz, sp_mask);
+		saddr16(&meml1, temp);
+		sreg16(5, temp);
+	} else {
+		TRY(translate32(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask));
+		set_sp(sp - 4 - allocsz, sp_mask);
+		saddr32(&meml1, temp);
+		sreg32(5, temp);
+	}
+}
+
 #define ENTER(i16, i8, l16, s16, l8, s8) \
 	OptAddr meml1; \
-	int level = l8(i8); \
-	if (level != 0) cpu_abort(cpu, -1); \
+	int level = l8(i8) % 32; \
+	if (level == 0) { \
 	uword sp = lreg32(4); \
 	if (opsz16) { \
 		TRY(translate16(cpu, &meml1, 2, SEG_SS, (sp - 2) & sp_mask)); \
@@ -2862,6 +2923,9 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		set_sp(sp - 4 - l16(i16), sp_mask); \
 		saddr32(&meml1, lreg32(5)); \
 		sreg32(5, (sp - 4) & sp_mask); \
+	} \
+	} else { \
+		TRY(enter_helper(cpu, opsz16, sp_mask, level, l16(i16))); \
 	}
 
 #define LEAVE() \
@@ -3114,6 +3178,9 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 	cpu->cc.dst = sext8(res); \
 	cpu->cc.mask = ZF | SF | PF;
 
+#define SALC() \
+	if (get_CF(cpu)) sreg8(0, 0xff); else sreg8(0, 0x00);
+
 #define XLAT() \
 	if (curr_seg == -1) curr_seg = SEG_DS; \
 	if (adsz16) { \
@@ -3352,12 +3419,86 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 #define WBINVD()
 
 #define GvMa GvM
-#define BOUNDd(a, b, la, sa, lb, sb)
-#define BOUNDw BOUNDd
+#define BOUND_helper(BIT, a, b, la, sa, lb, sb) \
+	OptAddr meml1, meml2; \
+	s ## BIT idx = la(a); \
+	uword addr = lb(b); \
+	TRY(translate ## BIT(cpu, &meml1, 3, curr_seg, addr)); \
+	TRY(translate ## BIT(cpu, &meml2, 3, curr_seg, addr + BIT / 8)); \
+	s ## BIT lo = load ## BIT(cpu, &meml1); \
+	s ## BIT hi = load ## BIT(cpu, &meml2); \
+	if (idx < lo || idx > hi) { \
+		cpu->excno = EX_BR; \
+		return false; \
+	}
+#define BOUNDw(...) BOUND_helper(16, __VA_ARGS__)
+#define BOUNDd(...) BOUND_helper(32, __VA_ARGS__)
 
 #define UD0() \
 	cpu->excno = EX_UD; \
 	return false;
+
+#define CPUID() \
+	switch (REGi(0)) { \
+	case 0: \
+		REGi(0) = 1; \
+		REGi(3) = 0x594e4954; \
+		REGi(2) = 0x20363833; \
+		REGi(1) = 0x20555043; \
+		break; \
+	case 1: \
+		REGi(0) = 0 | (0 << 4) | (4 << 8); \
+		REGi(3) = 0; \
+		REGi(2) = 0x101; \
+		REGi(1) = 0; \
+		break; \
+	default: \
+		REGi(0) = 0; \
+		REGi(3) = 0; \
+		REGi(2) = 0; \
+		REGi(1) = 0; \
+		break; \
+	}
+
+#include <time.h>
+static uint64_t get_nticks()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ((uint64_t) ts.tv_sec * 1000000000ull +
+	    (uint64_t) ts.tv_nsec);
+}
+
+#define RDTSC() \
+	uint64_t tsc = get_nticks(); \
+	REGi(0) = tsc; \
+	REGi(2) = tsc >> 32;
+
+#define Mq Ms
+#define CMPXCH8B(addr) \
+	OptAddr meml1, meml2; \
+	TRY(translate32(cpu, &meml1, 3, curr_seg, addr)); \
+	TRY(translate32(cpu, &meml2, 3, curr_seg, addr + 4)); \
+	uword lo = load32(cpu, &meml1); \
+	uword hi = load32(cpu, &meml2); \
+	if (REGi(0) == lo && REGi(2) == hi) { \
+		cpu->flags |= ZF; \
+		store32(cpu, &meml1, REGi(3)); \
+		store32(cpu, &meml2, REGi(1)); \
+	} else { \
+		cpu->flags &= ~ZF; \
+		REGi(0) = lo; \
+		REGi(2) = hi; \
+	} \
+	cpu->cc.mask &= ~ZF;
+
+#define CMOVw(a, b, la, sa, lb, sb) \
+	COND() \
+	if (cond) sa(a, lb(b));
+
+#define CMOVd(a, b, la, sa, lb, sb) \
+	COND() \
+	if (cond) sa(a, lb(b));
 
 static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp);
 static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret);
@@ -4621,7 +4762,6 @@ CPUI386 *cpui386_new(char *phys_mem, long phys_mem_size)
 	cpu->iomem_write32 = NULL;
 
 	cpu->fpu = NULL;
-	// cpu->fpu = fpu_new();
 
 	cpui386_reset(cpu);
 	return cpu;
