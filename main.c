@@ -20,6 +20,8 @@
 #include "adlib.h"
 #include "pci.h"
 
+#include "ini.h"
+
 #include <time.h>
 static uint32_t get_uticks()
 {
@@ -65,6 +67,9 @@ typedef struct {
 	PCIDevice *pci_ide;
 	PCIDevice *pci_vga;
 	uword pci_vga_ram_addr;
+
+	const char *bios;
+	const char *vga_bios;
 
 	u8 port92;
 	int shutdown_state;
@@ -177,6 +182,12 @@ u32 pc_io_read32(void *o, int addr)
 	PC *pc = o;
 	u32 val;
 	switch(addr) {
+	case 0x1f0:
+		val = ide_data_readl(pc->ide);
+		return val;
+	case 0x170:
+		val = ide_data_readl(pc->ide2);
+		return val;
 	case 0x3cc:
 		return (get_uticks() - pc->boot_start_time) / 1000;
 	case 0xcf8:
@@ -319,6 +330,12 @@ void pc_io_write32(void *o, int addr, u32 val)
 {
 	PC *pc = o;
 	switch(addr) {
+	case 0x1f0:
+		ide_data_writel(pc->ide, val);
+		return;
+	case 0x170:
+		ide_data_writel(pc->ide2, val);
+		return;
 	case 0xcf8:
 		i440fx_write_addr(pc->i440fx, 0, val, 2);
 		return;
@@ -463,24 +480,39 @@ static void pc_reset_request(void *p)
 	pc->reset_request = 1;
 }
 
+struct pcconfig {
+	const char *bios;
+	const char *vga_bios;
+	long mem_size;
+	long vga_mem_size;
+	const char *disks[4];
+	int fill_cmos;
+	int width;
+	int height;
+	int cpu_gen;
+	int fpu;
+};
+
 PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
-	   int width, int height, char **disks)
+	   struct pcconfig *conf)
 {
 	PC *pc = malloc(sizeof(PC));
-	long mem_size = 16 * 1024 * 1024;
-	int vga_mem_size = 4 * 1024 * 1024;
 #ifdef USEKVM
-	char *mem = mmap(NULL, mem_size, PROT_READ | PROT_WRITE,
+	char *mem = mmap(NULL, conf->mem_size, PROT_READ | PROT_WRITE,
 			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #else
-	char *mem = malloc(mem_size);
+	char *mem = malloc(conf->mem_size);
 #endif
-	memset(mem, 0, mem_size);
+	memset(mem, 0, conf->mem_size);
 #ifdef USEKVM
-	pc->cpu = cpukvm_new(mem, mem_size);
+	pc->cpu = cpukvm_new(mem, conf->mem_size);
 #else
-	pc->cpu = cpui386_new(mem, mem_size);
+	pc->cpu = cpui386_new(conf->cpu_gen, mem, conf->mem_size);
+	if (conf->fpu)
+		cpui386_enable_fpu(pc->cpu);
 #endif
+	pc->bios = conf->bios;
+	pc->vga_bios = conf->vga_bios;
 
 	pc->pic = i8259_init(raise_irq, pc->cpu);
 	pc->cpu->pic = pc->pic;
@@ -488,27 +520,31 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 
 	pc->pit = i8254_init(0, pc->pic, set_irq);
 	pc->serial = u8250_init(4, pc->pic, set_irq);
-	pc->cmos = cmos_init(mem_size, 8, pc->pic, set_irq);
+	pc->cmos = cmos_init(conf->mem_size, 8, pc->pic, set_irq);
 	pc->ide = ide_allocate(14, pc->pic, set_irq);
 	pc->ide2 = ide_allocate(15, pc->pic, set_irq);
-	if (disks) {
-		for (int i = 0; disks[i] && i < 4; i++) {
-			if (i < 2) {
-				int ret = ide_attach(pc->ide, i, disks[i]);
-				assert(ret == 0);
-			} else {
-				int ret = ide_attach(pc->ide2, i - 2, disks[i]);
-				assert(ret == 0);
-			}
+	const char **disks = conf->disks;
+	for (int i = 0; i < 4; i++) {
+		if (!disks[i] || disks[i][0] == 0)
+			continue;
+		if (i < 2) {
+			int ret = ide_attach(pc->ide, i, disks[i]);
+			assert(ret == 0);
+		} else {
+			int ret = ide_attach(pc->ide2, i - 2, disks[i]);
+			assert(ret == 0);
 		}
 	}
+
+	if (conf->fill_cmos)
+		ide_fill_cmos(pc->ide, pc->cmos, cmos_set);
 
 	int piix3_devfn;
 	pc->i440fx = i440fx_init(&pc->pcibus, &piix3_devfn);
 	pc->pci_ide = piix3_ide_init(pc->pcibus, piix3_devfn + 1);
 
 	pc->phys_mem = mem;
-	pc->phys_mem_size = mem_size;
+	pc->phys_mem_size = conf->mem_size;
 
 	pc->cpu->io = pc;
 	pc->cpu->io_read8 = pc_io_read;
@@ -522,10 +558,11 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 
 	FBDevice *fb_dev = malloc(sizeof(FBDevice));
 	memset(fb_dev, 0, sizeof(FBDevice));
-	pc->vga_mem_size = vga_mem_size;
+	pc->vga_mem_size = conf->vga_mem_size;
 	pc->vga_mem = malloc(pc->vga_mem_size);
 	memset(pc->vga_mem, 0, pc->vga_mem_size);
-	pc->vga = vga_init(fb_dev, width, height, pc->vga_mem, pc->vga_mem_size);
+	pc->vga = vga_init(fb_dev, conf->width, conf->height,
+			   pc->vga_mem, pc->vga_mem_size);
 	pc->pci_vga = vga_pci_init(pc->vga, pc->pcibus, pc, set_pci_vga_bar);
 	pc->pci_vga_ram_addr = -1;
 
@@ -767,9 +804,19 @@ static void load_bios(PC *pc)
 
 int main(int argc, char *argv[])
 {
+	struct pcconfig conf;
+	memset(&conf, 0, sizeof(conf));
+	conf.mem_size = 8 * 1024 * 1024;
+	conf.vga_mem_size = 256 * 1024;
+	conf.disks[0] = argv[1];
+	conf.width = 720;
+	conf.height = 480;
+	conf.cpu_gen = 4;
+	conf.fpu = 0;
+
 	const char *vmlinux = "vmlinux.bin";
 	Console *console = console_init(720, 480);
-	PC *pc = pc_new(redraw, poll, console, 720, 480, argv + 1);
+	PC *pc = pc_new(redraw, poll, console, &conf);
 	if (console)
 		console->pc = pc;
 
@@ -797,7 +844,7 @@ int main(int argc, char *argv[])
 		pc_step(pc);
 		k += pc->cpu->cycle - last;
 		if (k >= 4096 * 1) {
-			usleep(4000);
+//			usleep(4000);
 			k = 0;
 		}
 	}
@@ -810,16 +857,91 @@ int main(int argc, char *argv[])
 #else
 static void load_bios(PC *pc)
 {
-	load(pc, "bios.bin", 0xe0000);
-	load(pc, "vgabios.bin", 0xc0000);
+	load(pc, pc->bios, 0xe0000);
+	load(pc, pc->vga_bios, 0xc0000);
+}
+
+static long parse_mem_size(const char *value)
+{
+	int len = strlen(value);
+	long a = atol(value);
+	if (len) {
+		switch (value[len - 1]) {
+		case 'G': a *= 1024 * 1024 * 1024; break;
+		case 'M': a *= 1024 * 1024; break;
+		case 'K': a *= 1024; break;
+		}
+	}
+	return a;
+}
+static int parse_conf_ini(void* user, const char* section,
+			  const char* name, const char* value)
+{
+	struct pcconfig *conf = user;
+#define SEC(a) (strcmp(section, a) == 0)
+#define NAME(a) (strcmp(name, a) == 0)
+	if (SEC("pc")) {
+		if (NAME("bios")) {
+			conf->bios = strdup(value);
+		} else if (NAME("vga_bios")) {
+			conf->vga_bios = strdup(value);
+		} else if (NAME("mem_size")) {
+			conf->mem_size = parse_mem_size(value);
+		} else if (NAME("vga_mem_size")) {
+			conf->vga_mem_size = parse_mem_size(value);
+		} else if (NAME("hda")) {
+			conf->disks[0] = strdup(value);
+		} else if (NAME("hdb")) {
+			conf->disks[1] = strdup(value);
+		} else if (NAME("hdc")) {
+			conf->disks[2] = strdup(value);
+		} else if (NAME("hdd")) {
+			conf->disks[3] = strdup(value);
+		} else if (NAME("fill_cmos")) {
+			conf->fill_cmos = atoi(value);
+		}
+	} else if (SEC("display")) {
+		if (NAME("width")) {
+			conf->width = atoi(value);
+		} else if (NAME("height")) {
+			conf->height = atoi(value);
+		}
+	} else if (SEC("cpu")) {
+		if (NAME("gen")) {
+			conf->cpu_gen = atoi(value);
+		} else if (NAME("fpu")) {
+			conf->fpu = atoi(value);
+		}
+	}
+#undef SEC
+#undef NAME
+	return 1;
 }
 
 int main(int argc, char *argv[])
 {
-	int width = 1024;
-	int height = 768;
-	Console *console = console_init(width, height);
-	PC *pc = pc_new(redraw, poll, console, width, height, argv + 1);
+	struct pcconfig conf;
+	memset(&conf, 0, sizeof(conf));
+	conf.bios = "bios.bin";
+	conf.vga_bios = "vgabios.bin";
+	conf.mem_size = 8 * 1024 * 1024;
+	conf.vga_mem_size = 256 * 1024;
+	conf.width = 720;
+	conf.height = 480;
+	conf.cpu_gen = 4;
+	conf.fpu = 0;
+
+	if (argc != 2)
+		return 1;
+
+	int err = ini_parse(argv[1], parse_conf_ini, &conf);
+	if (err) {
+		printf("error %d\n", err);
+		return err;
+	}
+
+	Console *console = console_init(conf.width, conf.height);
+	PC *pc = pc_new(redraw, poll, console, &conf);
 	if (console)
 		console->pc = pc;
 
@@ -842,9 +964,7 @@ int main(int argc, char *argv[])
 #ifndef USEKVM
 		k += pc->cpu->cycle - last;
 		if (k >= 1024) {
-//			usleep(4000);
-//			usleep(20);
-			usleep(4);
+//			usleep(4);
 			k = 0;
 		}
 #endif

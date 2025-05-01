@@ -2036,6 +2036,7 @@ static void clear_segs(CPUI386 *cpu)
 		u32 new_cr0 = lreg32(rm); \
 		if ((new_cr0 ^ cpu->cr0) & (CR0_PG | 1)) \
 			tlb_clear(cpu); \
+		if (cpu->fpu) new_cr0 |= 0x10; \
 		cpu->cr0 = new_cr0; \
 	} else if (reg == 2) { \
 		cpu->cr2 = lreg32(rm); \
@@ -2301,7 +2302,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 #define EFLAGS_MASK_386 0x37fd7
 #define EFLAGS_MASK_486 0x77fd7
 #define EFLAGS_MASK_586 0x277fd7
-#define EFLAGS_MASK EFLAGS_MASK_486
+#define EFLAGS_MASK (cpu->flags_mask)
 
 #define POPF() \
 	if ((cpu->flags & VM) && get_IOPL(cpu) < 3) { \
@@ -3449,7 +3450,8 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 	case 1: \
 		REGi(0) = 0 | (0 << 4) | (4 << 8); \
 		REGi(3) = 0; \
-		REGi(2) = 0x101; \
+		REGi(2) = 0x100; \
+		if (cpu->fpu) REGi(2) |= 1; \
 		REGi(1) = 0; \
 		break; \
 	default: \
@@ -4701,7 +4703,7 @@ void cpui386_reset(CPUI386 *cpu)
 	cpu->gdt.base = 0;
 	cpu->gdt.limit = 0;
 
-	cpu->cr0 = 0;
+	cpu->cr0 = cpu->fpu ? 0x10 : 0;
 	cpu->cr2 = 0;
 	cpu->cr3 = 0;
 	for (int i = 0; i < 8; i++)
@@ -4730,9 +4732,16 @@ void cpui386_reset_pm(CPUI386 *cpu, uint32_t start_addr)
 	cpu->seg[SEG_ES] = cpu->seg[SEG_SS];
 }
 
-CPUI386 *cpui386_new(char *phys_mem, long phys_mem_size)
+CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size)
 {
 	CPUI386 *cpu = malloc(sizeof(CPUI386));
+	switch (gen) {
+	case 3: cpu->flags_mask = EFLAGS_MASK_386; break;
+	case 4: cpu->flags_mask = EFLAGS_MASK_486; break;
+	case 5: cpu->flags_mask = EFLAGS_MASK_586; break;
+	default: abort();
+	}
+
 	cpu->tlb.size = tlb_size;
 	cpu->tlb.tab = malloc(sizeof(struct tlb_entry) * tlb_size);
 
@@ -4765,6 +4774,11 @@ CPUI386 *cpui386_new(char *phys_mem, long phys_mem_size)
 
 	cpui386_reset(cpu);
 	return cpu;
+}
+
+void cpui386_enable_fpu(CPUI386 *cpu)
+{
+	cpu->fpu = fpu_new();
 }
 
 void activate()

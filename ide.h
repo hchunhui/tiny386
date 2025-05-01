@@ -34,6 +34,9 @@ int ide_attach(IDEIFState *s, int drive, const char *filename);
 void ide_data_writew(void *opaque, uint32_t val);
 uint32_t ide_data_readw(void *opaque);
 
+void ide_data_writel(void *opaque, uint32_t val);
+uint32_t ide_data_readl(void *opaque);
+
 void ide_ioport_write(void *opaque, uint32_t offset, uint32_t val);
 uint32_t ide_ioport_read(void *opaque, uint32_t offset);
 
@@ -43,4 +46,6 @@ uint32_t ide_status_read(void *opaque);
 #include "pci.h"
 PCIDevice *piix3_ide_init(PCIBus *pci_bus, int devfn);
 
+void ide_fill_cmos(IDEIFState *s, void *cmos,
+                   uint8_t (*set)(void *cmos, int addr, uint8_t val));
 #endif /* IDE_H */

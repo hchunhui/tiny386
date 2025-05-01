@@ -21,6 +21,7 @@ typedef struct {
 	uword gpr[8];
 	uword ip, next_ip;
 	uword flags;
+	uword flags_mask;
 	int cpl;
 	bool halt;
 
@@ -96,7 +97,8 @@ typedef struct {
 	FPU *fpu;
 } CPUI386;
 
-CPUI386 *cpui386_new(char *phys_mem, long phys_mem_size);
+CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size);
+void cpui386_enable_fpu(CPUI386 *cpu);
 void cpui386_reset(CPUI386 *cpu);
 void cpui386_reset_pm(CPUI386 *cpu, uint32_t start_addr);
 void cpui386_step(CPUI386 *cpu, int stepcount);

@@ -289,7 +289,7 @@ static void ide_identify(IDEState *s)
     stw(tab + 22, 4); /* ecc bytes */
     padstr((char *)(tab + 27), "TINY386 HARDDISK", 40);
     stw(tab + 47, 0x8000 | MAX_MULT_SECTORS);
-    stw(tab + 48, 0); /* dword I/O */
+    stw(tab + 48, 1); /* dword I/O */
     stw(tab + 49, 1 << 9); /* LBA supported, no DMA */
     stw(tab + 51, 0x200); /* PIO transfer cycle */
     stw(tab + 52, 0x200); /* DMA transfer cycle */
@@ -735,6 +735,8 @@ void ide_data_writew(void *opaque, uint32_t val)
     if (!s)
         return;
     p = s->data_index;
+    if (p + 2 > s->data_end)
+        return;
     tab = s->io_buffer;
     tab[p] = val & 0xff;
     tab[p + 1] = (val >> 8) & 0xff;
@@ -755,9 +757,57 @@ uint32_t ide_data_readw(void *opaque)
         ret = 0;
     } else {
         p = s->data_index;
+        if (p + 2 > s->data_end)
+            return 0;
         tab = s->io_buffer;
         ret = tab[p] | (tab[p + 1] << 8);
         p += 2;
+        s->data_index = p;
+        if (p >= s->data_end)
+            s->end_transfer_func(s);
+    }
+    return ret;
+}
+
+void ide_data_writel(void *opaque, uint32_t val)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s = s1->cur_drive;
+    int p;
+    uint8_t *tab;
+    
+    if (!s)
+        return;
+    p = s->data_index;
+    if (p + 4 > s->data_end)
+        return;
+    tab = s->io_buffer;
+    tab[p] = val & 0xff;
+    tab[p + 1] = (val >> 8) & 0xff;
+    tab[p + 2] = (val >> 16) & 0xff;
+    tab[p + 3] = (val >> 24) & 0xff;
+    p += 4;
+    s->data_index = p;
+    if (p >= s->data_end)
+        s->end_transfer_func(s);
+}
+
+uint32_t ide_data_readl(void *opaque)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s = s1->cur_drive;
+    int p, ret;
+    uint8_t *tab;
+    
+    if (!s) {
+        ret = 0;
+    } else {
+        p = s->data_index;
+        if (p + 4 > s->data_end)
+            return 0;
+        tab = s->io_buffer;
+        ret = tab[p] | (tab[p + 1] << 8) | (tab[p + 2] << 16) | (tab[p + 3] << 24);
+        p += 4;
         s->data_index = p;
         if (p >= s->data_end)
             s->end_transfer_func(s);
@@ -1019,4 +1069,34 @@ PCIDevice *piix3_ide_init(PCIBus *pci_bus, int devfn)
     d = pci_register_device(pci_bus, "PIIX3 IDE", devfn, 0x8086, 0x7010, 0x00, 0x0101);
     pci_device_set_config8(d, 0x09, 0x00); /* ISA IDE ports, no DMA */
     return d;
+}
+
+void ide_fill_cmos(IDEIFState *s, void *cmos,
+                   uint8_t (*set)(void *cmos, int addr, uint8_t val))
+{
+    // hard disk type, fixes "MS-DOS compatibility mode" in win9x
+    uint8_t d_0x12 = 0;
+    if (s->drives[0]) {
+        d_0x12 |= 0xf0;
+        set(cmos, 0x19, 47);
+        set(cmos, 0x1b, set(cmos, 0x21, s->drives[0]->cylinders));
+        set(cmos, 0x1c, set(cmos, 0x22, s->drives[0]->cylinders >> 8));
+        set(cmos, 0x1d, s->drives[0]->heads);
+        set(cmos, 0x1e, 0xff);
+        set(cmos, 0x1f, 0xff);
+        set(cmos, 0x20, 0xc0 | ((s->drives[0]->heads > 8) << 3));
+        set(cmos, 0x23, s->drives[0]->sectors);
+    }
+    if (s->drives[1]) {
+        d_0x12 |= 0x0f;
+        set(cmos, 0x1a, 47);
+        set(cmos, 0x24, set(cmos, 0x2a, s->drives[1]->cylinders));
+        set(cmos, 0x25, set(cmos, 0x2b, s->drives[1]->cylinders >> 8));
+        set(cmos, 0x26, s->drives[1]->heads);
+        set(cmos, 0x27, 0xff);
+        set(cmos, 0x28, 0xff);
+        set(cmos, 0x29, 0xc0 | ((s->drives[1]->heads > 8) << 3));
+        set(cmos, 0x2c, s->drives[1]->sectors);
+    }
+    set(cmos, 0x12, d_0x12);
 }

@@ -16,4 +16,6 @@ void cmos_update_irq(CMOS *s);
 uint8_t cmos_ioport_read(CMOS *cmos, int addr);
 void cmos_ioport_write(CMOS *cmos, int addr, uint8_t val);
 
+uint8_t cmos_set(void *cmos, int addr, uint8_t val);
+
 #endif /* MISC_H */
