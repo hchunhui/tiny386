@@ -756,7 +756,6 @@ static void sdl_handle_mouse_button_event(const SDL_Event *ev, PC *pc)
 static void poll(void *opaque)
 {
 	Console *s = opaque;
-	SDL_Surface *sdl = s->screen;
 	SDL_Event ev;
 
 	while (SDL_PollEvent(&ev)) {

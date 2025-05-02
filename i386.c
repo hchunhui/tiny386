@@ -2907,6 +2907,7 @@ static bool enter_helper(CPUI386 *cpu, bool opsz16, uword sp_mask,
 		saddr32(&meml1, temp);
 		sreg32(5, temp);
 	}
+	return true;
 }
 
 #define ENTER(i16, i8, l16, s16, l8, s8) \
@@ -3884,7 +3885,6 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 		cpu->next_ip = addr;
 	} else {
 		assert(!isjmp);
-		OptAddr meml;
 		int newcs = w1 >> 16;
 		uword newip = (w1 & 0xffff) | (w2 & 0xffff0000);
 		int gt = (w2 >> 8) & 0xf;
@@ -4243,7 +4243,6 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	}
 	case 2: /* inter PVL */ {
 //		fprintf(stderr, "call_isr %d %x PVL %d => %d\n", no, no, cpu->cpl, csdpl);
-		OptAddr meml;
 		OptAddr msp0, mss0;
 		int newpl = csdpl;
 		uword oldss = cpu->seg[SEG_SS].sel;
@@ -4323,7 +4322,6 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 		assert(csdpl == 0);
 		assert(!gate16);
 //		fprintf(stderr, "call_isr %d %x PVL %d => 0\n", no, no, cpu->cpl, csdpl);
-		OptAddr meml;
 		OptAddr msp0, mss0;
 		int newpl = 0;
 		uword oldss = cpu->seg[SEG_SS].sel;
@@ -4616,8 +4614,6 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 
 			if (isiret)
 				cpu->flags = newflags;
-			int oldcs = cpu->seg[SEG_CS].sel;
-			int oldcpl = cpu->cpl;
 			TRY1(set_seg(cpu, SEG_CS, newcs));
 			TRY1(set_seg(cpu, SEG_SS, newss));
 			uword newsp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
