@@ -12,11 +12,22 @@ typedef struct {
 	uint16_t high;
 } F80;
 
+union union64 {
+	double f;
+	uint64_t i;
+};
+
+union union32 {
+	float f;
+	uint32_t i;
+};
+
 #define BIAS80 16383
 #define BIAS64 1023
 static F80 tof80(double val)
 {
-	uint64_t v = *(uint64_t *) &val;
+	union union64 u = { .f = val };
+	uint64_t v = u.i;
 	int sign = v >> 63;
 	int exp = (v >> 52) & ((1 << 11) - 1);
 	uint64_t mant80 = (v & (((uint64_t) 1 << 52) - 1)) << 11;
@@ -43,10 +54,6 @@ static F80 tof80(double val)
 
 static double fromf80(F80 f80)
 {
-	unsigned __int128 i128 = f80.high;
-	i128 = (i128 << 32) | (f80.mant1);
-	i128 = (i128 << 32) | (f80.mant0);
-	long double ff80 = *(long double *) & i128;
 	int sign = f80.high >> 15;
 	int exp = f80.high & 0x7fff;
 	uint64_t mant80 = f80.mant1;
@@ -79,7 +86,8 @@ static double fromf80(F80 f80)
 	}
 
 	uint64_t res = ((uint64_t) sign << 63) | ((uint64_t) exp << 52) | mant64;
-	return *(double *) &res;
+	union union64 u = { .i = res };
+	return u.f;
 }
 
 struct FPU {
@@ -144,10 +152,10 @@ static void fppop(FPU *fpu)
 
 static bool fploadf32(void *cpu, int seg, uword addr, double *res)
 {
-	u32 v;
-	if(!cpu_load32(cpu, seg, addr, &v))
+	union union32 u;
+	if(!cpu_load32(cpu, seg, addr, &u.i))
 		return false;
-	*res = *(float *) &v;
+	*res = u.f;
 	return true;
 }
 
@@ -160,7 +168,8 @@ static bool fploadf64(void *cpu, int seg, uword addr, double *res)
 		return false;
 	uint64_t v = v2;
 	v = (v << 32) | v1;
-	*res = *(double *) &v;
+	union union64 u = { .i = v };
+	*res = u.f;
 	return true;
 }
 
@@ -245,8 +254,8 @@ static bool fploadbcd(void *cpu, int seg, uword addr, double *res)
 
 static bool fpstoref32(void *cpu, int seg, uword addr, double val)
 {
-	float u = val;
-	u32 v = *(u32 *) &u;
+	union union32 u = { .f = val };
+	u32 v = u.i;
 	if (!cpu_store32(cpu, seg, addr, v))
 		return false;
 	return true;
@@ -254,7 +263,8 @@ static bool fpstoref32(void *cpu, int seg, uword addr, double val)
 
 static bool fpstoref64(void *cpu, int seg, uword addr, double val)
 {
-	uint64_t v = *(uint64_t *) &val;
+	union union64 u = { .f = val };
+	uint64_t v = u.i;
 	if (!cpu_store32(cpu, seg, addr, v))
 		return false;
 	if (!cpu_store32(cpu, seg, addr + 4, v >> 32))
