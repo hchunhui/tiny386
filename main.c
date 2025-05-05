@@ -1,5 +1,4 @@
 //#define USEKVM
-//#define LINUXSTART
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -74,6 +73,12 @@ typedef struct {
 	u8 port92;
 	int shutdown_state;
 	int reset_request;
+
+	const char *linuxstart;
+	const char *kernel;
+	const char *initrd;
+	const char *cmdline;
+	int enable_serial;
 } PC;
 
 u8 pc_io_read(void *o, int addr)
@@ -85,12 +90,12 @@ u8 pc_io_read(void *o, int addr)
 	case 0x20: case 0x21: case 0xa0: case 0xa1:
 		val = i8259_ioport_read(pc->pic, addr);
 		return val;
-#ifdef LINUXSTART
 	case 0x3f8: case 0x3f9: case 0x3fa: case 0x3fb:
 	case 0x3fc: case 0x3fd: case 0x3fe: case 0x3ff:
-		val = u8250_reg_read(pc->serial, addr - 0x3f8);
+		val = 0xff;
+		if (pc->enable_serial)
+			val = u8250_reg_read(pc->serial, addr - 0x3f8);
 		return val;
-#endif
 	case 0x2f8: case 0x2f9: case 0x2fa: case 0x2fb:
 	case 0x2fc: case 0x2fd: case 0x2fe: case 0x2ff:
 	case 0x2e8: case 0x2e9: case 0x2ea: case 0x2eb:
@@ -349,23 +354,21 @@ void pc_io_write32(void *o, int addr, u32 val)
 }
 
 
-static void load_bios(PC *pc);
+static void load_bios_and_reset(PC *pc);
 
 void pc_step(PC *pc)
 {
 #ifndef USEKVM
 	if (pc->reset_request) {
 		pc->reset_request = 0;
-		load_bios(pc);
-		cpui386_reset(pc->cpu);
+		load_bios_and_reset(pc);
 	}
 #endif
 	int refresh = vga_step(pc->vga);
 	i8254_update_irq(pc->pit);
 	cmos_update_irq(pc->cmos);
-#ifdef LINUXSTART
-	u8250_update(pc->serial);
-#endif
+	if (pc->enable_serial)
+		u8250_update(pc->serial);
 	pc->poll(pc->redraw_data);
 	if (refresh) {
 		pc->fb_dev->refresh(pc->fb_dev, pc->redraw, pc->redraw_data);
@@ -481,6 +484,10 @@ static void pc_reset_request(void *p)
 }
 
 struct pcconfig {
+	const char *linuxstart;
+	const char *kernel;
+	const char *initrd;
+	const char *cmdline;
 	const char *bios;
 	const char *vga_bios;
 	long mem_size;
@@ -491,6 +498,7 @@ struct pcconfig {
 	int height;
 	int cpu_gen;
 	int fpu;
+	int enable_serial;
 };
 
 PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
@@ -513,6 +521,13 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 #endif
 	pc->bios = conf->bios;
 	pc->vga_bios = conf->vga_bios;
+	pc->linuxstart = conf->linuxstart;
+	pc->kernel = conf->kernel;
+	pc->initrd = conf->initrd;
+	pc->cmdline = conf->cmdline;
+	pc->enable_serial = conf->enable_serial;
+	if (pc->enable_serial)
+		CaptureKeyboardInput();
 
 	pc->pic = i8259_init(raise_irq, pc->cpu);
 	pc->cpu->pic = pc->pic;
@@ -796,68 +811,35 @@ static void poll(void *opaque)
 }
 #endif
 
-#ifdef LINUXSTART
-static void load_bios(PC *pc)
+static void load_bios_and_reset(PC *pc)
 {
-}
+	if (pc->bios && pc->bios[0])
+		load(pc, pc->bios, 0xe0000);
+	if (pc->vga_bios && pc->vga_bios[0])
+		load(pc, pc->vga_bios, 0xc0000);
 
-int main(int argc, char *argv[])
-{
-	struct pcconfig conf;
-	memset(&conf, 0, sizeof(conf));
-	conf.mem_size = 8 * 1024 * 1024;
-	conf.vga_mem_size = 256 * 1024;
-	conf.disks[0] = argv[1];
-	conf.width = 720;
-	conf.height = 480;
-	conf.cpu_gen = 4;
-	conf.fpu = 0;
+	if (pc->kernel && pc->kernel[0]) {
+		int start_addr = 0x10000;
+		int cmdline_addr = 0xf800;
+		int kernel_size = load(pc, pc->kernel, 0x00100000);
+		int initrd_size = 0;
+		if (pc->initrd && pc->initrd[0])
+			initrd_size = load(pc, pc->initrd, 0x00400000);
+		if (pc->cmdline && pc->cmdline[0])
+			strcpy(pc->cpu->phys_mem + cmdline_addr, pc->cmdline);
+		else
+			strcpy(pc->cpu->phys_mem + cmdline_addr, "");
 
-	const char *vmlinux = "vmlinux.bin";
-	Console *console = console_init(720, 480);
-	PC *pc = pc_new(redraw, poll, console, &conf);
-	if (console)
-		console->pc = pc;
-
-	load(pc, "linuxstart.bin", 0x0010000);
-	load(pc, vmlinux, 0x00100000);
-//	int initrd_size = load(pc, "root.bin", 0x00400000);
-
-	uword start_addr = 0x10000;
-	uword cmdline_addr = 0xf800;
-	strcpy(pc->cpu->phys_mem + cmdline_addr,
-	       "console=ttyS0 root=/dev/hda rw init=/sbin/init notsc=1");
-
-	cpui386_reset_pm(pc->cpu, start_addr);
-	pc->cpu->gpr[0] = pc->phys_mem_size;
-	pc->cpu->gpr[3] = 0;//initrd_size;
-	pc->cpu->gpr[1] = cmdline_addr;
-
-	CaptureKeyboardInput();
-
-	pc->boot_start_time = get_uticks();
-
-	long k = 0;
-	for (;;) {
-		long last = pc->cpu->cycle;
-		pc_step(pc);
-		k += pc->cpu->cycle - last;
-		if (k >= 4096 * 1) {
-//			usleep(4000);
-			k = 0;
-		}
+		load(pc, pc->linuxstart, start_addr);
+		cpui386_reset_pm(pc->cpu, 0x10000);
+		pc->cpu->gpr[0] = pc->phys_mem_size;
+		pc->cpu->gpr[3] = initrd_size;
+		pc->cpu->gpr[1] = cmdline_addr;
+		pc->cpu->gpr[2] = kernel_size;
+	} else {
+		cpui386_reset(pc->cpu);
 	}
 
-	for (;;) {
-		pc_step(pc);
-	}
-	return 0;
-}
-#else
-static void load_bios(PC *pc)
-{
-	load(pc, pc->bios, 0xe0000);
-	load(pc, pc->vga_bios, 0xc0000);
 }
 
 static long parse_mem_size(const char *value)
@@ -898,6 +880,16 @@ static int parse_conf_ini(void* user, const char* section,
 			conf->disks[3] = strdup(value);
 		} else if (NAME("fill_cmos")) {
 			conf->fill_cmos = atoi(value);
+		} else if (NAME("linuxstart")) {
+			conf->linuxstart = strdup(value);
+		} else if (NAME("kernel")) {
+			conf->kernel = strdup(value);
+		} else if (NAME("initrd")) {
+			conf->initrd = strdup(value);
+		} else if (NAME("cmdline")) {
+			conf->cmdline = strdup(value);
+		} else if (NAME("enable_serial")) {
+			conf->enable_serial = atoi(value);
 		}
 	} else if (SEC("display")) {
 		if (NAME("width")) {
@@ -921,6 +913,7 @@ int main(int argc, char *argv[])
 {
 	struct pcconfig conf;
 	memset(&conf, 0, sizeof(conf));
+	conf.linuxstart = "linuxstart.bin";
 	conf.bios = "bios.bin";
 	conf.vga_bios = "vgabios.bin";
 	conf.mem_size = 8 * 1024 * 1024;
@@ -944,7 +937,7 @@ int main(int argc, char *argv[])
 	if (console)
 		console->pc = pc;
 
-	load_bios(pc);
+	load_bios_and_reset(pc);
 
 	SDL_AudioSpec audio_spec = {0};
 	audio_spec.freq = 44100;
@@ -970,4 +963,3 @@ int main(int argc, char *argv[])
 	}
 	return 0;
 }
-#endif
