@@ -8,5 +8,5 @@ SRCS += pci.c
 tiny386: ${SRCS}
 	${CC} ${CFLAGS} -o $@ ${SRCS} ${LIBS}
 
-tiny386_ls: ${SRCS}
-	${CC} -DLINUXSTART ${CFLAGS} -o $@ ${SRCS} ${LIBS}
+tiny386_nosdl: ${SRCS}
+	${CC} -DNOSDL ${CFLAGS} -o $@ ${SRCS} ${LIBS}

@@ -1,4 +1,5 @@
 //#define USEKVM
+//#define NOSDL
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -7,7 +8,6 @@
 #include <assert.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <sys/mman.h>
 
 #include "i386.h"
 #include "i8259.h"
@@ -32,9 +32,19 @@ static uint32_t get_uticks()
 
 #ifdef USEKVM
 #include "kvm.h"
+#include <sys/mman.h>
 typedef CPUKVM CPU;
+void *bigmalloc(size_t size)
+{
+	return mmap(NULL, conf->mem_size, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+}
 #else
 typedef CPUI386 CPU;
+void *bigmalloc(size_t size)
+{
+	return malloc(size);
+}
 #endif
 
 typedef struct {
@@ -504,12 +514,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	   u8 *fb, struct pcconfig *conf)
 {
 	PC *pc = malloc(sizeof(PC));
-#ifdef USEKVM
-	char *mem = mmap(NULL, conf->mem_size, PROT_READ | PROT_WRITE,
-			 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-#else
-	char *mem = malloc(conf->mem_size);
-#endif
+	char *mem = bigmalloc(conf->mem_size);
 	memset(mem, 0, conf->mem_size);
 #ifdef USEKVM
 	pc->cpu = cpukvm_new(mem, conf->mem_size);
@@ -571,7 +576,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->boot_start_time = 0;
 
 	pc->vga_mem_size = conf->vga_mem_size;
-	pc->vga_mem = malloc(pc->vga_mem_size);
+	pc->vga_mem = bigmalloc(pc->vga_mem_size);
 	memset(pc->vga_mem, 0, pc->vga_mem_size);
 	pc->vga = vga_init(pc->vga_mem, pc->vga_mem_size,
 			   fb, conf->width, conf->height);
@@ -782,23 +787,52 @@ static void poll(void *opaque)
 		}
 	}
 }
+
+void console_set_audio(Console *console)
+{
+	SDL_AudioSpec audio_spec = {0};
+	audio_spec.freq = 44100;
+	audio_spec.format = AUDIO_S16SYS;
+	audio_spec.channels = 1;
+	audio_spec.samples = 1024;
+	audio_spec.callback = adlib_callback;
+	audio_spec.userdata = console->pc->adlib;
+	SDL_OpenAudio(&audio_spec, 0);
+}
+
+u8 *console_get_fb(Console *console)
+{
+	return console->screen->pixels;
+}
 #else
 typedef struct {
 	PC *pc;
+	u8 *fb;
 } Console;
 
 Console *console_init(int width, int height)
 {
-	return NULL;
+	Console *c = malloc(sizeof(Console));
+	c->fb = bigmalloc(width * height * 4);
+	return c;
 }
 
-static void redraw(FBDevice *fb_dev, void *opaque,
+static void redraw(void *opaque,
 		   int x, int y, int w, int h)
 {
 }
 
 static void poll(void *opaque)
 {
+}
+
+void console_set_audio(Console *console)
+{
+}
+
+u8 *console_get_fb(Console *console)
+{
+	return console->fb;
 }
 #endif
 
@@ -924,21 +958,12 @@ int main(int argc, char *argv[])
 	}
 
 	Console *console = console_init(conf.width, conf.height);
-	u8 *fb = console->screen->pixels;
+	u8 *fb = console_get_fb(console);
 	PC *pc = pc_new(redraw, poll, console, fb, &conf);
-	if (console)
-		console->pc = pc;
+	console->pc = pc;
+	console_set_audio(console);
 
 	load_bios_and_reset(pc);
-
-	SDL_AudioSpec audio_spec = {0};
-	audio_spec.freq = 44100;
-	audio_spec.format = AUDIO_S16SYS;
-	audio_spec.channels = 1;
-	audio_spec.samples = 1024;
-	audio_spec.callback = adlib_callback;
-	audio_spec.userdata = pc->adlib;
-	SDL_OpenAudio(&audio_spec, 0);
 
 	pc->boot_start_time = get_uticks();
 	long k = 0;
