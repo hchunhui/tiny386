@@ -74,6 +74,14 @@
 #define MAX_TEXT_WIDTH 132
 #define MAX_TEXT_HEIGHT 60
 
+struct FBDevice {
+    /* the following is set by the device */
+    int width;
+    int height;
+    int stride; /* current stride in bytes */
+    uint8_t *fb_data; /* current pointer to the pixel data */
+};
+
 struct VGAState {
     FBDevice *fb_dev;
     int graphic_mode;
@@ -586,7 +594,7 @@ static void vga_text_refresh(VGAState *s,
             dst += 4 * cwidth;
         }
         if (cx_max >= cx_min) {
-            redraw_func(fb_dev, opaque,
+            redraw_func(opaque,
                         x1 + cx_min * cwidth, y1 + cy * cheight,
                         (cx_max - cx_min + 1) * cwidth, cheight);
         }
@@ -597,7 +605,7 @@ static void vga_text_refresh(VGAState *s,
 static void simplefb_refresh(FBDevice *fb_dev,
                              SimpleFBDrawFunc *redraw_func, void *opaque)
 {
-    redraw_func(fb_dev, opaque, 0, 0, fb_dev->width, fb_dev->height);
+    redraw_func(opaque, 0, 0, fb_dev->width, fb_dev->height);
 }
 
 static void simplefb_clear(FBDevice *fb_dev,
@@ -625,10 +633,10 @@ int vga_step(VGAState *s)
     return ret;
 }
 
-static void vga_refresh(FBDevice *fb_dev,
-                        SimpleFBDrawFunc *redraw_func, void *opaque)
+void vga_refresh(VGAState *s,
+                 SimpleFBDrawFunc *redraw_func, void *opaque)
 {
-    VGAState *s = fb_dev->device_opaque;
+    FBDevice *fb_dev = s->fb_dev;
     int graphic_mode;
     int full_update = 0;
     if (!(s->ar_index & 0x20)) {
@@ -1416,15 +1424,16 @@ uint8_t vga_mem_read(VGAState *s, uint32_t addr)
 
 static void vga_initmode();
 
-VGAState *vga_init(FBDevice *fb_dev,
-                   int width, int height,
-                   uint8_t *vga_ram, int vga_ram_size)
+VGAState *vga_init(uint8_t *vga_ram, int vga_ram_size,
+                   uint8_t *fb, int width, int height)
 {
     VGAState *s;
 
     s = malloc(sizeof(*s));
     memset(s, 0, sizeof(*s));
+    FBDevice *fb_dev = malloc(sizeof(FBDevice));
     s->fb_dev = fb_dev;
+    memset(s->fb_dev, 0, sizeof(FBDevice));
     s->graphic_mode = 0;
     s->cursor_blink_time = get_uticks();
     s->cursor_visible_phase = 1;
@@ -1433,18 +1442,13 @@ VGAState *vga_init(FBDevice *fb_dev,
     fb_dev->width = width;
     fb_dev->height = height;
     fb_dev->stride = width * 4;
-
-    fb_dev->fb_size = (height * fb_dev->stride + FB_ALLOC_ALIGN - 1) & ~(FB_ALLOC_ALIGN - 1);
-    fb_dev->fb_data = malloc(fb_dev->fb_size);
+    fb_dev->fb_data = fb;
 
     s->vga_ram = vga_ram;
     s->vga_ram_size = vga_ram_size;
 
     s->vbe_regs[VBE_DISPI_INDEX_ID] = VBE_DISPI_ID5;
     s->vbe_regs[VBE_DISPI_INDEX_VIDEO_MEMORY_64K] = s->vga_ram_size >> 16;
-
-    fb_dev->device_opaque = s;
-    fb_dev->refresh = vga_refresh;
 
     vga_initmode(s);
     return s;

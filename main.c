@@ -45,7 +45,6 @@ typedef struct {
 	CMOS *cmos;
 	IDEIFState *ide, *ide2;
 	VGAState *vga;
-	FBDevice *fb_dev;
 	char *phys_mem;
 	long phys_mem_size;
 	char *vga_mem;
@@ -371,7 +370,7 @@ void pc_step(PC *pc)
 		u8250_update(pc->serial);
 	pc->poll(pc->redraw_data);
 	if (refresh) {
-		pc->fb_dev->refresh(pc->fb_dev, pc->redraw, pc->redraw_data);
+		vga_refresh(pc->vga, pc->redraw, pc->redraw_data);
 	}
 #ifdef USEKVM
 	cpukvm_step(pc->cpu, 4096);
@@ -502,7 +501,7 @@ struct pcconfig {
 };
 
 PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
-	   struct pcconfig *conf)
+	   u8 *fb, struct pcconfig *conf)
 {
 	PC *pc = malloc(sizeof(PC));
 #ifdef USEKVM
@@ -571,13 +570,11 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 
 	pc->boot_start_time = 0;
 
-	FBDevice *fb_dev = malloc(sizeof(FBDevice));
-	memset(fb_dev, 0, sizeof(FBDevice));
 	pc->vga_mem_size = conf->vga_mem_size;
 	pc->vga_mem = malloc(pc->vga_mem_size);
 	memset(pc->vga_mem, 0, pc->vga_mem_size);
-	pc->vga = vga_init(fb_dev, conf->width, conf->height,
-			   pc->vga_mem, pc->vga_mem_size);
+	pc->vga = vga_init(pc->vga_mem, pc->vga_mem_size,
+			   fb, conf->width, conf->height);
 	pc->pci_vga = vga_pci_init(pc->vga, pc->pcibus, pc, set_pci_vga_bar);
 	pc->pci_vga_ram_addr = -1;
 
@@ -589,7 +586,6 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->cpu->iomem_read32 = iomem_read32;
 	pc->cpu->iomem_write32 = iomem_write32;
 
-	pc->fb_dev = fb_dev;
 	pc->redraw = redraw;
 	pc->redraw_data = redraw_data;
 	pc->poll = poll;
@@ -637,15 +633,10 @@ Console *console_init(int width, int height)
 	return s;
 }
 
-static void redraw(FBDevice *fb_dev, void *opaque,
+static void redraw(void *opaque,
 		   int x, int y, int w, int h)
 {
 	Console *s = opaque;
-	for (int j = 0; j < fb_dev->height; j++) {
-		memcpy(s->screen->pixels + 4 * j * s->width,
-		       fb_dev->fb_data + j * fb_dev->stride,
-		       fb_dev->stride);
-	}
 	SDL_Flip(s->screen);
 	SDL_PumpEvents();
 }
@@ -933,7 +924,8 @@ int main(int argc, char *argv[])
 	}
 
 	Console *console = console_init(conf.width, conf.height);
-	PC *pc = pc_new(redraw, poll, console, &conf);
+	u8 *fb = console->screen->pixels;
+	PC *pc = pc_new(redraw, poll, console, fb, &conf);
 	if (console)
 		console->pc = pc;
 
