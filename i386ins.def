@@ -361,7 +361,7 @@ IG7(C(0x03), Ms, 1, LIDT)
 IG7(C(0x04), Ew, 2, SMSW)
 IG7(C(0x06), Ew, 1, LMSW)
 
-IG8(C(0x04), BTEvIb, 3, BT)
+IG8(C(0x04), BTEvIb, 1, BT)
 IG8(C(0x05), BTEvIb, 3, BTS)
 IG8(C(0x06), BTEvIb, 3, BTR)
 IG8(C(0x07), BTEvIb, 3, BTC)

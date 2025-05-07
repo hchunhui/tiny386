@@ -1281,7 +1281,7 @@ static void clear_segs(CPUI386 *cpu)
 	} \
 	if (curr_seg == -1) curr_seg = SEG_DS; \
 	if (opsz16) { \
-		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
+		TRY(translate16(cpu, &meml, rwm, curr_seg, addr)); \
 		INST ## w(&meml, 0, laddr16, saddr16, lreg16, sreg16) \
 	} else { \
 		TRY(translate32(cpu, &meml, rwm, curr_seg, addr)); \
