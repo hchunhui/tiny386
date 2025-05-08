@@ -74,6 +74,8 @@
 #define MAX_TEXT_WIDTH 132
 #define MAX_TEXT_HEIGHT 60
 
+#define BPP 32
+
 struct FBDevice {
     /* the following is set by the device */
     int width;
@@ -147,6 +149,7 @@ static int after_eq(uint32_t a, uint32_t b)
     return (a - b) < (1u << 31);
 }
 
+#if BPP == 32
 static void vga_draw_glyph8(uint8_t *d, int linesize,
                             const uint8_t *font_ptr, int h,
                             uint32_t fgcol, uint32_t bgcol)
@@ -164,7 +167,7 @@ static void vga_draw_glyph8(uint8_t *d, int linesize,
         ((uint32_t *)d)[5] = (-((font_data >> 2) & 1) & xorcol) ^ bgcol;
         ((uint32_t *)d)[6] = (-((font_data >> 1) & 1) & xorcol) ^ bgcol;
         ((uint32_t *)d)[7] = (-((font_data >> 0) & 1) & xorcol) ^ bgcol;
-        font_ptr++;
+        font_ptr += 4;
         d += linesize;
     } while (--h);
 }
@@ -192,10 +195,71 @@ static void vga_draw_glyph9(uint8_t *d, int linesize,
             ((uint32_t *)d)[8] = v;
         else
             ((uint32_t *)d)[8] = bgcol;
-        font_ptr++;
+        font_ptr += 4;
         d += linesize;
     } while (--h);
 }
+#elif BPP == 16
+static uint16_t X(uint32_t c)
+{
+        return
+                ((c >> 3) & ((1 << 5) - 1)) |
+                (((c >> 10) & ((1 << 6) - 1)) << 5) |
+                (((c >> 19) & ((1 << 5) - 1)) << 11);
+}
+
+static void vga_draw_glyph8(uint8_t *d, int linesize,
+                            const uint8_t *font_ptr, int h,
+                            uint32_t fgcol, uint32_t bgcol)
+{
+    uint32_t font_data, xorcol;
+
+    xorcol = bgcol ^ fgcol;
+    do {
+        font_data = font_ptr[0];
+        ((uint16_t *)d)[0] = X((-((font_data >> 7)) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[1] = X((-((font_data >> 6) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[2] = X((-((font_data >> 5) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[3] = X((-((font_data >> 4) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[4] = X((-((font_data >> 3) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[5] = X((-((font_data >> 2) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[6] = X((-((font_data >> 1) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[7] = X((-((font_data >> 0) & 1) & xorcol) ^ bgcol);
+        font_ptr += 4;
+        d += linesize;
+    } while (--h);
+}
+
+static void vga_draw_glyph9(uint8_t *d, int linesize,
+                            const uint8_t *font_ptr, int h,
+                            uint32_t fgcol, uint32_t bgcol,
+                            int dup9)
+{
+    uint32_t font_data, xorcol, v;
+
+    xorcol = bgcol ^ fgcol;
+    do {
+        font_data = font_ptr[0];
+        ((uint16_t *)d)[0] = X((-((font_data >> 7)) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[1] = X((-((font_data >> 6) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[2] = X((-((font_data >> 5) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[3] = X((-((font_data >> 4) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[4] = X((-((font_data >> 3) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[5] = X((-((font_data >> 2) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[6] = X((-((font_data >> 1) & 1) & xorcol) ^ bgcol);
+        v = (-((font_data >> 0) & 1) & xorcol) ^ bgcol;
+        ((uint16_t *)d)[7] = X(v);
+        if (dup9)
+            ((uint16_t *)d)[8] = X(v);
+        else
+            ((uint16_t *)d)[8] = X(bgcol);
+        font_ptr += 4;
+        d += linesize;
+    } while (--h);
+}
+#else
+#error "bad bpp"
+#endif
 
 static const uint8_t cursor_glyph[32] = {
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -480,10 +544,14 @@ static void vga_text_refresh(VGAState *s,
     full_update = full_update || update_palette16(s, s->last_palette);
 
     vga_ram = s->vga_ram;
+
+    const uint8_t *font_base[2];
+    uint32_t v = s->sr[0x3];
+    font_base[0] = vga_ram + (((v >> 4) & 1) | ((v << 1) & 6)) * 8192 * 4 + 2;
+    font_base[1] = vga_ram + (((v >> 5) & 1) | ((v >> 1) & 6)) * 8192 * 4 + 2;
     
     line_offset = s->cr[0x13];
     line_offset <<= 3;
-    line_offset >>= 1;
 
     start_addr = s->cr[0x0d] | (s->cr[0x0c] << 8);
     
@@ -531,8 +599,8 @@ static void vga_text_refresh(VGAState *s,
         s->last_cursor_end = cursor_end;
     }
 
-    ch_addr1 = 0x18000 + (start_addr * 2);
-    cursor_offset = 0x18000 + (start_addr + cursor_offset) * 2;
+    ch_addr1 = (start_addr * 4);
+    cursor_offset = (start_addr + cursor_offset) * 4;
     
     x1 = (fb_dev->width - width1) / 2;
     y1 = (fb_dev->height - height1) / 2;
@@ -542,7 +610,7 @@ static void vga_text_refresh(VGAState *s,
 #endif
     for(cy = 0; cy < height; cy++) {
         ch_addr = ch_addr1;
-        dst = fb_dev->fb_data + (y1 + cy * cheight) * fb_dev->stride + x1 * 4;
+        dst = fb_dev->fb_data + (y1 + cy * cheight) * fb_dev->stride + x1 * (BPP / 8);
         cx_min = width;
         cx_max = -1;
         for(cx = 0; cx < width; cx++) {
@@ -553,7 +621,8 @@ static void vga_text_refresh(VGAState *s,
                 cx_max = cx_max < cx ? cx : cx_max;
                 ch = ch_attr & 0xff;
                 cattr = ch_attr >> 8;
-                font_ptr = vga_ram + 32 * ch;
+
+                font_ptr = font_base[(cattr >> 3) & 1] + 32 * 4 * ch;
                 bgcol = s->last_palette[cattr >> 4];
                 fgcol = s->last_palette[cattr & 0x0f];
                 if (cwidth == 8) {
@@ -590,8 +659,8 @@ static void vga_text_refresh(VGAState *s,
                     }
                 }
             }
-            ch_addr += 2;
-            dst += 4 * cwidth;
+            ch_addr += 4;
+            dst += (BPP / 8) * cwidth;
         }
         if (cx_max >= cx_min) {
             redraw_func(opaque,
@@ -611,7 +680,7 @@ static void simplefb_refresh(FBDevice *fb_dev,
 static void simplefb_clear(FBDevice *fb_dev,
                SimpleFBDrawFunc *redraw_func, void *opaque)
 {
-    memset(fb_dev->fb_data, 0, fb_dev->width * fb_dev->height * 4);
+    memset(fb_dev->fb_data, 0, fb_dev->width * fb_dev->height * (BPP / 8));
 }
 
 int vga_step(VGAState *s)
@@ -722,7 +791,7 @@ void vga_refresh(VGAState *s,
                 addr = (addr & ~0x8000) | ((y1 & 2) << 14);
             }
             for (int x = 0; x < w; x++) {
-                int i = 4 * (y * fb_dev->width + x);
+                int i = (BPP / 8) * (y * fb_dev->width + x);
                 int x1 = x / xdiv;
                 uint32_t color;
                 if (shift_control == 0 || shift_control == 1) {
@@ -772,11 +841,21 @@ void vga_refresh(VGAState *s,
                         abort();
                     }
                 }
-
+#if BPP == 32
                 fb_dev->fb_data[i + 0] = color;
                 fb_dev->fb_data[i + 1] = color >> 8;
                 fb_dev->fb_data[i + 2] = color >> 16;
                 fb_dev->fb_data[i + 3] = color >> 24;
+#elif BPP == 16
+                uint16_t c16 =
+                        ((color >> 3) & ((1 << 5) - 1)) |
+                        (((color >> 10) & ((1 << 6) - 1)) << 5) |
+                        (((color >> 19) & ((1 << 5) - 1)) << 11);
+                fb_dev->fb_data[i + 0] = c16;
+                fb_dev->fb_data[i + 1] = c16 >> 8;
+#else
+#error "bad bpp"
+#endif
             }
             if (!multi_run) {
                 int mask = (s->cr[0x17] & 3) ^ 3;
@@ -1209,10 +1288,6 @@ static const uint32_t mask16[16] = {
 void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
 {
     uint32_t val = val8;
-    if (!(s->gr[0x06] & 1)) {
-        s->vga_ram[addr] = val;
-        return;
-    }
 
     int memory_map_mode, plane, write_mode, b, func_select, mask;
     uint32_t write_mask, bit_mask, set_mask;
@@ -1262,7 +1337,7 @@ void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
         mask = (1 << plane);
         if (s->sr[VGA_SEQ_PLANE_WRITE] & mask) {
             addr = ((addr & ~1) << 1) | plane;
-            if (addr >= 256 * 1024) {
+            if (addr >= s->vga_ram_size) {
                 return;
             }
             s->vga_ram[addr] = val;
@@ -1338,7 +1413,7 @@ void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
         mask = s->sr[VGA_SEQ_PLANE_WRITE];
 //        s->plane_updated |= mask; /* only used to detect font change */
         write_mask = mask16[mask];
-        if (addr * sizeof(uint32_t) >= 256 * 1024) {
+        if (addr * sizeof(uint32_t) >= s->vga_ram_size) {
             return;
         }
         ((uint32_t *)s->vga_ram)[addr] =
@@ -1354,11 +1429,6 @@ void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
 
 uint8_t vga_mem_read(VGAState *s, uint32_t addr)
 {
-#if 1
-    if (!(s->gr[0x06] & 1)) {
-        return s->vga_ram[addr];
-    }
-
     int memory_map_mode, plane;
     uint32_t ret;
 
@@ -1394,13 +1464,13 @@ uint8_t vga_mem_read(VGAState *s, uint32_t addr)
         /* odd/even mode (aka text mode mapping) */
         plane = (s->gr[VGA_GFX_PLANE_READ] & 2) | (addr & 1);
         addr = ((addr & ~1) << 1) | plane;
-        if (addr >= 256 * 1024) { // s->vram_size) {
+        if (addr >= s->vga_ram_size) { // s->vram_size) {
             return 0xff;
         }
         ret = s->vga_ram[addr];
     } else {
         /* standard VGA latched access */
-        if (addr * sizeof(uint32_t) >= 256 * 1024) {//s->vram_size) {
+        if (addr * sizeof(uint32_t) >= s->vga_ram_size) {//s->vram_size) {
             return 0xff;
         }
         s->latch = ((uint32_t *)s->vga_ram)[addr];
@@ -1419,7 +1489,6 @@ uint8_t vga_mem_read(VGAState *s, uint32_t addr)
         }
     }
     return ret;
-#endif
 }
 
 static void vga_initmode();
@@ -1441,7 +1510,7 @@ VGAState *vga_init(uint8_t *vga_ram, int vga_ram_size,
     s->retrace_phase = 0;
     fb_dev->width = width;
     fb_dev->height = height;
-    fb_dev->stride = width * 4;
+    fb_dev->stride = width * (BPP / 8);
     fb_dev->fb_data = fb;
 
     s->vga_ram = vga_ram;
@@ -1773,8 +1842,9 @@ static void vga_initmode(VGAState *s)
         s->ar[i] = actl[i];
     s->ar[0x14] = 0;
 
+    s->sr[0] = 0x3;
     for (int i = 0; i < 4; i++)
-        s->sr[i] = sequ[i];
+        s->sr[i + 1] = sequ[i];
 
     for (int i = 0; i <= 8; i++)
         s->gr[i] = grdc[i];
@@ -1784,8 +1854,18 @@ static void vga_initmode(VGAState *s)
 
     s->msr = 0x67;
 
-    for (int i = 0; i < 256; i++)
-        memcpy(s->vga_ram + i * 32, vgafont16 + i * 16, 16);
+    // clear screen
+    for (int i = 0; i < s->vga_ram_size / 4; i++) {
+        s->vga_ram[i * 4] = 0x20;
+        s->vga_ram[i * 4 + 1] = 0x07;
+    }
+
+    // load font
+    for (int i = 0; i < 256; i++) {
+        for (int j = 0; j < 16; j++) {
+            s->vga_ram[i * 32 * 4 + j * 4 + 2] = vgafont16[i * 16 + j];
+        }
+    }
 
     s->ar_index = 0x20;
 }
