@@ -132,6 +132,9 @@ struct VGAState {
     uint16_t vbe_regs[VBE_DISPI_INDEX_NB];
     uint32_t vbe_start_addr;
     uint32_t vbe_line_offset;
+#ifdef SCALE_3_2
+    uint8_t tmpbuf[1024 * 26];
+#endif
 };
 
 static uint32_t get_uticks()
@@ -247,6 +250,51 @@ static void vga_draw_glyph9(uint8_t *d, int linesize,
         d += linesize;
     } while (--h);
 }
+
+static inline uint32_t c69(uint16_t c)
+{
+    // 0000 0000 0000 rrrr rggg gggb bbbb
+    // 0000 0rrr rr00 0ggg ggg0 000b bbbb
+    return (c & 0x1f) | ((c & 0x7e0) << 4) | ((c & 0xf800) << 7);
+}
+
+static inline uint16_t c96(uint32_t c)
+{
+    // 0000 0rrr rr00 0ggg ggg0 000b bbbb
+    // 0000 0000 0000 rrrr rggg gggb bbbb
+    return (c & 0x1f) | ((c & 0x7e00) >> 4) | ((c & 0x7c0000) >> 7);
+}
+
+static void scale_3_2(uint8_t *dst, int dst_stride, uint8_t *src, int w)
+{
+   const static int shift[4][4] = {
+       { 2, 0, 1, 0 },
+       { 1, 2, 0, 0 },
+       { 0, 0, 2, 1 },
+       { 0, 1, 0, 2 }
+   };
+   int ww = w / 3 * 2;
+   int idx = 0;
+   for (int j = 0; j < 2; j++, idx ^= 2, dst += dst_stride) {
+       uint8_t *dst1 = dst;
+       uint8_t *src1 = src + (j * w) * (BPP / 8);
+       for (int k = 0; k < ww; k++, idx ^= 1) {
+           int kk = k / 2 * 3 + (k & 1);
+           uint16_t *p0 = (uint16_t *) (src1 + kk * (BPP / 8));
+           uint16_t *p1 = p0 + 1;
+           uint16_t *p2 = p0 + w;
+           uint16_t *p3 = p1 + w;
+           int sh0 = shift[idx][0];
+           int sh1 = shift[idx][1];
+           int sh2 = shift[idx][2];
+           int sh3 = shift[idx][3];
+           *(uint16_t *)dst1 = c96(((c69(*p0) << sh0) + (c69(*p1) << sh1) +
+                                    (c69(*p2) << sh2) + (c69(*p3) << sh3)) >> 3);
+           dst1 += BPP / 8;
+       }
+   }
+}
+
 #else
 #error "bad bpp"
 #endif
@@ -606,9 +654,22 @@ static void vga_text_refresh(VGAState *s,
     
     width1 = width * cwidth;
     height1 = height * cheight;
+#ifdef SCALE_3_2
+    if (fb_dev->width * 3 / 2 < width1 || fb_dev->height * 3 / 2 < height1 ||
+        width > MAX_TEXT_WIDTH || height > MAX_TEXT_HEIGHT || cheight > 16)
+        return; /* not enough space */
+    x1 = (fb_dev->width * 3 / 2 - width1) / 3;
+    y1 = (fb_dev->height * 3 / 2 - height1) / 3;
+    int stride = width1 * (BPP / 8);
+    full_update = 1;
+#else
     if (fb_dev->width < width1 || fb_dev->height < height1 ||
         width > MAX_TEXT_WIDTH || height > MAX_TEXT_HEIGHT)
         return; /* not enough space */
+    x1 = (fb_dev->width - width1) / 2;
+    y1 = (fb_dev->height - height1) / 2;
+    int stride = fb_dev->stride;
+#endif
     if (s->last_line_offset != line_offset ||
         s->last_start_addr != start_addr ||
         s->last_width != width ||
@@ -640,15 +701,21 @@ static void vga_text_refresh(VGAState *s,
     ch_addr1 = (start_addr * 4);
     cursor_offset = (start_addr + cursor_offset) * 4;
     
-    x1 = (fb_dev->width - width1) / 2;
-    y1 = (fb_dev->height - height1) / 2;
 #if 0
     printf("text refresh %dx%d font=%dx%d start_addr=0x%x line_offset=0x%x\n",
            width, height, cwidth, cheight, start_addr, line_offset);
 #endif
+#ifdef SCALE_3_2
+    int yt = 0;
+    int yy = 0;
+#endif
     for(cy = 0; cy < height; cy++) {
         ch_addr = ch_addr1;
-        dst = fb_dev->fb_data + (y1 + cy * cheight) * fb_dev->stride + x1 * (BPP / 8);
+#ifdef SCALE_3_2
+        dst = s->tmpbuf + yt * stride;
+#else
+        dst = fb_dev->fb_data + (y1 + cy * cheight) * stride + x1 * (BPP / 8);
+#endif
         cx_min = width;
         cx_max = -1;
         for(cx = 0; cx < width; cx++) {
@@ -664,13 +731,13 @@ static void vga_text_refresh(VGAState *s,
                 bgcol = s->last_palette[cattr >> 4];
                 fgcol = s->last_palette[cattr & 0x0f];
                 if (cwidth == 8) {
-                    vga_draw_glyph8(dst, fb_dev->stride, font_ptr, cheight,
+                    vga_draw_glyph8(dst, stride, font_ptr, cheight,
                                     fgcol, bgcol);
                 } else {
                     dup9 = 0;
                     if (ch >= 0xb0 && ch <= 0xdf && (s->ar[0x10] & 0x04))
                         dup9 = 1;
-                    vga_draw_glyph9(dst, fb_dev->stride, font_ptr, cheight,
+                    vga_draw_glyph9(dst, stride, font_ptr, cheight,
                                     fgcol, bgcol, dup9);
                 }
                 /* cursor display */
@@ -684,13 +751,13 @@ static void vga_text_refresh(VGAState *s,
 
                     if (line_last >= line_start && line_start < cheight) {
                         h = line_last - line_start + 1;
-                        dst1 = dst + fb_dev->stride * line_start;
+                        dst1 = dst + stride * line_start;
                         if (cwidth == 8) {
-                            vga_draw_glyph8(dst1, fb_dev->stride,
+                            vga_draw_glyph8(dst1, stride,
                                             cursor_glyph,
                                             h, fgcol, bgcol);
                         } else {
-                            vga_draw_glyph9(dst1, fb_dev->stride,
+                            vga_draw_glyph9(dst1, stride,
                                             cursor_glyph,
                                             h, fgcol, bgcol, 1);
                         }
@@ -700,13 +767,28 @@ static void vga_text_refresh(VGAState *s,
             ch_addr += 4;
             dst += (BPP / 8) * cwidth;
         }
-        if (cx_max >= cx_min) {
-            redraw_func(opaque,
-                        x1 + cx_min * cwidth, y1 + cy * cheight,
-                        (cx_max - cx_min + 1) * cwidth, cheight);
+#ifdef SCALE_3_2
+        int k;
+        for (k = 0; k < yt + cheight - 1; k += 3) {
+                int ii0 = (BPP / 8) * ((y1 + yy) * fb_dev->width + x1);
+                scale_3_2(fb_dev->fb_data + ii0, fb_dev->stride,
+                          s->tmpbuf + k * stride, width1);
+                yy += 2;
         }
+        yt = k - (yt + cheight - 1);
+        if (yt != 0) {
+                yt = 3 - yt;
+                memcpy(s->tmpbuf, s->tmpbuf + (k - 3) * stride, yt * stride);
+        }
+#endif
+//        if (cx_max >= cx_min) {
+//            redraw_func(opaque,
+//                        x1 + cx_min * cwidth, y1 + cy * cheight,
+//                        (cx_max - cx_min + 1) * cwidth, cheight);
+//        }
         ch_addr1 += line_offset;
     }
+    redraw_func(opaque, 0, 0, fb_dev->width, fb_dev->height);
 }
 
 static void simplefb_refresh(FBDevice *fb_dev,
@@ -818,14 +900,31 @@ void vga_refresh(VGAState *s,
 
         int y1 = 0;
         int i0 = 0;
-        if (h < fb_dev->height)
-            i0 += (fb_dev->height - h) / 2 * fb_dev->stride;
+#ifdef SCALE_3_2
+        int hx = fb_dev->height * 3 / 2;
+        int wx = fb_dev->width * 3 / 2;
+        if (h < hx)
+            i0 += (hx - h) / 3 * fb_dev->stride;
         else
-            h = fb_dev->height;
-        if (w < fb_dev->width)
-            i0 += (fb_dev->width - w) / 2 * (BPP / 8);
+            h = hx;
+        if (w < wx)
+            i0 += (wx - w) / 3 * (BPP / 8);
         else
-            w = fb_dev->width;
+            w = wx;
+        int yyt = 0;
+        int yy = 0;
+#else
+        int hx = fb_dev->height;
+        int wx = fb_dev->width;
+        if (h < hx)
+            i0 += (hx - h) / 2 * fb_dev->stride;
+        else
+            h = hx;
+        if (w < wx)
+            i0 += (wx - w) / 2 * (BPP / 8);
+        else
+            w = wx;
+#endif
         for (int y = 0; y < h; y++) {
             uint32_t addr = addr1;
             if (!(s->cr[0x17] & 1)) {
@@ -838,7 +937,6 @@ void vga_refresh(VGAState *s,
                 addr = (addr & ~0x8000) | ((y1 & 2) << 14);
             }
             for (int x = 0; x < w; x++) {
-                int i = (BPP / 8) * (y * fb_dev->width + x) + i0;
                 int x1 = x / xdiv;
                 uint32_t color;
                 if (shift_control == 0 || shift_control == 1) {
@@ -890,6 +988,7 @@ void vga_refresh(VGAState *s,
                         abort();
                     }
                 }
+                int i = (BPP / 8) * (y * fb_dev->width + x) + i0;
                 fb_dev->fb_data[i + 0] = color;
                 fb_dev->fb_data[i + 1] = color >> 8;
                 fb_dev->fb_data[i + 2] = color >> 16;
@@ -927,8 +1026,15 @@ void vga_refresh(VGAState *s,
                         abort();
                     }
                 }
+#ifdef SCALE_3_2
+                int i = (BPP / 8) * (yyt * w + x);
+                s->tmpbuf[i + 0] = color;
+                s->tmpbuf[i + 1] = color >> 8;
+#else
+                int i = (BPP / 8) * (y * fb_dev->width + x) + i0;
                 fb_dev->fb_data[i + 0] = color;
                 fb_dev->fb_data[i + 1] = color >> 8;
+#endif
 #else
 #error "bad bpp"
 #endif
@@ -942,6 +1048,15 @@ void vga_refresh(VGAState *s,
             } else {
                 multi_run--;
             }
+#ifdef SCALE_3_2
+            yyt++;
+            if (yyt == 3) {
+                    int ii0 = (BPP / 8) * (yy * fb_dev->width) + i0;
+                    scale_3_2(fb_dev->fb_data + ii0, fb_dev->stride, s->tmpbuf, w);
+                    yyt = 0;
+                    yy += 2;
+            }
+#endif
         }
         simplefb_refresh(fb_dev, redraw_func, opaque);
     } else if (s->graphic_mode == 1) {
