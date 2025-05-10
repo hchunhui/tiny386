@@ -27,4 +27,8 @@ typedef struct PCIDevice PCIDevice;
 typedef struct PCIBus PCIBus;
 PCIDevice *vga_pci_init(VGAState *s, PCIBus *bus,
                         void *o, void (*set_bar)(void *, int, uint32_t, bool));
+
+#define BPP 32
+//#define BPP 16
+
 #endif /* VGA_H */

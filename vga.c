@@ -74,8 +74,6 @@
 #define MAX_TEXT_WIDTH 132
 #define MAX_TEXT_HEIGHT 60
 
-#define BPP 32
-
 struct FBDevice {
     /* the following is set by the device */
     int width;
@@ -200,14 +198,6 @@ static void vga_draw_glyph9(uint8_t *d, int linesize,
     } while (--h);
 }
 #elif BPP == 16
-static uint16_t X(uint32_t c)
-{
-        return
-                ((c >> 3) & ((1 << 5) - 1)) |
-                (((c >> 10) & ((1 << 6) - 1)) << 5) |
-                (((c >> 19) & ((1 << 5) - 1)) << 11);
-}
-
 static void vga_draw_glyph8(uint8_t *d, int linesize,
                             const uint8_t *font_ptr, int h,
                             uint32_t fgcol, uint32_t bgcol)
@@ -217,14 +207,14 @@ static void vga_draw_glyph8(uint8_t *d, int linesize,
     xorcol = bgcol ^ fgcol;
     do {
         font_data = font_ptr[0];
-        ((uint16_t *)d)[0] = X((-((font_data >> 7)) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[1] = X((-((font_data >> 6) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[2] = X((-((font_data >> 5) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[3] = X((-((font_data >> 4) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[4] = X((-((font_data >> 3) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[5] = X((-((font_data >> 2) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[6] = X((-((font_data >> 1) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[7] = X((-((font_data >> 0) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[0] = (-((font_data >> 7)) & xorcol) ^ bgcol;
+        ((uint16_t *)d)[1] = (-((font_data >> 6) & 1) & xorcol) ^ bgcol;
+        ((uint16_t *)d)[2] = (-((font_data >> 5) & 1) & xorcol) ^ bgcol;
+        ((uint16_t *)d)[3] = (-((font_data >> 4) & 1) & xorcol) ^ bgcol;
+        ((uint16_t *)d)[4] = (-((font_data >> 3) & 1) & xorcol) ^ bgcol;
+        ((uint16_t *)d)[5] = (-((font_data >> 2) & 1) & xorcol) ^ bgcol;
+        ((uint16_t *)d)[6] = (-((font_data >> 1) & 1) & xorcol) ^ bgcol;
+        ((uint16_t *)d)[7] = (-((font_data >> 0) & 1) & xorcol) ^ bgcol;
         font_ptr += 4;
         d += linesize;
     } while (--h);
@@ -240,19 +230,19 @@ static void vga_draw_glyph9(uint8_t *d, int linesize,
     xorcol = bgcol ^ fgcol;
     do {
         font_data = font_ptr[0];
-        ((uint16_t *)d)[0] = X((-((font_data >> 7)) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[1] = X((-((font_data >> 6) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[2] = X((-((font_data >> 5) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[3] = X((-((font_data >> 4) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[4] = X((-((font_data >> 3) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[5] = X((-((font_data >> 2) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[6] = X((-((font_data >> 1) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[0] = ((-((font_data >> 7)) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[1] = ((-((font_data >> 6) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[2] = ((-((font_data >> 5) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[3] = ((-((font_data >> 4) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[4] = ((-((font_data >> 3) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[5] = ((-((font_data >> 2) & 1) & xorcol) ^ bgcol);
+        ((uint16_t *)d)[6] = ((-((font_data >> 1) & 1) & xorcol) ^ bgcol);
         v = (-((font_data >> 0) & 1) & xorcol) ^ bgcol;
-        ((uint16_t *)d)[7] = X(v);
+        ((uint16_t *)d)[7] = v;
         if (dup9)
-            ((uint16_t *)d)[8] = X(v);
+            ((uint16_t *)d)[8] = v;
         else
-            ((uint16_t *)d)[8] = X(bgcol);
+            ((uint16_t *)d)[8] = bgcol;
         font_ptr += 4;
         d += linesize;
     } while (--h);
@@ -268,6 +258,7 @@ static const uint8_t cursor_glyph[32] = {
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 };
 
+#if BPP == 32
 static inline int c6_to_8(int v)
 {
     int b;
@@ -331,6 +322,53 @@ static int update_palette16(VGAState *s, uint32_t *palette)
     }
     return full_update;
 }
+#elif BPP == 16
+static int update_palette256(VGAState *s, uint32_t *palette)
+{
+    int full_update, i;
+    uint32_t v, col;
+
+    full_update = 0;
+    v = 0;
+    for(i = 0; i < 256; i++) {
+        col = (s->palette[v + 2] >> 1) |
+              ((s->palette[v + 1]) << 5) |
+              ((s->palette[v] >> 1) << 11);
+        if (col != palette[i]) {
+            full_update = 1;
+            palette[i] = col;
+        }
+        v += 3;
+    }
+    return full_update;
+}
+
+static int update_palette16(VGAState *s, uint32_t *palette)
+{
+    int full_update, i;
+    uint32_t v, col;
+
+    full_update = 0;
+    for(i = 0; i < 16; i++) {
+        v = s->ar[i];
+        if (s->ar[0x10] & 0x80)
+            v = ((s->ar[0x14] & 0xf) << 4) | (v & 0xf);
+        else
+            v = ((s->ar[0x14] & 0xc) << 4) | (v & 0x3f);
+        v = v * 3;
+        col = (s->palette[v + 2] >> 1) |
+              ((s->palette[v + 1]) << 5) |
+              ((s->palette[v] >> 1) << 11);
+        if (col != palette[i]) {
+            full_update = 1;
+            palette[i] = col;
+        }
+    }
+    return full_update;
+}
+#else
+#error "bad bpp"
+#endif
 
 /* VGA CRT controller register indices */
 #define VGA_CRTC_H_TOTAL        0
@@ -779,6 +817,15 @@ void vga_refresh(VGAState *s,
         }
 
         int y1 = 0;
+        int i0 = 0;
+        if (h < fb_dev->height)
+            i0 += (fb_dev->height - h) / 2 * fb_dev->stride;
+        else
+            h = fb_dev->height;
+        if (w < fb_dev->width)
+            i0 += (fb_dev->width - w) / 2 * (BPP / 8);
+        else
+            w = fb_dev->width;
         for (int y = 0; y < h; y++) {
             uint32_t addr = addr1;
             if (!(s->cr[0x17] & 1)) {
@@ -791,7 +838,7 @@ void vga_refresh(VGAState *s,
                 addr = (addr & ~0x8000) | ((y1 & 2) << 14);
             }
             for (int x = 0; x < w; x++) {
-                int i = (BPP / 8) * (y * fb_dev->width + x);
+                int i = (BPP / 8) * (y * fb_dev->width + x) + i0;
                 int x1 = x / xdiv;
                 uint32_t color;
                 if (shift_control == 0 || shift_control == 1) {
@@ -800,7 +847,9 @@ void vga_refresh(VGAState *s,
                     k |= ((vram[addr + 4 * (x1 >> 3) + 2] >> (7 - (x1 & 7))) & 1) << 2;
                     k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x1 & 7))) & 1) << 3;
                     color = palette[k];
-                } else {
+                } else
+#if BPP == 32
+                {
                     switch (bpp) {
                     case 8: {
                         int k = vram[addr + x1];
@@ -841,18 +890,45 @@ void vga_refresh(VGAState *s,
                         abort();
                     }
                 }
-#if BPP == 32
                 fb_dev->fb_data[i + 0] = color;
                 fb_dev->fb_data[i + 1] = color >> 8;
                 fb_dev->fb_data[i + 2] = color >> 16;
                 fb_dev->fb_data[i + 3] = color >> 24;
 #elif BPP == 16
-                uint16_t c16 =
-                        ((color >> 3) & ((1 << 5) - 1)) |
-                        (((color >> 10) & ((1 << 6) - 1)) << 5) |
-                        (((color >> 19) & ((1 << 5) - 1)) << 11);
-                fb_dev->fb_data[i + 0] = c16;
-                fb_dev->fb_data[i + 1] = c16 >> 8;
+                {
+                    switch (bpp) {
+                    case 8: {
+                        color = palette[vram[addr + x1]];
+                        break;
+                    }
+                    case 15: {
+                        int k = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
+                        color = (k & 0x1f) | ((k & ~0x1f) << 1);
+                        break;
+                    }
+                    case 16: {
+                        color = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
+                        break;
+                    }
+                    case 24: {
+                        color = ((vram[addr + 3 * x1] >> 3)) |
+                                ((vram[addr + 3 * x1 + 1] >> 2) << 5) |
+                                ((vram[addr + 3 * x1 + 2] >> 3) << 11);
+                        break;
+                    }
+                    case 32: {
+                        color = ((vram[addr + 4 * x1] >> 3)) |
+                                ((vram[addr + 4 * x1 + 1] >> 2) << 5) |
+                                ((vram[addr + 4 * x1 + 2] >> 3) << 11);
+                        break;
+                    }
+                    default:
+                        fprintf(stderr, "vga bpp is %d\n", bpp);
+                        abort();
+                    }
+                }
+                fb_dev->fb_data[i + 0] = color;
+                fb_dev->fb_data[i + 1] = color >> 8;
 #else
 #error "bad bpp"
 #endif

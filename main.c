@@ -633,7 +633,7 @@ Console *console_init(int width, int height)
 	s->width = width;
 	s->height = height;
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
-	s->screen = SDL_SetVideoMode(s->width, s->height, 32, 0);
+	s->screen = SDL_SetVideoMode(s->width, s->height, BPP, 0);
 	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY,
 			    SDL_DEFAULT_REPEAT_INTERVAL);
 	return s;
