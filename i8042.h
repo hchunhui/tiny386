@@ -22,6 +22,7 @@ uint32_t kbd_read_status(void *opaque, uint32_t addr);
 void kbd_write_command(void *opaque, uint32_t addr, uint32_t val);
 uint32_t kbd_read_data(void *opaque, uint32_t addr);
 void kbd_write_data(void *opaque, uint32_t addr, uint32_t val);
+void kbd_step(void *opaque);
 
 KBDState *i8042_init(PS2KbdState **pkbd,
                      PS2MouseState **pmouse,

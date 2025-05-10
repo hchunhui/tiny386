@@ -21,11 +21,26 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
 #include <assert.h>
+
+#include <time.h>
+static uint32_t get_uticks()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ((uint32_t) ts.tv_sec * 1000000 +
+            (uint32_t) ts.tv_nsec / 1000);
+}
+
+static int after_eq(uint32_t a, uint32_t b)
+{
+    return (a - b) < (1u << 31);
+}
 
 #include "i8042.h"
 
@@ -434,6 +449,9 @@ struct  PS2KbdState {
        conversions we do the translation (if any) in the PS/2 emulation
        not the keyboard controller.  */
     int translate;
+    bool delay;
+    uint32_t delay_time;
+    int delay_keycode;
 };
 
 struct PS2MouseState {
@@ -478,6 +496,9 @@ static const uint8_t linux_input_to_keycode_set1[INPUT_MAKE_KEY_MAX - INPUT_MAKE
    keycode set 1 */
 void ps2_put_keycode(PS2KbdState *s, int is_down, int keycode)
 {
+    if (s->delay)
+        return;
+
     if (keycode >= INPUT_MAKE_KEY_MIN) {
         if (keycode > INPUT_MAKE_KEY_MAX)
             return;
@@ -485,8 +506,28 @@ void ps2_put_keycode(PS2KbdState *s, int is_down, int keycode)
         if (keycode == 0)
             return;
         ps2_queue(&s->common, 0xe0);
+        /* XXX: currently the ps2 queue is driven by data reading,
+           however the "e0" prefix may be read by some old DOS
+           software more than once, The workaround is to send the
+           second keycode later, so that the guest software can read
+           the same data again. */
+        s->delay = true;
+        s->delay_time = get_uticks() + 1000;
+        s->delay_keycode = keycode | ((!is_down) << 7);
+    } else {
+        ps2_queue(&s->common, keycode | ((!is_down) << 7));
     }
-    ps2_queue(&s->common, keycode | ((!is_down) << 7));
+}
+
+/* to be called in main loop */
+void kbd_step(void *opaque)
+{
+    KBDState *s = opaque;
+    PS2KbdState *kbd = s->kbd;
+    if (kbd->delay && after_eq(get_uticks(), kbd->delay_time)) {
+        kbd->delay = false;
+        ps2_queue(&(kbd->common), kbd->delay_keycode);
+    }
 }
 
 uint32_t ps2_read_data(void *opaque)

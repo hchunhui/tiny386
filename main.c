@@ -378,6 +378,7 @@ void pc_step(PC *pc)
 	cmos_update_irq(pc->cmos);
 	if (pc->enable_serial)
 		u8250_update(pc->serial);
+	kbd_step(pc->i8042);
 	pc->poll(pc->redraw_data);
 	if (refresh) {
 		vga_refresh(pc->vga, pc->redraw, pc->redraw_data);
