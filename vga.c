@@ -90,7 +90,7 @@ struct VGAState {
     uint32_t retrace_time;
     int retrace_phase;
 
-    uint8_t *vga_ram; /* 128K at 0xa0000 */
+    uint8_t *vga_ram;
     int vga_ram_size;
     
     uint8_t sr_index;
@@ -118,7 +118,9 @@ struct VGAState {
     
     /* text mode state */
     uint32_t last_palette[16];
+#ifndef FULL_UPDATE
     uint16_t last_ch_attr[MAX_TEXT_WIDTH * MAX_TEXT_HEIGHT];
+#endif
     uint32_t last_width;
     uint32_t last_height;
     uint16_t last_line_offset;
@@ -126,14 +128,15 @@ struct VGAState {
     uint16_t last_cursor_offset;
     uint8_t last_cursor_start;
     uint8_t last_cursor_end;
-    
+
     /* VBE extension */
     uint16_t vbe_index;
     uint16_t vbe_regs[VBE_DISPI_INDEX_NB];
     uint32_t vbe_start_addr;
     uint32_t vbe_line_offset;
+
 #ifdef SCALE_3_2
-    uint8_t tmpbuf[1024 * 26];
+    uint8_t tmpbuf[720 * 3 * 2];
 #endif
 };
 
@@ -660,7 +663,6 @@ static void vga_text_refresh(VGAState *s,
         return; /* not enough space */
     x1 = (fb_dev->width * 3 / 2 - width1) / 3;
     y1 = (fb_dev->height * 3 / 2 - height1) / 3;
-    int stride = width1 * (BPP / 8);
     full_update = 1;
 #else
     if (fb_dev->width < width1 || fb_dev->height < height1 ||
@@ -688,11 +690,13 @@ static void vga_text_refresh(VGAState *s,
     if (cursor_offset != s->last_cursor_offset ||
         cursor_start != s->last_cursor_start ||
         cursor_end != s->last_cursor_end) {
+#ifndef FULL_UPDATE
         /* force refresh of characters with the cursor */
         if (s->last_cursor_offset < MAX_TEXT_WIDTH * MAX_TEXT_HEIGHT)
             s->last_ch_attr[s->last_cursor_offset] = -1;
         if (cursor_offset < MAX_TEXT_WIDTH * MAX_TEXT_HEIGHT)
             s->last_ch_attr[cursor_offset] = -1;
+#endif
         s->last_cursor_offset = cursor_offset;
         s->last_cursor_start = cursor_start;
         s->last_cursor_end = cursor_end;
@@ -706,8 +710,16 @@ static void vga_text_refresh(VGAState *s,
            width, height, cwidth, cheight, start_addr, line_offset);
 #endif
 #ifdef SCALE_3_2
+    int cb = 6;
+    int nb = (width + cb - 1) / cb;
+    int cxbegin = 0;
+    int cxend = cb > width ? width : cb;
+    int stride = (cxend - cxbegin) * cwidth * (BPP / 8);
+    for (int b = 0; b < nb; b++)
+    {
     int yt = 0;
     int yy = 0;
+    ch_addr1 = (start_addr * 4) + cxbegin * 4;
 #endif
     for(cy = 0; cy < height; cy++) {
         ch_addr = ch_addr1;
@@ -718,10 +730,18 @@ static void vga_text_refresh(VGAState *s,
 #endif
         cx_min = width;
         cx_max = -1;
+#ifdef SCALE_3_2
+        for(cx = 0; cx < cxend - cxbegin; cx++) {
+#else
         for(cx = 0; cx < width; cx++) {
+#endif
             ch_attr = *(uint16_t *)(vga_ram + (ch_addr & 0x1fffe));
+#ifdef FULL_UPDATE
+            if (1) {
+#else
             if (full_update || ch_attr != s->last_ch_attr[cy * width + cx] || cursor_offset == ch_addr) {
                 s->last_ch_attr[cy * width + cx] = ch_attr;
+#endif
                 cx_min = cx_min > cx ? cx : cx_min;
                 cx_max = cx_max < cx ? cx : cx_max;
                 ch = ch_attr & 0xff;
@@ -770,9 +790,9 @@ static void vga_text_refresh(VGAState *s,
 #ifdef SCALE_3_2
         int k;
         for (k = 0; k < yt + cheight - 1; k += 3) {
-                int ii0 = (BPP / 8) * ((y1 + yy) * fb_dev->width + x1);
+                int ii0 = (BPP / 8) * ((y1 + yy) * fb_dev->width + x1 + cxbegin * cwidth * 2 / 3);
                 scale_3_2(fb_dev->fb_data + ii0, fb_dev->stride,
-                          s->tmpbuf + k * stride, width1);
+                          s->tmpbuf + k * stride, stride / (BPP / 8));
                 yy += 2;
         }
         yt = k - (yt + cheight - 1);
@@ -788,6 +808,13 @@ static void vga_text_refresh(VGAState *s,
 //        }
         ch_addr1 += line_offset;
     }
+#ifdef SCALE_3_2
+    cxbegin += cb;
+    cxend += cb;
+    if (cxend > width) cxend = width;
+    stride = (cxend - cxbegin) * cwidth * (BPP / 8);
+    }
+#endif
     redraw_func(opaque, 0, 0, fb_dev->width, fb_dev->height);
 }
 
