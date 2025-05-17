@@ -32,5 +32,6 @@ PCIDevice *vga_pci_init(VGAState *s, PCIBus *bus,
 //#define BPP 16
 //#define SCALE_3_2
 //#define FULL_UPDATE
+//#define SWAPXY  // depends on SCALE_3_2
 
 #endif /* VGA_H */

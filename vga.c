@@ -278,7 +278,13 @@ static void scale_3_2(uint8_t *dst, int dst_stride, uint8_t *src, int w)
    };
    int ww = w / 3 * 2;
    int idx = 0;
-   for (int j = 0; j < 2; j++, idx ^= 2, dst += dst_stride) {
+   for (int j = 0; j < 2; j++, idx ^= 2,
+#ifdef SWAPXY
+                dst += BPP / 8
+#else
+                dst += dst_stride
+#endif
+           ) {
        uint8_t *dst1 = dst;
        uint8_t *src1 = src + (j * w) * (BPP / 8);
        for (int k = 0; k < ww; k++, idx ^= 1) {
@@ -293,7 +299,11 @@ static void scale_3_2(uint8_t *dst, int dst_stride, uint8_t *src, int w)
            int sh3 = shift[idx][3];
            *(uint16_t *)dst1 = c96(((c69(*p0) << sh0) + (c69(*p1) << sh1) +
                                     (c69(*p2) << sh2) + (c69(*p3) << sh3)) >> 3);
+#ifdef SWAPXY
+           dst1 += dst_stride;
+#else
            dst1 += BPP / 8;
+#endif
        }
    }
 }
@@ -790,7 +800,11 @@ static void vga_text_refresh(VGAState *s,
 #ifdef SCALE_3_2
         int k;
         for (k = 0; k < yt + cheight - 1; k += 3) {
+#ifdef SWAPXY
+                int ii0 = (BPP / 8) * ((y1 + yy) + (x1 + cxbegin * cwidth * 2 / 3) * fb_dev->height);
+#else
                 int ii0 = (BPP / 8) * ((y1 + yy) * fb_dev->width + x1 + cxbegin * cwidth * 2 / 3);
+#endif
                 scale_3_2(fb_dev->fb_data + ii0, fb_dev->stride,
                           s->tmpbuf + k * stride, stride / (BPP / 8));
                 yy += 2;
@@ -931,11 +945,19 @@ void vga_refresh(VGAState *s,
         int hx = fb_dev->height * 3 / 2;
         int wx = fb_dev->width * 3 / 2;
         if (h < hx)
+#ifdef SWAPXY
+            i0 += (hx - h) / 3 * (BPP / 8);
+#else
             i0 += (hx - h) / 3 * fb_dev->stride;
+#endif
         else
             h = hx;
         if (w < wx)
+#ifdef SWAPXY
+            i0 += (wx - w) / 3 * fb_dev->stride;
+#else
             i0 += (wx - w) / 3 * (BPP / 8);
+#endif
         else
             w = wx;
         int yyt = 0;
@@ -1078,7 +1100,11 @@ void vga_refresh(VGAState *s,
 #ifdef SCALE_3_2
             yyt++;
             if (yyt == 3) {
+#ifdef SWAPXY
+                    int ii0 = (BPP / 8) * yy + i0;
+#else
                     int ii0 = (BPP / 8) * (yy * fb_dev->width) + i0;
+#endif
                     scale_3_2(fb_dev->fb_data + ii0, fb_dev->stride, s->tmpbuf, w);
                     yyt = 0;
                     yy += 2;
@@ -1728,7 +1754,11 @@ VGAState *vga_init(uint8_t *vga_ram, int vga_ram_size,
     s->retrace_phase = 0;
     fb_dev->width = width;
     fb_dev->height = height;
+#ifdef SWAPXY
+    fb_dev->stride = height * (BPP / 8);
+#else
     fb_dev->stride = width * (BPP / 8);
+#endif
     fb_dev->fb_data = fb;
 
     s->vga_ram = vga_ram;
