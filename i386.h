@@ -18,7 +18,14 @@ typedef s32 sword;
 typedef struct FPU FPU;
 
 typedef struct {
-	uword gpr[8];
+	union {
+		uword gpr[8];
+		union {
+			u32 r32;
+			u16 r16;
+			u8 r8[2];
+		} gprx[8];
+	};
 	uword ip, next_ip;
 	uword flags;
 	uword flags_mask;

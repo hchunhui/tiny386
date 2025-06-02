@@ -30,6 +30,11 @@
 
 //#include "cutils.h"
 #include "pci.h"
+#ifdef BUILD_ESP32
+void *pcmalloc(long size);
+#else
+#define pcmalloc malloc
+#endif
 
 static inline uint16_t get_le16(const uint8_t *ptr)
 {
@@ -151,7 +156,7 @@ PCIDevice *pci_register_device(PCIBus *b, const char *name, int devfn,
     if (b->device[devfn])
         return NULL;
 
-    d = malloc(sizeof(PCIDevice));
+    d = pcmalloc(sizeof(PCIDevice));
     memset(d, 0, sizeof(PCIDevice));
     d->bus = b;
     d->name = strdup(name);
@@ -557,9 +562,9 @@ I440FXState *i440fx_init(PCIBus **pbus, int *ppiix3_devfn)
     PCIDevice *d;
     int i;
     
-    s = malloc(sizeof(*s));
+    s = pcmalloc(sizeof(*s));
     
-    b = malloc(sizeof(PCIBus));
+    b = pcmalloc(sizeof(PCIBus));
     memset(s, 0, sizeof(*s));
     memset(b, 0, sizeof(PCIBus));
     b->bus_num = 0;

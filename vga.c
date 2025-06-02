@@ -33,6 +33,18 @@
 #include "vga.h"
 #include "pci.h"
 
+#ifdef BUILD_ESP32
+#include "esp_attr.h"
+#else
+#define IRAM_ATTR
+#endif
+
+#ifdef BUILD_ESP32
+void *pcmalloc(long size);
+#else
+#define pcmalloc malloc
+#endif
+
 //#define DEBUG_VBE
 //#define DEBUG_VGA_REG
 
@@ -265,7 +277,12 @@ static inline uint16_t c96(uint32_t c)
 {
     // 0000 0rrr rr00 0ggg ggg0 000b bbbb
     // 0000 0000 0000 rrrr rggg gggb bbbb
-    return (c & 0x1f) | ((c & 0x7e00) >> 4) | ((c & 0x7c0000) >> 7);
+    uint16_t t = (c & 0x1f) | ((c & 0x7e00) >> 4) | ((c & 0x7c0000) >> 7);
+#ifdef BUILD_ESP32
+    return (t << 8) | (t >> 8);
+#else
+    return t;
+#endif
 }
 
 static void scale_3_2(uint8_t *dst, int dst_stride, uint8_t *src, int w)
@@ -1241,7 +1258,7 @@ uint32_t vga_ioport_read(VGAState *s, uint32_t addr)
     return val;
 }
 
-void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val)
+void IRAM_ATTR vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val)
 {
     int index;
 
@@ -1537,7 +1554,57 @@ static const uint32_t mask16[16] = {
 #define VGA_GFX_MISC            0x06
 #define VGA_GFX_COMPARE_MASK    0x07
 #define VGA_GFX_BIT_MASK        0x08
-void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
+
+//#define DEBUG_VGA_MEM
+//#define TARGET_FMT_plx "%x"
+void IRAM_ATTR vga_mem_write16(VGAState *s, uint32_t addr, uint16_t val16)
+{
+    if (!(s->sr[VGA_SEQ_MEMORY_MODE] & VGA_SR04_CHN_4M)) {
+        vga_mem_write(s, addr, val16);
+        vga_mem_write(s, addr + 1, val16 >> 8);
+        return;
+    }
+    uint32_t val = val16;
+
+    int memory_map_mode, plane, write_mode, b, func_select, mask;
+    uint32_t write_mask, bit_mask, set_mask;
+
+#ifdef DEBUG_VGA_MEM
+    printf("vga: [0x" TARGET_FMT_plx "] = 0x%02x\n", addr, val);
+#endif
+    /* convert to VGA memory offset */
+    memory_map_mode = (s->gr[VGA_GFX_MISC] >> 2) & 3;
+    addr &= 0x1ffff;
+    switch(memory_map_mode) {
+    case 0:
+        break;
+    case 1:
+        if (addr >= 0x10000)
+            return;
+        addr += s->bank_offset;
+        break;
+    case 2:
+        addr -= 0x10000;
+        if (addr >= 0x8000)
+            return;
+        break;
+    default:
+    case 3:
+        addr -= 0x18000;
+        if (addr >= 0x8000)
+            return;
+        break;
+    }
+
+    /* chain 4 mode : simplest access */
+    plane = addr & 3;
+    mask = (1 << plane);
+    if (s->sr[VGA_SEQ_PLANE_WRITE] & mask) {
+        * (uint16_t *) &(s->vga_ram[addr]) = val;
+    }
+}
+
+void IRAM_ATTR vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
 {
     uint32_t val = val8;
 
@@ -1750,9 +1817,9 @@ VGAState *vga_init(uint8_t *vga_ram, int vga_ram_size,
 {
     VGAState *s;
 
-    s = malloc(sizeof(*s));
+    s = pcmalloc(sizeof(*s));
     memset(s, 0, sizeof(*s));
-    FBDevice *fb_dev = malloc(sizeof(FBDevice));
+    FBDevice *fb_dev = pcmalloc(sizeof(FBDevice));
     s->fb_dev = fb_dev;
     memset(s->fb_dev, 0, sizeof(FBDevice));
     s->graphic_mode = 0;

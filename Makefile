@@ -10,3 +10,6 @@ tiny386: ${SRCS}
 
 tiny386_nosdl: ${SRCS}
 	${CC} -DNOSDL ${CFLAGS} -o $@ ${SRCS} ${LIBS}
+
+wifikbd: wifikbd.c
+	${CC} ${CFLAGS} -o $@ wifikbd.c ${LIBS}

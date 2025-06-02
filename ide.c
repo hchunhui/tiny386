@@ -191,6 +191,12 @@
 
 #define MAX_MULT_SECTORS 2
 
+#ifdef BUILD_ESP32
+void *pcmalloc(long size);
+#else
+#define pcmalloc malloc
+#endif
+
 typedef void BlockDeviceCompletionFunc(void *opaque, int ret);
 
 struct BlockDevice {
@@ -821,7 +827,7 @@ static IDEState *ide_drive_init(IDEIFState *ide_if, BlockDevice *bs)
     uint32_t cylinders;
     uint64_t nb_sectors;
 
-    s = malloc(sizeof(*s));
+    s = pcmalloc(sizeof(*s));
     memset(s, 0, sizeof(*s));
 
     s->ide_if = ide_if;
@@ -959,7 +965,7 @@ static int bf_write_async(BlockDevice *bs,
                 return -1;
             for(i = 0; i < n; i++) {
                 if (!bf->sector_table[sector_num]) {
-                    bf->sector_table[sector_num] = malloc(SECTOR_SIZE);
+                    bf->sector_table[sector_num] = pcmalloc(SECTOR_SIZE);
                 }
                 memcpy(bf->sector_table[sector_num], buf, SECTOR_SIZE);
                 sector_num++;
@@ -1005,8 +1011,8 @@ static BlockDevice *block_device_init(const char *filename,
     fseek(f, 0, SEEK_END);
     file_size = ftello(f) - start_offset;
 
-    bs = malloc(sizeof(*bs));
-    bf = malloc(sizeof(*bf));
+    bs = pcmalloc(sizeof(*bs));
+    bf = pcmalloc(sizeof(*bf));
     memset(bs, 0, sizeof(*bs));
     memset(bf, 0, sizeof(*bf));
 
@@ -1016,8 +1022,8 @@ static BlockDevice *block_device_init(const char *filename,
     bf->start_offset = start_offset;
 
     if (mode == BF_MODE_SNAPSHOT) {
-        bf->sector_table = malloc(sizeof(bf->sector_table[0]) *
-                                  bf->nb_sectors);
+        bf->sector_table = pcmalloc(sizeof(bf->sector_table[0]) *
+                                    bf->nb_sectors);
         memset(bf->sector_table, 0,
                sizeof(bf->sector_table[0]) * bf->nb_sectors);
     }
@@ -1045,7 +1051,7 @@ IDEIFState *ide_allocate(int irq, void *pic, void (*set_irq)(void *pic, int irq,
     int i;
     IDEIFState *s;
     
-    s = malloc(sizeof(IDEIFState));
+    s = pcmalloc(sizeof(IDEIFState));
     memset(s, 0, sizeof(*s));
 
     s->irq = irq;

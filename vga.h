@@ -22,16 +22,24 @@ uint32_t vbe_read(VGAState *s, uint32_t offset);
 
 void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val);
 uint8_t vga_mem_read(VGAState *s, uint32_t addr);
+void vga_mem_write16(VGAState *s, uint32_t addr, uint16_t val);
 
 typedef struct PCIDevice PCIDevice;
 typedef struct PCIBus PCIBus;
 PCIDevice *vga_pci_init(VGAState *s, PCIBus *bus,
                         void *o, void (*set_bar)(void *, int, uint32_t, bool));
 
+#ifdef BUILD_ESP32
+#define BPP 16
+#define SCALE_3_2
+#define FULL_UPDATE
+#define SWAPXY
+#else
 #define BPP 32
 //#define BPP 16
 //#define SCALE_3_2
 //#define FULL_UPDATE
 //#define SWAPXY  // depends on SCALE_3_2
+#endif
 
 #endif /* VGA_H */

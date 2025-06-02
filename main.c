@@ -1,5 +1,9 @@
+#ifdef BUILD_ESP32
+#define NOSDL
+#else
 //#define USEKVM
 //#define NOSDL
+#endif
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -41,10 +45,34 @@ void *bigmalloc(size_t size)
 }
 #else
 typedef CPUI386 CPU;
+#ifdef BUILD_ESP32
+void *psmalloc(long size);
+void *fbmalloc(long size);
+void *bigmalloc(size_t size)
+{
+	return psmalloc(size);
+}
+static char *pcram;
+static long pcram_off;
+static long pcram_len;
+void *pcmalloc(long size)
+{
+	void *ret = pcram + pcram_off;
+
+	size = (size + 4095) / 4096 * 4096;
+	if (pcram_off + size > pcram_len) {
+		printf("pcram error %ld %ld %ld\n", size, pcram_off, pcram_len);
+		abort();
+	}
+	pcram_off += size;
+	return ret;
+}
+#else
 void *bigmalloc(size_t size)
 {
 	return malloc(size);
 }
+#endif
 #endif
 
 typedef struct {
@@ -154,7 +182,11 @@ u8 pc_io_read(void *o, int addr)
 		return 0xff;
 	case 0x228: case 0x229:
 	case 0x388: case 0x389: case 0x38a:
+#ifdef BUILD_ESP32
+		return 0xff;
+#else
 		return adlib_read(pc->adlib, addr);
+#endif
 	case 0xcfc: case 0xcfd: case 0xcfe: case 0xcff:
 		val = i440fx_read_data(pc->i440fx, addr - 0xcfc, 0);
 		return val;
@@ -283,7 +315,9 @@ void pc_io_write(void *o, int addr, u8 val)
 		return;
 	case 0x228: case 0x229:
 	case 0x388: case 0x389: case 0x38a:
+#ifndef BUILD_ESP32
 		adlib_write(pc->adlib, addr, val);
+#endif
 		return;
 	case 0x8900:
 		switch (val) {
@@ -364,6 +398,14 @@ void pc_io_write32(void *o, int addr, u32 val)
 
 
 static void load_bios_and_reset(PC *pc);
+void pc_vga_step(void *o)
+{
+	PC *pc = o;
+	int refresh = vga_step(pc->vga);
+	if (refresh) {
+		vga_refresh(pc->vga, pc->redraw, pc->redraw_data);
+	}
+}
 
 void pc_step(PC *pc)
 {
@@ -373,20 +415,28 @@ void pc_step(PC *pc)
 		load_bios_and_reset(pc);
 	}
 #endif
+#ifndef BUILD_ESP32
 	int refresh = vga_step(pc->vga);
+#endif
 	i8254_update_irq(pc->pit);
 	cmos_update_irq(pc->cmos);
 	if (pc->enable_serial)
 		u8250_update(pc->serial);
 	kbd_step(pc->i8042);
 	pc->poll(pc->redraw_data);
+#ifndef BUILD_ESP32
 	if (refresh) {
 		vga_refresh(pc->vga, pc->redraw, pc->redraw_data);
 	}
+#endif
 #ifdef USEKVM
 	cpukvm_step(pc->cpu, 4096);
 #else
+#ifdef BUILD_ESP32
+	cpui386_step(pc->cpu, 384);
+#else
 	cpui386_step(pc->cpu, 1024);
+#endif
 #endif
 }
 
@@ -461,8 +511,9 @@ static void iomem_write16(void *iomem, uword addr, u16 val)
 			*(uint16_t *)&(pc->vga_mem[addr]) = val;
 		return;
 	}
-	iomem_write8(iomem, addr, val);
-	iomem_write8(iomem, addr + 1, val >> 8);
+	vga_mem_write16(pc->vga, addr - 0xa0000, val);
+//	iomem_write8(iomem, addr, val);
+//	iomem_write8(iomem, addr + 1, val >> 8);
 }
 
 static u32 iomem_read32(void *iomem, uword addr)
@@ -517,6 +568,10 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	PC *pc = malloc(sizeof(PC));
 	char *mem = bigmalloc(conf->mem_size);
 	memset(mem, 0, conf->mem_size);
+#ifdef BUILD_ESP32
+	pcram = mem + 0xa0000;
+	pcram_len = 0xc0000 - 0xa0000;
+#endif
 #ifdef USEKVM
 	pc->cpu = cpukvm_new(mem, conf->mem_size);
 #else
@@ -599,7 +654,9 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->i8042 = i8042_init(&(pc->kbd), &(pc->mouse),
 			       1, 12, pc->pic, set_irq,
 			       pc, pc_reset_request);
+#ifndef BUILD_ESP32
 	pc->adlib = adlib_new();
+#endif
 
 	pc->port92 = 0x2;
 	pc->shutdown_state = 0;
@@ -607,6 +664,39 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	return pc;
 }
 
+#ifdef BUILD_ESP32
+#include "esp_partition.h"
+static int load(PC *pc, const char *file, uword addr)
+{
+	char *xfile;
+	int len;
+	if (strcmp(file, "vmlinux.bin") == 0) {
+		xfile = "vmlinux";
+		len = 2 * 1024 * 1024;
+	} else if (strcmp(file, "linuxstart.bin") == 0) {
+		xfile = "linuxstart";
+		len = 16 * 1024;
+	} else if (strcmp(file, "root.bin") == 0) {
+		xfile = "rootbin";
+		len = 2 * 1024 * 1024;
+	} else if (strcmp(file, "bios.bin") == 0) {
+		xfile = "bios";
+		len = 128 * 1024;
+	} else if (strcmp(file, "vgabios.bin") == 0) {
+		xfile = "vgabios";
+		len = 64 * 1024;
+	} else {
+		assert(false);
+	}
+	const esp_partition_t *part =
+		esp_partition_find_first(ESP_PARTITION_TYPE_ANY,
+					 ESP_PARTITION_SUBTYPE_ANY,
+					 xfile);
+	fprintf(stderr, "%s len %d\n", file, len);
+	esp_partition_read(part, 0, pc->phys_mem + addr, len);
+	return len;
+}
+#else
 static int load(PC *pc, const char *file, uword addr)
 {
 	FILE *fp = fopen(file, "r");
@@ -618,6 +708,7 @@ static int load(PC *pc, const char *file, uword addr)
 	fclose(fp);
 	return len;
 }
+#endif
 
 #ifndef NOSDL
 #include "SDL.h"
@@ -808,20 +899,52 @@ u8 *console_get_fb(Console *console)
 #else
 typedef struct {
 	PC *pc;
+#ifdef BUILD_ESP32
+	u8 *fb1;
+#endif
 	u8 *fb;
 } Console;
 
 Console *console_init(int width, int height)
 {
 	Console *c = malloc(sizeof(Console));
+#ifdef BUILD_ESP32
+	c->fb1 = fbmalloc(480 * 320 / 16 * 2);
+	c->fb = bigmalloc(480 * 320 * 2);
+#else
 	c->fb = bigmalloc(width * height * 4);
+#endif
 	return c;
 }
 
+#ifdef BUILD_ESP32
+extern void *thepanel;
+#include "esp_lcd_axs15231b.h"
+static void redraw(void *opaque,
+		   int x, int y, int w, int h)
+{
+	Console *s = opaque;
+	if (thepanel) {
+		for (int i = 0; i < 16; i++) {
+			uint16_t *src = s->fb;
+			src += 480 * 320 / 16 * i;
+			memcpy(s->fb1, src, 480 * 320 / 16 * 2);
+			ESP_ERROR_CHECK(
+				esp_lcd_panel_draw_bitmap(
+					thepanel,
+					0, 480 / 16 * i,
+					320, 480 / 16 * (i + 1),
+					s->fb1));
+			usleep(1800);
+		}
+	}
+}
+#else
 static void redraw(void *opaque,
 		   int x, int y, int w, int h)
 {
 }
+#endif
 
 static void poll(void *opaque)
 {
@@ -935,6 +1058,48 @@ static int parse_conf_ini(void* user, const char* section,
 	return 1;
 }
 
+#ifdef BUILD_ESP32
+extern void *thepc;
+extern void *thekbd;
+extern void *themouse;
+int main(int argc, char *argv[])
+{
+	struct pcconfig conf;
+	memset(&conf, 0, sizeof(conf));
+	conf.linuxstart = "linuxstart.bin";
+	conf.enable_serial = 0;
+	conf.fill_cmos = 1;
+	conf.disks[0] = argv[1];
+	if (argc >= 3)
+		conf.disks[1] = argv[2];
+	conf.bios = "bios.bin";
+	conf.vga_bios = "vgabios.bin";
+	conf.mem_size = 7 * 1024 * 1024 + 460 * 1024;
+	conf.vga_mem_size = 256 * 1024;
+	conf.width = 480;
+	conf.height = 320;
+	conf.cpu_gen = 4;
+	conf.fpu = 0;
+
+	Console *console = console_init(conf.width, conf.height);
+	u8 *fb = console_get_fb(console);
+	PC *pc = pc_new(redraw, poll, console, fb, &conf);
+	console->pc = pc;
+	console_set_audio(console);
+	thepc = pc;
+	thekbd = pc->kbd;
+	themouse = pc->mouse;
+
+	load_bios_and_reset(pc);
+
+	pc->boot_start_time = get_uticks();
+	for (; pc->shutdown_state != 8;) {
+		long last = pc->cpu->cycle;
+		pc_step(pc);
+	}
+	return 0;
+}
+#else
 int main(int argc, char *argv[])
 {
 	struct pcconfig conf;
@@ -973,11 +1138,13 @@ int main(int argc, char *argv[])
 		pc_step(pc);
 #ifndef USEKVM
 		k += pc->cpu->cycle - last;
-		if (k >= 1024) {
-//			usleep(4);
+		if (k >= 4096) {
+			usleep(0);
+//			usleep(4000);
 			k = 0;
 		}
 #endif
 	}
 	return 0;
 }
+#endif

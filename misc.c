@@ -10,6 +10,10 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <signal.h>
+#ifdef BUILD_ESP32
+#include "driver/uart.h"
+#endif
+
 static void CtrlC()
 {
 	exit( 0 );
@@ -28,8 +32,10 @@ static void ResetKeyboardInput()
 void CaptureKeyboardInput()
 {
 	// Hook exit, because we want to re-enable keyboard.
+#ifndef BUILD_ESP32
 	atexit(ResetKeyboardInput);
 	signal(SIGINT, CtrlC);
+#endif
 
 	struct termios term;
 	tcgetattr(0, &term);
@@ -39,19 +45,36 @@ void CaptureKeyboardInput()
 
 static int ReadKBByte()
 {
+#ifdef BUILD_ESP32
+	char data;
+	if (uart_read_bytes(0, &data, 1, 20 / portTICK_PERIOD_MS) > 0) {
+		return data;
+	}
+	return -1;
+#else
 	char rxchar = 0;
 	int rread = read(fileno(stdin), (char*)&rxchar, 1);
 	if( rread > 0 ) // Tricky: getchar can't be used with arrow keys.
 		return rxchar;
 	else
 		abort();
+#endif
 }
 
 static int IsKBHit()
 {
+#ifdef BUILD_ESP32
+        size_t len;
+	if (uart_get_buffered_data_len(0, &len) == ESP_OK) {
+		if (len)
+			return 1;
+	}
+	return 0;
+#else
 	int byteswaiting;
 	ioctl(0, FIONREAD, &byteswaiting);
 	return !!byteswaiting;
+#endif
 }
 
 /* sysprog21/semu */

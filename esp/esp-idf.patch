@@ -1,0 +1,30 @@
+diff --git a/components/esp_psram/esp_psram.c b/components/esp_psram/esp_psram.c
+index daaa2d55e0..3e980e7278 100644
+--- a/components/esp_psram/esp_psram.c
++++ b/components/esp_psram/esp_psram.c
+@@ -299,6 +299,12 @@ esp_err_t esp_psram_init(void)
+     return ESP_OK;
+ }
+ 
++void *esp_psram_get(size_t *size)
++{
++    *size = s_psram_ctx.regions_to_heap[PSRAM_MEM_8BIT_ALIGNED].size;
++    return (void *) s_psram_ctx.regions_to_heap[PSRAM_MEM_8BIT_ALIGNED].vaddr_start;
++}
++
+ esp_err_t esp_psram_extram_add_to_heap_allocator(void)
+ {
+     esp_err_t ret = ESP_FAIL;
+diff --git a/components/fatfs/src/ffconf.h b/components/fatfs/src/ffconf.h
+index 7e25dd08f0..a735bd6f94 100644
+--- a/components/fatfs/src/ffconf.h
++++ b/components/fatfs/src/ffconf.h
+@@ -251,7 +251,7 @@
+ /  buffer in the filesystem object (FATFS) is used for the file data transfer. */
+ 
+ 
+-#define FF_FS_EXFAT		0
++#define FF_FS_EXFAT		1
+ /* This option switches support for exFAT filesystem. (0:Disable or 1:Enable)
+ /  To enable exFAT, also LFN needs to be enabled. (FF_USE_LFN >= 1)
+ /  Note that enabling exFAT discards ANSI C (C89) compatibility. */
