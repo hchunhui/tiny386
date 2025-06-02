@@ -824,7 +824,7 @@ static bool read_desc(CPUI386 *cpu, int sel, uword *w1, uword *w2)
 		limit = cpu->gdt.limit;
 	}
 
-	if (off > limit) {
+	if (off + 7 > limit) {
 		cpu->excno = EX_GP;
 		cpu->excerr = sel & ~0x3;
 		fprintf(stderr, "read_desc: sel %04x base %x limit %x off %x\n", sel, base, limit, off);
@@ -3267,7 +3267,7 @@ static bool larsl_helper(CPUI386 *cpu, int sel, uword *ar, uword *sl, int *zf)
 	} else {
 		limit = cpu->gdt.limit;
 	}
-	if (off > limit) {
+	if (off + 7 > limit) {
 		*zf = 0;
 		return true;
 	}
@@ -3307,7 +3307,7 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 	} else {
 		limit = cpu->gdt.limit;
 	}
-	if (off > limit) {
+	if (off + 7 > limit) {
 		*zf = 0;
 		return true;
 	}
@@ -4052,7 +4052,7 @@ static int __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
 		base = cpu->gdt.base;
 		limit = cpu->gdt.limit;
 	}
-	if ((sel & ~0x3) == 0 || off > limit) {
+	if ((sel & ~0x3) == 0 || off + 7 > limit) {
 		cpu->excno = EX_GP;
 		cpu->excerr = ext;
 		return 0;
