@@ -534,8 +534,9 @@ static void iomem_write32(void *iomem, uword addr, u32 val)
 			*(uint32_t *)&(pc->vga_mem[addr]) = val;
 		return;
 	}
-	iomem_write16(iomem, addr, val);
-	iomem_write16(iomem, addr + 2, val >> 16);
+	vga_mem_write32(pc->vga, addr - 0xa0000, val);
+//	iomem_write16(iomem, addr, val);
+//	iomem_write16(iomem, addr + 2, val >> 16);
 }
 
 static void pc_reset_request(void *p)

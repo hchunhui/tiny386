@@ -23,6 +23,7 @@ uint32_t vbe_read(VGAState *s, uint32_t offset);
 void vga_mem_write(VGAState *s, uint32_t addr, uint8_t val);
 uint8_t vga_mem_read(VGAState *s, uint32_t addr);
 void vga_mem_write16(VGAState *s, uint32_t addr, uint16_t val);
+void vga_mem_write32(VGAState *s, uint32_t addr, uint32_t val);
 
 typedef struct PCIDevice PCIDevice;
 typedef struct PCIBus PCIBus;

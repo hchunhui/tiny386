@@ -30,6 +30,8 @@ typedef struct {
 	uword flags;
 	uword flags_mask;
 	int cpl;
+	bool code16;
+	uword sp_mask;
 	bool halt;
 
 	struct {

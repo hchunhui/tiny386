@@ -9,6 +9,7 @@
 #include "esp_attr.h"
 #else
 #define IRAM_ATTR
+#define DRAM_ATTR
 #endif
 #define I386_OPT
 
@@ -905,8 +906,13 @@ static bool IRAM_ATTR set_seg(CPUI386 *cpu, int seg, int sel)
 		cpu->seg[seg].base = sel << 4;
 		cpu->seg[seg].limit = 0xffff;
 		cpu->seg[seg].flags = 0; // D_BIT is not set
-		if (seg == SEG_CS)
+		if (seg == SEG_CS) {
 			cpu->cpl = cpu->flags & VM ? 3 : 0;
+			cpu->code16 = true;
+		}
+		if (seg = SEG_SS) {
+			cpu->sp_mask = 0xffff;
+		}
 		return true;
 	}
 
@@ -932,12 +938,15 @@ static bool IRAM_ATTR set_seg(CPUI386 *cpu, int seg, int sel)
 //		if ((sel & 3) != cpu->cpl)
 //			fprintf(stderr, "set_seg: PVL %d => %d\n", cpu->cpl, sel & 3);
 		cpu->cpl = sel & 3;
+		cpu->code16 = !(cpu->seg[SEG_CS].flags & SEG_D_BIT);
 	}
-
+	if (seg = SEG_SS) {
+		cpu->sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
+	}
 	return true;
 }
 
-static void IRAM_ATTR clear_segs(CPUI386 *cpu)
+static inline void clear_segs(CPUI386 *cpu)
 {
 	int segs[] = { SEG_DS, SEG_ES, SEG_FS, SEG_GS };
 	for (int i = 0; i < 4; i++) {
@@ -3577,6 +3586,7 @@ static bool verbose;
 
 static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
 {
+#ifndef I386_OPT
 #define eswitch(b) switch(b)
 #define ecase(a)   case a
 #define ebreak     break
@@ -3584,30 +3594,41 @@ static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
 #define default_ud cpu_debug(cpu); cpu->excno = EX_UD; return false
 #undef CX
 #define CX(_1) case _1:
+#else
+#define eswitch(b)
+#define ecase(a)   f ## a
+#define ebreak     continue
+#define edefault   f0xf1
+#define default_ud cpu_debug(cpu); cpu->excno = EX_UD; return false
+#undef CX
+#define CX(_1) f ## _1:
+#endif
 
 	u8 b1;
 	u8 modrm;
 	OptAddr meml;
 	uword addr;
 	for (; stepcount > 0; stepcount--) {
-	bool code16 = !(cpu->seg[SEG_CS].flags & SEG_D_BIT);
-	uword sp_mask =  cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
+	bool code16 = cpu->code16;
+	uword sp_mask = cpu->sp_mask;
 
 	if (code16) cpu->next_ip &= 0xffff;
 	cpu->ip = cpu->next_ip;
 	TRY(fetch8(cpu, &b1));
 	cpu->cycle++;
 
+#ifndef I386_OPT
 	if (verbose) {
 		cpu_debug(cpu);
 	}
-
+#endif
 	// prefix
 	bool opsz16 = code16;
 	bool adsz16 = code16;
 	int rep = 0;
 	bool lock = false;
 	int curr_seg = -1;
+#ifndef I386_OPT
 	for (;;) {
 #define HANDLE_PREFIX(C, STMT) \
 		if (b1 == C) { \
@@ -3629,7 +3650,61 @@ static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
 #undef HANDLE_PREFIX
 		break;
 	}
-
+#else
+	static const DRAM_ATTR void *pfxlabel[] = {
+/* 0x00 */	&&f0x00, &&f0x01, &&f0x02, &&f0x03, &&f0x04, &&f0x05, &&f0x06, &&f0x07,
+/* 0x08 */	&&f0x08, &&f0x09, &&f0x0a, &&f0x0b, &&f0x0c, &&f0x0d, &&f0x0e, &&f0x0f,
+/* 0x10 */	&&f0x10, &&f0x11, &&f0x12, &&f0x13, &&f0x14, &&f0x15, &&f0x16, &&f0x17,
+/* 0x18 */	&&f0x18, &&f0x19, &&f0x1a, &&f0x1b, &&f0x1c, &&f0x1d, &&f0x1e, &&f0x1f,
+/* 0x20 */	&&f0x20, &&f0x21, &&f0x22, &&f0x23, &&f0x24, &&f0x25, &&pfx26, &&f0x27,
+/* 0x28 */	&&f0x28, &&f0x29, &&f0x2a, &&f0x2b, &&f0x2c, &&f0x2d, &&pfx2e, &&f0x2f,
+/* 0x30 */	&&f0x30, &&f0x31, &&f0x32, &&f0x33, &&f0x34, &&f0x35, &&pfx36, &&f0x37,
+/* 0x38 */	&&f0x38, &&f0x39, &&f0x3a, &&f0x3b, &&f0x3c, &&f0x3d, &&pfx3e, &&f0x3f,
+/* 0x40 */	&&f0x40, &&f0x41, &&f0x42, &&f0x43, &&f0x44, &&f0x45, &&f0x46, &&f0x47,
+/* 0x48 */	&&f0x48, &&f0x49, &&f0x4a, &&f0x4b, &&f0x4c, &&f0x4d, &&f0x4e, &&f0x4f,
+/* 0x50 */	&&f0x50, &&f0x51, &&f0x52, &&f0x53, &&f0x54, &&f0x55, &&f0x56, &&f0x57,
+/* 0x58 */	&&f0x58, &&f0x59, &&f0x5a, &&f0x5b, &&f0x5c, &&f0x5d, &&f0x5e, &&f0x5f,
+/* 0x60 */	&&f0x60, &&f0x61, &&f0x62, &&f0x63, &&pfx64, &&pfx65, &&pfx66, &&pfx67,
+/* 0x68 */	&&f0x68, &&f0x69, &&f0x6a, &&f0x6b, &&f0x6c, &&f0x6d, &&f0x6e, &&f0x6f,
+/* 0x70 */	&&f0x70, &&f0x71, &&f0x72, &&f0x73, &&f0x74, &&f0x75, &&f0x76, &&f0x77,
+/* 0x78 */	&&f0x78, &&f0x79, &&f0x7a, &&f0x7b, &&f0x7c, &&f0x7d, &&f0x7e, &&f0x7f,
+/* 0x80 */	&&f0x80, &&f0x81, &&f0x82, &&f0x83, &&f0x84, &&f0x85, &&f0x86, &&f0x87,
+/* 0x88 */	&&f0x88, &&f0x89, &&f0x8a, &&f0x8b, &&f0x8c, &&f0x8d, &&f0x8e, &&f0x8f,
+/* 0x90 */	&&f0x90, &&f0x91, &&f0x92, &&f0x93, &&f0x94, &&f0x95, &&f0x96, &&f0x97,
+/* 0x98 */	&&f0x98, &&f0x99, &&f0x9a, &&f0x9b, &&f0x9c, &&f0x9d, &&f0x9e, &&f0x9f,
+/* 0xa0 */	&&f0xa0, &&f0xa1, &&f0xa2, &&f0xa3, &&f0xa4, &&f0xa5, &&f0xa6, &&f0xa7,
+/* 0xa8 */	&&f0xa8, &&f0xa9, &&f0xaa, &&f0xab, &&f0xac, &&f0xad, &&f0xae, &&f0xaf,
+/* 0xb0 */	&&f0xb0, &&f0xb1, &&f0xb2, &&f0xb3, &&f0xb4, &&f0xb5, &&f0xb6, &&f0xb7,
+/* 0xb8 */	&&f0xb8, &&f0xb9, &&f0xba, &&f0xbb, &&f0xbc, &&f0xbd, &&f0xbe, &&f0xbf,
+/* 0xc0 */	&&f0xc0, &&f0xc1, &&f0xc2, &&f0xc3, &&f0xc4, &&f0xc5, &&f0xc6, &&f0xc7,
+/* 0xc8 */	&&f0xc8, &&f0xc9, &&f0xca, &&f0xcb, &&f0xcc, &&f0xcd, &&f0xce, &&f0xcf,
+/* 0xd0 */	&&f0xd0, &&f0xd1, &&f0xd2, &&f0xd3, &&f0xd4, &&f0xd5, &&f0xd6, &&f0xd7,
+/* 0xd8 */	&&f0xd8, &&f0xd9, &&f0xda, &&f0xdb, &&f0xdc, &&f0xdd, &&f0xde, &&f0xdf,
+/* 0xe0 */	&&f0xe0, &&f0xe1, &&f0xe2, &&f0xe3, &&f0xe4, &&f0xe5, &&f0xe6, &&f0xe7,
+/* 0xe8 */	&&f0xe8, &&f0xe9, &&f0xea, &&f0xeb, &&f0xec, &&f0xed, &&f0xee, &&f0xef,
+/* 0xf0 */	&&pfxf0, &&f0xf1, &&pfxf2, &&pfxf3, &&f0xf4, &&f0xf5, &&f0xf6, &&f0xf7,
+/* 0xf8 */	&&f0xf8, &&f0xf9, &&f0xfa, &&f0xfb, &&f0xfc, &&f0xfd, &&f0xfe, &&f0xff,
+	};
+	goto *pfxlabel[b1];
+#define HANDLE_PREFIX(C, STMT) \
+		pfx ## C: { \
+			STMT; \
+			TRY(fetch8(cpu, &b1)); \
+			goto *pfxlabel[b1]; \
+		}
+		HANDLE_PREFIX(26, curr_seg = SEG_ES)
+		HANDLE_PREFIX(2e, curr_seg = SEG_CS)
+		HANDLE_PREFIX(36, curr_seg = SEG_SS)
+		HANDLE_PREFIX(3e, curr_seg = SEG_DS)
+		HANDLE_PREFIX(64, curr_seg = SEG_FS)
+		HANDLE_PREFIX(65, curr_seg = SEG_GS)
+		HANDLE_PREFIX(66, opsz16 = !code16)
+		HANDLE_PREFIX(67, adsz16 = !code16)
+		HANDLE_PREFIX(f3, rep = 1) // REP
+		HANDLE_PREFIX(f2, rep = 2) // REPNE
+		HANDLE_PREFIX(f0, lock = true)
+#undef HANDLE_PREFIX
+#endif
 	eswitch(b1) {
 #undef I
 #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
@@ -4745,6 +4820,8 @@ void cpui386_reset(CPUI386 *cpu)
 	}
 	cpu->flags = 0x2;
 	cpu->cpl = 0;
+	cpu->code16 = true;
+	cpu->sp_mask = 0xffff;
 	cpu->halt = false;
 
 	for (int i = 0; i < 8; i++) {
@@ -4786,6 +4863,8 @@ void cpui386_reset_pm(CPUI386 *cpu, uint32_t start_addr)
 	cpu->seg[SEG_CS].flags = SEG_D_BIT;
 	cpu->next_ip = start_addr;
 	cpu->cpl = 0;
+	cpu->code16 = false;
+	cpu->sp_mask = 0xffffffff;
 	cpu->seg[SEG_SS].sel = 0x10;
 	cpu->seg[SEG_SS].base = 0;
 	cpu->seg[SEG_SS].limit = 0xffffffff;

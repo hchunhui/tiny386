@@ -1258,7 +1258,7 @@ uint32_t vga_ioport_read(VGAState *s, uint32_t addr)
     return val;
 }
 
-void IRAM_ATTR vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val)
+void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val)
 {
     int index;
 
@@ -1601,6 +1601,54 @@ void IRAM_ATTR vga_mem_write16(VGAState *s, uint32_t addr, uint16_t val16)
     mask = (1 << plane);
     if (s->sr[VGA_SEQ_PLANE_WRITE] & mask) {
         * (uint16_t *) &(s->vga_ram[addr]) = val;
+    }
+}
+
+void IRAM_ATTR vga_mem_write32(VGAState *s, uint32_t addr, uint32_t val)
+{
+    if (!(s->sr[VGA_SEQ_MEMORY_MODE] & VGA_SR04_CHN_4M)) {
+        vga_mem_write(s, addr, val);
+        vga_mem_write(s, addr + 1, val >> 8);
+        vga_mem_write(s, addr + 2, val >> 16);
+        vga_mem_write(s, addr + 3, val >> 24);
+        return;
+    }
+
+    int memory_map_mode, plane, write_mode, b, func_select, mask;
+    uint32_t write_mask, bit_mask, set_mask;
+
+#ifdef DEBUG_VGA_MEM
+    printf("vga: [0x" TARGET_FMT_plx "] = 0x%02x\n", addr, val);
+#endif
+    /* convert to VGA memory offset */
+    memory_map_mode = (s->gr[VGA_GFX_MISC] >> 2) & 3;
+    addr &= 0x1ffff;
+    switch(memory_map_mode) {
+    case 0:
+        break;
+    case 1:
+        if (addr >= 0x10000)
+            return;
+        addr += s->bank_offset;
+        break;
+    case 2:
+        addr -= 0x10000;
+        if (addr >= 0x8000)
+            return;
+        break;
+    default:
+    case 3:
+        addr -= 0x18000;
+        if (addr >= 0x8000)
+            return;
+        break;
+    }
+
+    /* chain 4 mode : simplest access */
+    plane = addr & 3;
+    mask = (1 << plane);
+    if (s->sr[VGA_SEQ_PLANE_WRITE] & mask) {
+        * (uint32_t *) &(s->vga_ram[addr]) = val;
     }
 }
 
