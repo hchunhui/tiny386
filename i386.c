@@ -13,8 +13,11 @@
 #endif
 #define I386_OPT
 
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
 #define wordmask ((uword) ((sword) -1))
 #define TRY(f) if(!(f)) { return false; }
+#define TRYL(f) if(unlikely(!(f))) { return false; }
 #define TRY1(f) if(!(f)) { fprintf(stderr, "@ %s %s %d\n", __FILE__, __FUNCTION__, __LINE__); cpu_abort(cpu, -1); }
 
 enum {
@@ -414,7 +417,7 @@ typedef struct {
 	uword addr2;
 } OptAddr;
 
-static void IRAM_ATTR tlb_clear(CPUI386 *cpu)
+static void tlb_clear(CPUI386 *cpu)
 {
 	for (int i = 0; i < tlb_size; i++) {
 		cpu->tlb.tab[i].lpgno = -1;
@@ -539,7 +542,7 @@ static bool IRAM_ATTR translate(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uw
 	assert(seg != -1);
 	uword laddr = cpu->seg[seg].base + addr;
 
-	TRY(segcheck(cpu, rwm, seg, addr, size));
+	TRYL(segcheck(cpu, rwm, seg, addr, size));
 
 	return translate_laddr(cpu, res, rwm, laddr, size, cpl);
 }
@@ -549,7 +552,7 @@ static bool IRAM_ATTR translate8r(CPUI386 *cpu, OptAddr *res, int seg, uword add
 	assert(seg != -1);
 	uword laddr = cpu->seg[seg].base + addr;
 
-	TRY(segcheck(cpu, 1, seg, addr, 1));
+	TRYL(segcheck(cpu, 1, seg, addr, 1));
 
 	if (cpu->cr0 & CR0_PG) {
 		uword lpgno = laddr >> 12;
@@ -608,7 +611,7 @@ static u8 IRAM_ATTR load8(CPUI386 *cpu, OptAddr *res)
 	uword addr = res->addr1;
 	if (in_iomem(addr) && cpu->iomem_read8)
 		return cpu->iomem_read8(cpu->iomem, addr);
-	if (addr >= cpu->phys_mem_size) {
+	if (unlikely(addr >= cpu->phys_mem_size)) {
 		return 0;
 	}
 	return pload8(cpu, addr);
@@ -618,11 +621,11 @@ static u16 IRAM_ATTR load16(CPUI386 *cpu, OptAddr *res)
 {
 	if (in_iomem(res->addr1) && cpu->iomem_read16)
 		return cpu->iomem_read16(cpu->iomem, res->addr1);
-	if (res->addr1 >= cpu->phys_mem_size) {
+	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
 		return 0;
 	}
 	u8 *mem = (u8 *) cpu->phys_mem;
-	if (res->res == ADDR_OK1)
+	if (likely(res->res == ADDR_OK1))
 		return pload16(cpu, res->addr1);
 	else
 		return pload8(cpu, res->addr1) | (pload8(cpu, res->addr2) << 8);
@@ -632,10 +635,10 @@ static u32 IRAM_ATTR load32(CPUI386 *cpu, OptAddr *res)
 {
 	if (in_iomem(res->addr1) && cpu->iomem_read32)
 		return cpu->iomem_read32(cpu->iomem, res->addr1);
-	if (res->addr1 >= cpu->phys_mem_size) {
+	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
 		return 0;
 	}
-	if (res->res == ADDR_OK1) {
+	if (likely(res->res == ADDR_OK1)) {
 		return pload32(cpu, res->addr1);
 	} else {
 		switch(res->addr1 & 0xf) {
@@ -659,7 +662,7 @@ static void IRAM_ATTR store8(CPUI386 *cpu, OptAddr *res, u8 val)
 		cpu->iomem_write8(cpu->iomem, addr, val);
 		return;
 	}
-	if (addr >= cpu->phys_mem_size) {
+	if (unlikely(addr >= cpu->phys_mem_size)) {
 		return;
 	}
 	pstore8(cpu, addr, val);
@@ -671,10 +674,10 @@ static void IRAM_ATTR store16(CPUI386 *cpu, OptAddr *res, u16 val)
 		cpu->iomem_write16(cpu->iomem, res->addr1, val);
 		return;
 	}
-	if (res->addr1 >= cpu->phys_mem_size) {
+	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
 		return;
 	}
-	if (res->res == ADDR_OK1) {
+	if (likely(res->res == ADDR_OK1)) {
 		pstore16(cpu, res->addr1, val);
 	} else {
 		pstore8(cpu, res->addr1, val);
@@ -688,10 +691,10 @@ static void IRAM_ATTR store32(CPUI386 *cpu, OptAddr *res, u32 val)
 		cpu->iomem_write32(cpu->iomem, res->addr1, val);
 		return;
 	}
-	if (res->addr1 >= cpu->phys_mem_size) {
+	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
 		return;
 	}
-	if (res->res == ADDR_OK1) {
+	if (likely(res->res == ADDR_OK1)) {
 		pstore32(cpu, res->addr1, val);
 	} else {
 		switch(res->addr1 & 0xf) {
@@ -739,7 +742,7 @@ static bool IRAM_ATTR peek8(CPUI386 *cpu, u8 *val)
 	uword laddr = cpu->seg[SEG_CS].base + cpu->next_ip;
 	uword lpgno = laddr >> 12;
 	uword lpgoff = laddr & 4095;
-	if (lpgno == cpu->ifetch.lpgno) {
+	if (likely(lpgno == cpu->ifetch.lpgno)) {
 		*val = pload8(cpu, cpu->ifetch.paddr | lpgoff);
 		return true;
 	}
@@ -760,9 +763,16 @@ static bool IRAM_ATTR fetch8(CPUI386 *cpu, u8 *val)
 
 static bool IRAM_ATTR fetch16(CPUI386 *cpu, u16 *val)
 {
-	OptAddr res;
-	TRY(translate16(cpu, &res, 1, SEG_CS, cpu->next_ip));
-	*val = load16(cpu, &res);
+	uword laddr = cpu->seg[SEG_CS].base + cpu->next_ip;
+	uword lpgno = laddr >> 12;
+	uword lpgoff = laddr & 4095;
+	if (likely(lpgoff <= 4094 && lpgno == cpu->ifetch.lpgno)) {
+		*val = pload16(cpu, cpu->ifetch.paddr | lpgoff);
+	} else {
+		OptAddr res;
+		TRY(translate16(cpu, &res, 1, SEG_CS, cpu->next_ip));
+		*val = load16(cpu, &res);
+	}
 	cpu->next_ip += 2;
 	return true;
 }
@@ -772,7 +782,7 @@ static bool IRAM_ATTR fetch32(CPUI386 *cpu, u32 *val)
 	uword laddr = cpu->seg[SEG_CS].base + cpu->next_ip;
 	uword lpgno = laddr >> 12;
 	uword lpgoff = laddr & 4095;
-	if (lpgoff <= 4092 && lpgno == cpu->ifetch.lpgno) {
+	if (likely(lpgoff <= 4092 && lpgno == cpu->ifetch.lpgno)) {
 		*val = pload32(cpu, cpu->ifetch.paddr | lpgoff);
 	} else {
 		OptAddr res;
@@ -784,7 +794,7 @@ static bool IRAM_ATTR fetch32(CPUI386 *cpu, u32 *val)
 }
 
 /* insts decode && execute */
-static bool IRAM_ATTR modsib32(CPUI386 *cpu, int mod, int rm, uword *addr, int *seg)
+static inline bool modsib32(CPUI386 *cpu, int mod, int rm, uword *addr, int *seg)
 {
 	if (rm == 4) {
 		u8 sib;
@@ -823,7 +833,7 @@ static bool IRAM_ATTR modsib32(CPUI386 *cpu, int mod, int rm, uword *addr, int *
 	return true;
 }
 
-static bool IRAM_ATTR modsib16(CPUI386 *cpu, int mod, int rm, uword *addr, int *seg)
+static inline bool modsib16(CPUI386 *cpu, int mod, int rm, uword *addr, int *seg)
 {
 	if (rm == 6 && mod == 0) {
 		u16 imm16;
@@ -868,7 +878,7 @@ static bool IRAM_ATTR modsib(CPUI386 *cpu, int adsz16, int mod, int rm, uword *a
 	else return modsib32(cpu, mod, rm, addr, seg);
 }
 
-static bool IRAM_ATTR read_desc(CPUI386 *cpu, int sel, uword *w1, uword *w2)
+static bool read_desc(CPUI386 *cpu, int sel, uword *w1, uword *w2)
 {
 	OptAddr meml;
 	sel = sel & 0xffff;
@@ -898,7 +908,7 @@ static bool IRAM_ATTR read_desc(CPUI386 *cpu, int sel, uword *w1, uword *w2)
 	return true;
 }
 
-static bool IRAM_ATTR set_seg(CPUI386 *cpu, int seg, int sel)
+static bool set_seg(CPUI386 *cpu, int seg, int sel)
 {
 	sel = sel & 0xffff;
 	if (!(cpu->cr0 & 1) || (cpu->flags & VM)) {
@@ -3599,7 +3609,7 @@ static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
 #define ecase(a)   f ## a
 #define ebreak     continue
 #define edefault   f0xf1
-#define default_ud cpu_debug(cpu); cpu->excno = EX_UD; return false
+#define default_ud cpu->excno = EX_UD; return false
 #undef CX
 #define CX(_1) f ## _1:
 #endif
@@ -4180,7 +4190,7 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 // 1: intra PVL
 // 2: inter PVL
 // 3: from v8086
-static int IRAM_ATTR __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
+static int __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
 {
 	sel = sel & 0xffff;
 	OptAddr meml;
@@ -4542,7 +4552,7 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	return true;
 }
 
-static bool IRAM_ATTR __pmiret_check_cs_same(CPUI386 *cpu, int sel)
+static bool __pmiret_check_cs_same(CPUI386 *cpu, int sel)
 {
 	sel = sel & 0xffff;
 	if ((sel & ~0x3) == 0) {
@@ -4589,7 +4599,7 @@ static bool IRAM_ATTR __pmiret_check_cs_same(CPUI386 *cpu, int sel)
 	return true;
 }
 
-static bool IRAM_ATTR __pmiret_check_cs_outer(CPUI386 *cpu, int sel)
+static bool __pmiret_check_cs_outer(CPUI386 *cpu, int sel)
 {
 	sel = sel & 0xffff;
 	if ((sel & ~0x3) == 0) {

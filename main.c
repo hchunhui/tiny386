@@ -25,14 +25,22 @@
 
 #include "ini.h"
 
+#ifdef BUILD_ESP32
+#include "esp_private/system_internal.h"
+static uint32_t get_uticks()
+{
+	return esp_system_get_time();
+}
+#else
 #include <time.h>
 static uint32_t get_uticks()
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ((uint32_t) ts.tv_sec * 1000000 +
-	    (uint32_t) ts.tv_nsec / 1000);
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ((uint32_t) ts.tv_sec * 1000000 +
+		(uint32_t) ts.tv_nsec / 1000);
 }
+#endif
 
 #ifdef USEKVM
 #include "kvm.h"
