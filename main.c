@@ -67,7 +67,7 @@ void *pcmalloc(long size)
 {
 	void *ret = pcram + pcram_off;
 
-	size = (size + 4095) / 4096 * 4096;
+	size = (size + 31) / 32 * 32;
 	if (pcram_off + size > pcram_len) {
 		printf("pcram error %ld %ld %ld\n", size, pcram_off, pcram_len);
 		abort();
@@ -190,11 +190,7 @@ u8 pc_io_read(void *o, int addr)
 		return 0xff;
 	case 0x228: case 0x229:
 	case 0x388: case 0x389: case 0x38a:
-#ifdef BUILD_ESP32
-		return 0xff;
-#else
 		return adlib_read(pc->adlib, addr);
-#endif
 	case 0xcfc: case 0xcfd: case 0xcfe: case 0xcff:
 		val = i440fx_read_data(pc->i440fx, addr - 0xcfc, 0);
 		return val;
@@ -323,9 +319,7 @@ void pc_io_write(void *o, int addr, u8 val)
 		return;
 	case 0x228: case 0x229:
 	case 0x388: case 0x389: case 0x38a:
-#ifndef BUILD_ESP32
 		adlib_write(pc->adlib, addr, val);
-#endif
 		return;
 	case 0x8900:
 		switch (val) {
@@ -663,9 +657,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->i8042 = i8042_init(&(pc->kbd), &(pc->mouse),
 			       1, 12, pc->pic, set_irq,
 			       pc, pc_reset_request);
-#ifndef BUILD_ESP32
 	pc->adlib = adlib_new();
-#endif
 
 	pc->port92 = 0x2;
 	pc->shutdown_state = 0;
@@ -914,11 +906,12 @@ typedef struct {
 	u8 *fb;
 } Console;
 
+#define NN 32
 Console *console_init(int width, int height)
 {
 	Console *c = malloc(sizeof(Console));
 #ifdef BUILD_ESP32
-	c->fb1 = fbmalloc(480 * 320 / 16 * 2);
+	c->fb1 = fbmalloc(480 * 320 / NN * 2);
 	c->fb = bigmalloc(480 * 320 * 2);
 #else
 	c->fb = bigmalloc(width * height * 4);
@@ -934,15 +927,15 @@ static void redraw(void *opaque,
 {
 	Console *s = opaque;
 	if (thepanel) {
-		for (int i = 0; i < 16; i++) {
+		for (int i = 0; i < NN; i++) {
 			uint16_t *src = s->fb;
-			src += 480 * 320 / 16 * i;
-			memcpy(s->fb1, src, 480 * 320 / 16 * 2);
+			src += 480 * 320 / NN * i;
+			memcpy(s->fb1, src, 480 * 320 / NN * 2);
 			ESP_ERROR_CHECK(
 				esp_lcd_panel_draw_bitmap(
 					thepanel,
-					0, 480 / 16 * i,
-					320, 480 / 16 * (i + 1),
+					0, 480 / NN * i,
+					320, 480 / NN * (i + 1),
 					s->fb1));
 			usleep(1800);
 		}
@@ -1071,6 +1064,7 @@ static int parse_conf_ini(void* user, const char* section,
 extern void *thepc;
 extern void *thekbd;
 extern void *themouse;
+extern void *theadlib;
 int main(int argc, char *argv[])
 {
 	struct pcconfig conf;
@@ -1083,7 +1077,7 @@ int main(int argc, char *argv[])
 		conf.disks[1] = argv[2];
 	conf.bios = "bios.bin";
 	conf.vga_bios = "vgabios.bin";
-	conf.mem_size = 7 * 1024 * 1024 + 460 * 1024;
+	conf.mem_size = 7 * 1024 * 1024 + 460 * 1024 - 28 * 1024;
 	conf.vga_mem_size = 256 * 1024;
 	conf.width = 480;
 	conf.height = 320;
@@ -1098,6 +1092,7 @@ int main(int argc, char *argv[])
 	thepc = pc;
 	thekbd = pc->kbd;
 	themouse = pc->mouse;
+	theadlib = pc->adlib;
 
 	load_bios_and_reset(pc);
 

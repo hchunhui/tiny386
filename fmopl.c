@@ -41,8 +41,17 @@
 #define PI 3.14159265358979323846
 #endif
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-#define g_new(t, n) malloc(sizeof(t) * (n))
-#define g_free(p) free(p)
+#define g_new(t, n) psmalloc(sizeof(t) * (n))
+#define g_free(p) /*free(p)*/
+
+// TODO: free...
+#ifdef BUILD_ESP32
+void *pcmalloc(long size);
+void *psmalloc(long size);
+#else
+#define pcmalloc malloc
+#define psmalloc malloc
+#endif
 
 /* -------------------- for debug --------------------- */
 /* #define OPL_OUTPUT_LOG */
@@ -490,7 +499,7 @@ static inline void OPL_CALC_CH( OPL_CH *CH )
 }
 
 /* ---------- calcrate rhythm block ---------- */
-#define WHITE_NOISE_db 6.0
+#define WHITE_NOISE_db 0.5
 static inline void OPL_CALC_RH( OPL_CH *CH )
 {
 	uint32_t env_tam,env_sd,env_top,env_hh;
@@ -613,20 +622,20 @@ static int OPLOpenTable( void )
 	double pom;
 
 	/* allocate dynamic tables */
-	if( (TL_TABLE = malloc(TL_MAX*2*sizeof(int32_t))) == NULL)
+	if( (TL_TABLE = pcmalloc(TL_MAX*2*sizeof(int32_t))) == NULL)
 		return 0;
-	if( (SIN_TABLE = malloc(SIN_ENT*4 *sizeof(int32_t *))) == NULL)
+	if( (SIN_TABLE = pcmalloc(SIN_ENT*4 *sizeof(int32_t *))) == NULL)
 	{
 		free(TL_TABLE);
 		return 0;
 	}
-	if( (AMS_TABLE = malloc(AMS_ENT*2 *sizeof(int32_t))) == NULL)
+	if( (AMS_TABLE = pcmalloc(AMS_ENT*2 *sizeof(int32_t))) == NULL)
 	{
 		free(TL_TABLE);
 		free(SIN_TABLE);
 		return 0;
 	}
-	if( (VIB_TABLE = malloc(VIB_ENT*2 *sizeof(int32_t))) == NULL)
+	if( (VIB_TABLE = pcmalloc(VIB_ENT*2 *sizeof(int32_t))) == NULL)
 	{
 		free(TL_TABLE);
 		free(SIN_TABLE);
@@ -1088,7 +1097,7 @@ FM_OPL *OPLCreate(int clock, int rate)
 	state_size  = sizeof(FM_OPL);
 	state_size += sizeof(OPL_CH)*max_ch;
 	/* allocate memory block */
-	ptr = malloc(state_size);
+	ptr = pcmalloc(state_size);
 	if(ptr==NULL) return NULL;
 	/* clear */
 	memset(ptr,0,state_size);
