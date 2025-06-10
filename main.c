@@ -435,7 +435,7 @@ void pc_step(PC *pc)
 	cpukvm_step(pc->cpu, 4096);
 #else
 #ifdef BUILD_ESP32
-	cpui386_step(pc->cpu, 384);
+	cpui386_step(pc->cpu, 192);
 #else
 	cpui386_step(pc->cpu, 1024);
 #endif
@@ -937,7 +937,8 @@ static void redraw(void *opaque,
 					0, 480 / NN * i,
 					320, 480 / NN * (i + 1),
 					s->fb1));
-			usleep(1800);
+			vga_step(s->pc->vga);
+			usleep(900);
 		}
 	}
 }
