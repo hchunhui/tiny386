@@ -499,7 +499,7 @@ static inline void OPL_CALC_CH( OPL_CH *CH )
 }
 
 /* ---------- calcrate rhythm block ---------- */
-#define WHITE_NOISE_db 0.5
+#define WHITE_NOISE_db 6.0
 static inline void OPL_CALC_RH( OPL_CH *CH )
 {
 	uint32_t env_tam,env_sd,env_top,env_hh;
@@ -587,7 +587,7 @@ static inline void OPL_CALC_RH( OPL_CH *CH )
 static void init_timetables( FM_OPL *OPL , int ARRATE , int DRRATE )
 {
 	int i;
-	double rate;
+	FLOAT rate;
 
 	/* make attack rate & decay rate tables */
 	for (i = 0;i < 4;i++) OPL->AR_TABLE[i] = OPL->DR_TABLE[i] = 0;
@@ -595,7 +595,7 @@ static void init_timetables( FM_OPL *OPL , int ARRATE , int DRRATE )
 		rate  = OPL->freqbase;						/* frequency rate */
 		if( i < 60 ) rate *= 1.0+(i&3)*0.25;		/* b0-1 : x1 , x1.25 , x1.5 , x1.75 */
 		rate *= 1<<((i>>2)-1);						/* b2-5 : shift bit */
-		rate *= (double)(EG_ENT<<ENV_BITS);
+		rate *= (FLOAT)(EG_ENT<<ENV_BITS);
 		OPL->AR_TABLE[i] = rate / ARRATE;
 		OPL->DR_TABLE[i] = rate / DRRATE;
 	}
@@ -607,8 +607,8 @@ static void init_timetables( FM_OPL *OPL , int ARRATE , int DRRATE )
 #if 0
 	for (i = 0;i < 64 ;i++){	/* make for overflow area */
 		LOG(LOG_WAR, ("rate %2d , ar %f ms , dr %f ms\n", i,
-			((double)(EG_ENT<<ENV_BITS) / OPL->AR_TABLE[i]) * (1000.0 / OPL->rate),
-			((double)(EG_ENT<<ENV_BITS) / OPL->DR_TABLE[i]) * (1000.0 / OPL->rate) ));
+			((FLOAT)(EG_ENT<<ENV_BITS) / OPL->AR_TABLE[i]) * (1000.0 / OPL->rate),
+			((FLOAT)(EG_ENT<<ENV_BITS) / OPL->DR_TABLE[i]) * (1000.0 / OPL->rate) ));
 	}
 #endif
 }
@@ -617,9 +617,9 @@ static void init_timetables( FM_OPL *OPL , int ARRATE , int DRRATE )
 static int OPLOpenTable( void )
 {
 	int s,t;
-	double rate;
+	FLOAT rate;
 	int i,j;
-	double pom;
+	FLOAT pom;
 
 	/* allocate dynamic tables */
 	if( (TL_TABLE = pcmalloc(TL_MAX*2*sizeof(int32_t))) == NULL)
@@ -667,7 +667,7 @@ static int OPLOpenTable( void )
 		SIN_TABLE[          s] = SIN_TABLE[SIN_ENT/2-s] = &TL_TABLE[j];
         /* degree 180 - 270    , degree 360 - 270 : minus section */
 		SIN_TABLE[SIN_ENT/2+s] = SIN_TABLE[SIN_ENT  -s] = &TL_TABLE[TL_MAX+j];
-/*		LOG(LOG_INF,("sin(%3d) = %f:%f db\n",s,pom,(double)j * EG_STEP));*/
+/*		LOG(LOG_INF,("sin(%3d) = %f:%f db\n",s,pom,(FLOAT)j * EG_STEP));*/
 	}
 	for (s = 0;s < SIN_ENT;s++)
 	{
@@ -680,7 +680,7 @@ static int OPLOpenTable( void )
 	for (i=0; i<EG_ENT; i++)
 	{
 		/* ATTACK curve */
-		pom = pow( ((double)(EG_ENT-1-i)/EG_ENT) , 8 ) * EG_ENT;
+		pom = pow( ((FLOAT)(EG_ENT-1-i)/EG_ENT) , 8 ) * EG_ENT;
 		/* if( pom >= EG_ENT ) pom = EG_ENT-1; */
 		ENV_CURVE[i] = (int)pom;
 		/* DECAY ,RELEASE curve */
@@ -699,7 +699,7 @@ static int OPLOpenTable( void )
 	for (i=0; i<VIB_ENT; i++)
 	{
 		/* 100cent = 1seminote = 6% ?? */
-		pom = (double)VIB_RATE*0.06*sin(2*PI*i/VIB_ENT); /* +-100sect step */
+		pom = (FLOAT)VIB_RATE*0.06*sin(2*PI*i/VIB_ENT); /* +-100sect step */
 		VIB_TABLE[i]         = VIB_RATE + (pom*0.07); /* +- 7cent */
 		VIB_TABLE[VIB_ENT+i] = VIB_RATE + (pom*0.14); /* +-14cent */
 		/* LOG(LOG_INF,("vib %d=%d\n",i,VIB_TABLE[VIB_ENT+i])); */
@@ -740,9 +740,9 @@ static void OPL_initialize(FM_OPL *OPL)
 	int fn;
 
 	/* frequency base */
-	OPL->freqbase = (OPL->rate) ? ((double)OPL->clock / OPL->rate) / 72  : 0;
+	OPL->freqbase = (OPL->rate) ? ((FLOAT)OPL->clock / OPL->rate) / 72  : 0;
 	/* Timer base time */
-	OPL->TimerBase = 1.0/((double)OPL->clock / 72.0 );
+	OPL->TimerBase = 1.0/((FLOAT)OPL->clock / 72.0 );
 	/* make time tables */
 	init_timetables( OPL , OPL_ARRATE , OPL_DRRATE );
 	/* make fnumber -> increment counter table */
@@ -751,8 +751,8 @@ static void OPL_initialize(FM_OPL *OPL)
 		OPL->FN_TABLE[fn] = OPL->freqbase * fn * FREQ_RATE * (1<<7) / 2;
 	}
 	/* LFO freq.table */
-	OPL->amsIncr = OPL->rate ? (double)AMS_ENT*(1<<AMS_SHIFT) / OPL->rate * 3.7 * ((double)OPL->clock/3600000) : 0;
-	OPL->vibIncr = OPL->rate ? (double)VIB_ENT*(1<<VIB_SHIFT) / OPL->rate * 6.4 * ((double)OPL->clock/3600000) : 0;
+	OPL->amsIncr = OPL->rate ? (FLOAT)AMS_ENT*(1<<AMS_SHIFT) / OPL->rate * 3.7 * ((FLOAT)OPL->clock/3600000) : 0;
+	OPL->vibIncr = OPL->rate ? (FLOAT)VIB_ENT*(1<<VIB_SHIFT) / OPL->rate * 6.4 * ((FLOAT)OPL->clock/3600000) : 0;
 }
 
 /* ---------- write a OPL registers ---------- */
@@ -802,7 +802,7 @@ static void OPLWriteReg(FM_OPL *OPL, int r, int v)
 				/* timer 2 */
 				if(OPL->st[1] != st2)
 				{
-					double interval = st2 ? (double)OPL->T[1]*OPL->TimerBase : 0.0;
+					FLOAT interval = st2 ? (FLOAT)OPL->T[1]*OPL->TimerBase : 0.0;
 					OPL->st[1] = st2;
                     if (OPL->TimerHandler) {
                         (OPL->TimerHandler)(OPL->TimerParam, 1, interval);
@@ -811,7 +811,7 @@ static void OPLWriteReg(FM_OPL *OPL, int r, int v)
 				/* timer 1 */
 				if(OPL->st[0] != st1)
 				{
-					double interval = st1 ? (double)OPL->T[0]*OPL->TimerBase : 0.0;
+					FLOAT interval = st1 ? (FLOAT)OPL->T[0]*OPL->TimerBase : 0.0;
 					OPL->st[0] = st1;
                     if (OPL->TimerHandler) {
                         (OPL->TimerHandler)(OPL->TimerParam, 0, interval);
@@ -1220,7 +1220,7 @@ int OPLTimerOver(FM_OPL *OPL,int c)
 	/* reload timer */
     if (OPL->TimerHandler) {
         (OPL->TimerHandler)(OPL->TimerParam, c,
-                            (double)OPL->T[c] * OPL->TimerBase);
+                            (FLOAT)OPL->T[c] * OPL->TimerBase);
     }
 	return OPL->status>>7;
 }

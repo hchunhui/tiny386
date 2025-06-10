@@ -1,8 +1,12 @@
 #ifndef FMOPL_H
 #define FMOPL_H
 
-
-typedef void (*OPL_TIMERHANDLER)(void *param, int channel, double interval_Sec);
+#ifdef BUILD_ESP32
+typedef float FLOAT;
+#else
+typedef double FLOAT;
+#endif
+typedef void (*OPL_TIMERHANDLER)(void *param, int channel, FLOAT interval_Sec);
 
 /* !!!!! here is private section , do not access there member direct !!!!! */
 
@@ -57,8 +61,8 @@ typedef struct fm_opl_channel {
 typedef struct fm_opl_f {
 	int clock;			/* master clock  (Hz)                */
 	int rate;			/* sampling rate (Hz)                */
-	double freqbase;	/* frequency base                    */
-	double TimerBase;	/* Timer base time (==sampling time) */
+	FLOAT freqbase;	/* frequency base                    */
+	FLOAT TimerBase;	/* Timer base time (==sampling time) */
 	uint8_t address;		/* address register                  */
 	uint8_t status;		/* status flag                       */
 	uint8_t statusmask;	/* status mask                       */

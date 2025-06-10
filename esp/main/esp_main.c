@@ -253,17 +253,17 @@ static void i2s_task(void *arg)
 	fprintf(stderr, "i2s runs on core %d\n", core_id);
 
 	size_t chunkSize = sizeof(int8_t);
-	static int16_t buf[1880] = {0};
+	int16_t buf[32] = {0};
 
 	i2s_channel_enable(tx_chan);
 	for (;;) {
 		size_t bwritten;
 		if (theadlib) {
-			adlib_callback(theadlib, buf, 1880 * 2);
-			for (int i = 0; i < 1880; i++) {
+			adlib_callback(theadlib, buf, 32 * 2);
+			for (int i = 0; i < 32; i++) {
 				buf[i] = buf[i] / 16;
 			}
-			i2s_channel_write(tx_chan, buf, 1880 * 2, &bwritten, portMAX_DELAY);
+			i2s_channel_write(tx_chan, buf, 32 * 2, &bwritten, portMAX_DELAY);
 		} else {
 			usleep(200000);
 		}

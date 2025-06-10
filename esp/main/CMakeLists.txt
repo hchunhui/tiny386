@@ -16,7 +16,7 @@ idf_component_register(SRCS "esp_main.c"
 INCLUDE_DIRS "")
 
 set_source_files_properties("../../adlib.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
-set_source_files_properties("../../fmopl.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
+set_source_files_properties("../../fmopl.c" PROPERTIES COMPILE_FLAGS "-Wno-all -fsingle-precision-constant")
 set_source_files_properties("../../fpu.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../i386.c" PROPERTIES COMPILE_FLAGS "-Wno-all -O3")
 set_source_files_properties("../../i8042.c" PROPERTIES COMPILE_FLAGS "-Wno-all")

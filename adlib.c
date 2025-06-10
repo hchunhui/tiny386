@@ -112,7 +112,7 @@ uint32_t adlib_read(void *opaque, uint32_t nport)
     return OPLRead (s->opl, a);
 }
 
-static void timer_handler (void *opaque, int c, double interval_Sec)
+static void timer_handler (void *opaque, int c, FLOAT interval_Sec)
 {
     AdlibState *s = opaque;
     unsigned n = c & 1;
