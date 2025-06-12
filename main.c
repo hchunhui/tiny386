@@ -21,6 +21,7 @@
 #include "i8042.h"
 #include "misc.h"
 #include "adlib.h"
+#include "ne2000.h"
 #include "pci.h"
 
 #include "ini.h"
@@ -105,6 +106,7 @@ typedef struct {
 	PS2KbdState *kbd;
 	PS2MouseState *mouse;
 	AdlibState *adlib;
+	NE2000State *ne2000;
 
 	I440FXState *i440fx;
 	PCIBus *pcibus;
@@ -194,6 +196,18 @@ u8 pc_io_read(void *o, int addr)
 	case 0xcfc: case 0xcfd: case 0xcfe: case 0xcff:
 		val = i440fx_read_data(pc->i440fx, addr - 0xcfc, 0);
 		return val;
+	case 0x300: case 0x301: case 0x302: case 0x303:
+	case 0x304: case 0x305: case 0x306: case 0x307:
+	case 0x308: case 0x309: case 0x30a: case 0x30b:
+	case 0x30c: case 0x30d: case 0x30e: case 0x30f:
+		val = ne2000_ioport_read(pc->ne2000, addr);
+		return val;
+	case 0x310:
+		val = ne2000_asic_ioport_read(pc->ne2000, addr);
+		return val;
+	case 0x31f:
+		val = ne2000_reset_ioport_read(pc->ne2000, addr);
+		return val;
 	default:
 		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0xff);
 		return 0xff;
@@ -220,6 +234,9 @@ u16 pc_io_read16(void *o, int addr)
 		return val;
 	case 0xcfc: case 0xcfe:
 		val = i440fx_read_data(pc->i440fx, addr - 0xcfc, 1);
+		return val;
+	case 0x310:
+		val = ne2000_asic_ioport_read(pc->ne2000, addr);
 		return val;
 	default:
 		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0xffff);
@@ -337,6 +354,18 @@ void pc_io_write(void *o, int addr, u8 val)
 	case 0xcfc: case 0xcfd: case 0xcfe: case 0xcff:
 		i440fx_write_data(pc->i440fx, addr - 0xcfc, val, 0);
 		return;
+	case 0x300: case 0x301: case 0x302: case 0x303:
+	case 0x304: case 0x305: case 0x306: case 0x307:
+	case 0x308: case 0x309: case 0x30a: case 0x30b:
+	case 0x30c: case 0x30d: case 0x30e: case 0x30f:
+		ne2000_ioport_write(pc->ne2000, addr, val);
+		return;
+	case 0x310:
+		ne2000_asic_ioport_write(pc->ne2000, addr, val);
+		return;
+	case 0x31f:
+		ne2000_reset_ioport_write(pc->ne2000, addr, val);
+		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
 		return;
@@ -369,6 +398,9 @@ void pc_io_write16(void *o, int addr, u16 val)
 		return;
 	case 0xcfc: case 0xcfe:
 		i440fx_write_data(pc->i440fx, addr - 0xcfc, val, 1);
+		return;
+	case 0x310:
+		ne2000_asic_ioport_write(pc->ne2000, addr, val);
 		return;
 	default:
 		fprintf(stderr, "outw 0x%x => 0x%x\n", val, addr);
@@ -658,6 +690,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 			       1, 12, pc->pic, set_irq,
 			       pc, pc_reset_request);
 	pc->adlib = adlib_new();
+	pc->ne2000 = isa_ne2000_init(0x300, 9, pc->pic, set_irq);
 
 	pc->port92 = 0x2;
 	pc->shutdown_state = 0;
