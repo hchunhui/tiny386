@@ -457,6 +457,7 @@ void pc_step(PC *pc)
 	if (pc->enable_serial)
 		u8250_update(pc->serial);
 	kbd_step(pc->i8042);
+	ne2000_step(pc->ne2000);
 	pc->poll(pc->redraw_data);
 #ifndef BUILD_ESP32
 	if (refresh) {
@@ -1111,7 +1112,7 @@ int main(int argc, char *argv[])
 		conf.disks[1] = argv[2];
 	conf.bios = "bios.bin";
 	conf.vga_bios = "vgabios.bin";
-	conf.mem_size = 7 * 1024 * 1024 + 460 * 1024 - 28 * 1024;
+	conf.mem_size = 7 * 1024 * 1024 + 460 * 1024 - 28 * 1024 - 52 * 1024;
 	conf.vga_mem_size = 256 * 1024;
 	conf.width = 480;
 	conf.height = 320;

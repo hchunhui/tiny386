@@ -25,9 +25,18 @@
 #include <string.h>
 #include <stdlib.h>
 #include "ne2000.h"
+#include <fcntl.h>
+#include <unistd.h>
 //#include "hw.h"
 //#include "pc.h"
 //#include "net.h"
+
+#ifndef BUILD_ESP32
+//#define USE_TUNTAP
+#define USE_SLIRP
+#endif
+
+void *bigmalloc(size_t size);
 
 static uint16_t le16_to_cpu(uint16_t x)
 {
@@ -156,7 +165,7 @@ struct NE2000State {
     void *pic;
     void (*set_irq)(void *pic, int irq, int level);
     int isa_io_base;
-//    VLANClientState *vc;
+    void *vc;
     uint8_t macaddr[6];
     uint8_t mem[NE2000_MEM_SIZE];
 };
@@ -332,6 +341,149 @@ static void ne2000_receive(void *opaque, const uint8_t *buf, int size)
     ne2000_update_irq(s);
 }
 
+#ifdef USE_TUNTAP
+struct TUN {
+    int fd;
+};
+
+static void qemu_send_packet(void *vc, uint8_t *buf, int size)
+{
+    struct TUN *tun = vc;
+    if (tun->fd < 0)
+        return;
+    write(tun->fd, buf, size);
+}
+
+void ne2000_step(NE2000State *s)
+{
+    struct TUN *tun = s->vc;
+    uint8_t buf[2048];
+
+    if (tun->fd < 0)
+        return;
+    while (ne2000_can_receive(s)) {
+        int ret = read(tun->fd, buf, sizeof(buf));
+        if (ret <= 0)
+            break;
+        ne2000_receive(s, buf, ret);
+    }
+}
+
+static void *net_open(NE2000State *s)
+{
+    struct TUN *tun = malloc(sizeof(struct TUN));
+    tun->fd = -1;
+    if (getenv("TAPFD"))
+        tun->fd = atoi(getenv("TAPFD"));
+    if (tun->fd >= 0)
+        fcntl(tun->fd, F_SETFL, O_NONBLOCK);
+    return tun;
+}
+
+#elifdef USE_SLIRP
+#include "slirp/libslirp.h"
+struct SLIRP {
+    void *slirp;
+    void *ne2000;
+    uint32_t nextts;
+};
+
+static void qemu_send_packet(void *vc, uint8_t *buf, int size)
+{
+    struct SLIRP *s = vc;
+    slirp_input(s->slirp, buf, size);
+}
+
+int slirp_can_output(void *opaque)
+{
+    struct SLIRP *s = opaque;
+    return ne2000_can_receive(s->ne2000);
+}
+
+void slirp_output(void *opaque, const uint8_t *pkt, int pkt_len)
+{
+    struct SLIRP *s = opaque;
+    ne2000_receive(s->ne2000, pkt, pkt_len);
+}
+
+#include <time.h>
+static uint32_t get_uticks()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ((uint32_t) ts.tv_sec * 1000000 +
+            (uint32_t) ts.tv_nsec / 1000);
+}
+
+void ne2000_step(NE2000State *ne2000)
+{
+    struct SLIRP *s = ne2000->vc;
+
+    fd_set rfds, wfds, efds;
+    int fd_max, ret, delay;
+    struct timeval tv;
+
+    uint32_t now = get_uticks();
+    if (now < s->nextts)
+        return;
+    s->nextts = now + 10000;
+
+    /* wait for an event */
+    FD_ZERO(&rfds);
+    FD_ZERO(&wfds);
+    FD_ZERO(&efds);
+    fd_max = -1;
+    slirp_select_fill(s->slirp, &fd_max, &rfds, &wfds, &efds);
+
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    ret = select(fd_max + 1, &rfds, &wfds, &efds, &tv);
+    slirp_select_poll(s->slirp, &rfds, &wfds, &efds, (ret <= 0));
+}
+
+static void *net_open(NE2000State *s)
+{
+    struct in_addr net_addr  = { .s_addr = htonl(0x0a000200) }; /* 10.0.2.0 */
+    struct in_addr mask = { .s_addr = htonl(0xffffff00) }; /* 255.255.255.0 */
+    struct in_addr host = { .s_addr = htonl(0x0a000202) }; /* 10.0.2.2 */
+    struct in_addr dhcp = { .s_addr = htonl(0x0a00020f) }; /* 10.0.2.15 */
+    struct in_addr dns  = { .s_addr = htonl(0x0a000203) }; /* 10.0.2.3 */
+    const char *bootfile = NULL;
+    const char *vhostname = NULL;
+    int restricted = 0;
+
+    struct SLIRP *slirp = malloc(sizeof(struct SLIRP));
+    slirp->slirp = slirp_init(restricted, net_addr, mask, host, vhostname,
+                              "", bootfile, dhcp, dns, slirp);
+    slirp->ne2000 = s;
+    slirp->nextts = get_uticks();
+    return slirp;
+}
+
+#else
+#include <stdio.h>
+static void qemu_send_packet(void *vc, uint8_t *buf, int size)
+{
+    fprintf(stderr, "recv packet %d bytes:\n", size);
+    for (int i = 0; i < size; i++) {
+        if (i % 16 == 0)
+            fprintf(stderr, "\n");
+        fprintf(stderr, "%02x ", buf[i]);
+    }
+    fprintf(stderr, "\n");
+}
+
+void ne2000_step(NE2000State *s)
+{
+}
+
+static void *net_open(NE2000State *s)
+{
+    return NULL;
+}
+
+#endif
+
 void ne2000_ioport_write(void *opaque, uint32_t addr, uint32_t val)
 {
     NE2000State *s = opaque;
@@ -359,7 +511,7 @@ void ne2000_ioport_write(void *opaque, uint32_t addr, uint32_t val)
                     index -= NE2000_PMEM_SIZE;
                 /* fail safe: check range on the transmitted length  */
                 if (index + s->tcnt <= NE2000_PMEM_END) {
-//                    qemu_send_packet(s->vc, s->mem + index, s->tcnt);
+                    qemu_send_packet(s->vc, s->mem + index, s->tcnt);
                 }
                 /* signal end of transfer */
                 s->tsr = ENTSR_PTX;
@@ -681,8 +833,9 @@ NE2000State *isa_ne2000_init(int base, int irq,
 {
     NE2000State *s;
 
-    s = malloc(sizeof(NE2000State));
+    s = bigmalloc(sizeof(NE2000State));
     memset(s, 0, sizeof(NE2000State));
+    s->vc = net_open(s);
 
 #if 0
     register_ioport_write(base, 16, 1, ne2000_ioport_write, s);
@@ -700,7 +853,7 @@ NE2000State *isa_ne2000_init(int base, int irq,
     s->irq = irq;
     s->pic = pic;
     s->set_irq = set_irq;
-    const static uint8_t macaddr[6] = {0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc};
+    const static uint8_t macaddr[6] = {0x52, 0x54, 0x00, 0x78, 0x9a, 0xbc};
     memcpy(s->macaddr, macaddr, 6);
 
     ne2000_reset(s);
