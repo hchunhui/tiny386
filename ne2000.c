@@ -34,6 +34,9 @@
 #ifndef BUILD_ESP32
 //#define USE_TUNTAP
 #define USE_SLIRP
+#else
+#include "esp_mac.h"
+#include "esp_private/wifi.h"
 #endif
 
 void *bigmalloc(size_t size);
@@ -464,6 +467,9 @@ static void *net_open(NE2000State *s)
 #include <stdio.h>
 static void qemu_send_packet(void *vc, uint8_t *buf, int size)
 {
+#ifdef BUILD_ESP32
+    esp_wifi_internal_tx(ESP_IF_WIFI_STA, buf, size);
+#else
     fprintf(stderr, "recv packet %d bytes:\n", size);
     for (int i = 0; i < size; i++) {
         if (i % 16 == 0)
@@ -471,6 +477,7 @@ static void qemu_send_packet(void *vc, uint8_t *buf, int size)
         fprintf(stderr, "%02x ", buf[i]);
     }
     fprintf(stderr, "\n");
+#endif
 }
 
 void ne2000_step(NE2000State *s)
@@ -827,6 +834,54 @@ typedef struct NICInfo {
     int used;
 } NICInfo;
 
+#ifdef BUILD_ESP32
+void *thene2000;
+
+static inline int filter(uint8_t *buf, int size)
+{
+    if (size >= 38) {
+        int l2type = (buf[12] << 8) | buf[13];
+        switch(l2type) {
+        case 0x0800: // ipv4
+            switch (buf[23]) {
+            case 0x06: // tcp
+                if (buf[36] == 0x27 && buf[37] == 0x0f) { // dst 9999
+                    return 0;
+                } else {
+                    return 1;
+                }
+            case 0x11: // udp
+                if (buf[36] == 0x00 && buf[37] == 0x44) { // dhcp
+                    return 2;
+                } else {
+                    return 1;
+                }
+            default:
+                return 1;
+            }
+        case 0x0806: //arp
+            return 2;
+        default:
+            return 0;
+        }
+    }
+    return 0;
+}
+
+int wlanif_l2_input_hook(uint8_t *buf, int size)
+{
+    int r = filter(buf, size);
+    if (r) {
+        if (thene2000)
+            ne2000_receive(thene2000, buf, size);
+        if (r != 1)
+            return 0;
+        return 1;
+    }
+    return 0;
+}
+#endif
+
 NE2000State *isa_ne2000_init(int base, int irq,
                              void *pic,
                              void (*set_irq)(void *pic, int irq, int level))
@@ -853,8 +908,13 @@ NE2000State *isa_ne2000_init(int base, int irq,
     s->irq = irq;
     s->pic = pic;
     s->set_irq = set_irq;
+#ifndef BUILD_ESP32
     const static uint8_t macaddr[6] = {0x52, 0x54, 0x00, 0x78, 0x9a, 0xbc};
     memcpy(s->macaddr, macaddr, 6);
+#else
+    esp_read_mac(s->macaddr, ESP_MAC_WIFI_STA);
+    thene2000 = s;
+#endif
 
     ne2000_reset(s);
 

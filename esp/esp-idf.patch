@@ -1,3 +1,31 @@
+diff --git a/components/esp_netif/lwip/netif/wlanif.c b/components/esp_netif/lwip/netif/wlanif.c
+index f6bdfae4fa..692a3dde92 100644
+--- a/components/esp_netif/lwip/netif/wlanif.c
++++ b/components/esp_netif/lwip/netif/wlanif.c
+@@ -114,6 +114,11 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
+     return ERR_IF;
+ }
+ 
++__attribute__((weak)) int wlanif_l2_input_hook(uint8_t *buf, int size)
++{
++    return 0;
++}
++
+ /**
+  * This function should be called when a packet is ready to be read
+  * from the interface. It uses the function low_level_input() that
+@@ -139,6 +144,11 @@ esp_netif_recv_ret_t wlanif_input(void *h, void *buffer, size_t len, void* l2_bu
+         return ESP_NETIF_OPTIONAL_RETURN_CODE(ESP_FAIL);
+     }
+ 
++    if (wlanif_l2_input_hook(buffer, len)) {
++        esp_netif_free_rx_buffer(esp_netif, l2_buff);
++        return ESP_NETIF_OPTIONAL_RETURN_CODE(ESP_OK);
++    }
++
+ #ifdef CONFIG_LWIP_L2_TO_L3_COPY
+     p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
+     if (p == NULL) {
 diff --git a/components/esp_psram/esp_psram.c b/components/esp_psram/esp_psram.c
 index daaa2d55e0..3e980e7278 100644
 --- a/components/esp_psram/esp_psram.c
