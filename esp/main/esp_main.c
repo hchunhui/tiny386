@@ -401,6 +401,6 @@ void app_main(void)
 	psram_len = len;
 	if (psram) {
 		xTaskCreatePinnedToCore(i386_task, "i386_main", 4096, NULL, 3, NULL, 1);
-		xTaskCreatePinnedToCore(vga_task, "vga_task", 4096, NULL, 3, NULL, 0);
+		xTaskCreatePinnedToCore(vga_task, "vga_task", 4096, NULL, 0, NULL, 0);
 	}
 }

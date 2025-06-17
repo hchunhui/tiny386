@@ -27,6 +27,7 @@
 #include "ne2000.h"
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdatomic.h>
 //#include "hw.h"
 //#include "pc.h"
 //#include "net.h"
@@ -158,7 +159,7 @@ struct NE2000State {
     uint32_t rsar;
     uint8_t rsr;
     uint8_t rxcr;
-    uint8_t isr;
+    _Atomic uint8_t isr;
     uint8_t dcfg;
     uint8_t imr;
     uint8_t phys[6]; /* mac address */
@@ -177,7 +178,7 @@ static void ne2000_reset(NE2000State *s)
 {
     int i;
 
-    s->isr = ENISR_RESET;
+    atomic_store_explicit(&(s->isr), ENISR_RESET, memory_order_relaxed);
     memcpy(s->mem, s->macaddr, 6);
     s->mem[14] = 0x57;
     s->mem[15] = 0x57;
@@ -191,11 +192,12 @@ static void ne2000_reset(NE2000State *s)
 
 static void ne2000_update_irq(NE2000State *s)
 {
-    int isr;
-    isr = (s->isr & s->imr) & 0x7f;
+    int isr, sisr;
+    sisr = atomic_load_explicit(&(s->isr), memory_order_relaxed);
+    isr = (sisr & s->imr) & 0x7f;
 #if defined(DEBUG_NE2000)
     printf("NE2000: Set IRQ to %d (%02x %02x)\n",
-	   isr ? 1 : 0, s->isr, s->imr);
+	   isr ? 1 : 0, sisr, s->imr);
 #endif
     s->set_irq(s->pic, s->irq, (isr != 0));
 }
@@ -340,8 +342,10 @@ static void ne2000_receive(void *opaque, const uint8_t *buf, int size)
     s->curpag = next >> 8;
 
     /* now we can signal we have received something */
-    s->isr |= ENISR_RX;
+    atomic_fetch_or_explicit(&(s->isr), ENISR_RX, memory_order_release);
+#ifndef BUILD_ESP32
     ne2000_update_irq(s);
+#endif
 }
 
 #ifdef USE_TUNTAP
@@ -482,6 +486,9 @@ static void qemu_send_packet(void *vc, uint8_t *buf, int size)
 
 void ne2000_step(NE2000State *s)
 {
+#ifdef BUILD_ESP32
+    ne2000_update_irq(s);
+#endif
 }
 
 static void *net_open(NE2000State *s)
@@ -504,11 +511,11 @@ void ne2000_ioport_write(void *opaque, uint32_t addr, uint32_t val)
         /* control register */
         s->cmd = val;
         if (!(val & E8390_STOP)) { /* START bit makes no sense on RTL8029... */
-            s->isr &= ~ENISR_RESET;
+            atomic_fetch_and_explicit(&(s->isr), ~ENISR_RESET, memory_order_relaxed);
             /* test specific case: zero length transfer */
             if ((val & (E8390_RREAD | E8390_RWRITE)) &&
                 s->rcnt == 0) {
-                s->isr |= ENISR_RDC;
+                atomic_fetch_or_explicit(&(s->isr), ENISR_RDC, memory_order_release);
                 ne2000_update_irq(s);
             }
             if (val & E8390_TRANS) {
@@ -522,7 +529,7 @@ void ne2000_ioport_write(void *opaque, uint32_t addr, uint32_t val)
                 }
                 /* signal end of transfer */
                 s->tsr = ENTSR_PTX;
-                s->isr |= ENISR_TX;
+                atomic_fetch_or_explicit(&(s->isr), ENISR_TX, memory_order_release);
                 s->cmd &= ~E8390_TRANS;
                 ne2000_update_irq(s);
             }
@@ -572,7 +579,7 @@ void ne2000_ioport_write(void *opaque, uint32_t addr, uint32_t val)
             s->dcfg = val;
             break;
         case EN0_ISR:
-            s->isr &= ~(val & 0x7f);
+            atomic_fetch_and_explicit(&(s->isr), ~(val & 0x7f), memory_order_relaxed);
             ne2000_update_irq(s);
             break;
         case EN1_PHYS ... EN1_PHYS + 5:
@@ -607,7 +614,7 @@ uint32_t ne2000_ioport_read(void *opaque, uint32_t addr)
             ret = s->boundary;
             break;
         case EN0_ISR:
-            ret = s->isr;
+            ret = atomic_load_explicit(&(s->isr), memory_order_acquire);
             break;
 	case EN0_RSARLO:
 	    ret = s->rsar & 0x00ff;
@@ -735,7 +742,7 @@ static inline void ne2000_dma_update(NE2000State *s, int len)
     if (s->rcnt <= len) {
         s->rcnt = 0;
         /* signal end of transfer */
-        s->isr |= ENISR_RDC;
+        atomic_fetch_or_explicit(&(s->isr), ENISR_RDC, memory_order_release);
         ne2000_update_irq(s);
     } else {
         s->rcnt -= len;
@@ -890,6 +897,7 @@ NE2000State *isa_ne2000_init(int base, int irq,
 
     s = bigmalloc(sizeof(NE2000State));
     memset(s, 0, sizeof(NE2000State));
+    atomic_init(&(s->isr), 0);
     s->vc = net_open(s);
 
 #if 0
