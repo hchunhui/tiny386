@@ -140,12 +140,13 @@ struct  __attribute__ ((packed)) linux_params {
 
 void setup(int phys_ram_size, int initrd_size, char *cmdline, int kernel_size)
 {
-    struct linux_params *params;
+    struct linux_params *params = (struct linux_params *) KERNEL_PARAMS_ADDR;
     struct __attribute__((packed)) {
         uint16_t limit;
         void *addr;
     } gdt_data;
 
+    memset(params, 0, sizeof(struct linux_params));
     put_string("Starting Linux\n");
     if (*(uint32_t *) (KERNEL_LOAD_ADDR + 0x202) == 0x53726448 /* "HdrS" */) {
         // The 32-bit (non-real-mode) kernel starts at offset
@@ -158,14 +159,13 @@ void setup(int phys_ram_size, int initrd_size, char *cmdline, int kernel_size)
         if (setup_sects == 0)
           setup_sects = 4;
         int off = (setup_sects + 1) * 512;
+        memmove((void *) params + 0x1f1, (void *) KERNEL_LOAD_ADDR + 0x1f1,
+                0x2d0 - 0x1f1);
         memmove((void *) KERNEL_LOAD_ADDR,
                 (void *) (KERNEL_LOAD_ADDR + off),
                 kernel_size - off);
     }
 
-    params = (struct linux_params *)KERNEL_PARAMS_ADDR;
-
-    memset(params, 0, sizeof(struct linux_params));
     params->mount_root_rdonly = 0;
     params->cmd_line_ptr = (uintptr_t)params->commandline;
     params->alt_mem_k = (phys_ram_size / 1024) - 1024;
