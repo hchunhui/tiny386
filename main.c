@@ -762,6 +762,7 @@ Console *console_init(int width, int height)
 	s->screen = SDL_SetVideoMode(s->width, s->height, BPP, 0);
 	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY,
 			    SDL_DEFAULT_REPEAT_INTERVAL);
+	SDL_WM_SetCaption("tiny386 - use ctrl + ] to grab/ungrab", NULL);
 	return s;
 }
 
@@ -837,6 +838,14 @@ static void sdl_handle_key_event(const SDL_KeyboardEvent *ev, PC *pc)
 			ps2_put_keycode(pc->kbd, 0, keycode);
 		} else {
 			keypress = (ev->type == SDL_KEYDOWN);
+			if (keycode == 0x1b && keypress &&
+			    (key_pressed[0x1d])) {
+				static int en;
+				en ^= 1;
+				SDL_ShowCursor(en ? SDL_DISABLE : SDL_ENABLE);
+				SDL_WM_GrabInput(en ? SDL_GRAB_ON : SDL_GRAB_OFF);
+				return;
+			}
 			if (keycode <= KEYCODE_MAX)
 				key_pressed[keycode] = keypress;
 			ps2_put_keycode(pc->kbd, keypress, keycode);

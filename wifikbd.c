@@ -66,6 +66,7 @@ Console *console_init(int width, int height)
 	s->pc = &(s->pc0);
 	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY*5,
 			    SDL_DEFAULT_REPEAT_INTERVAL*5);
+	SDL_WM_SetCaption("tiny386 - use ctrl + ] to grab/ungrab", NULL);
 	return s;
 }
 
