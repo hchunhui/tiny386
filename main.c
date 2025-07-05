@@ -756,8 +756,13 @@ typedef struct {
 Console *console_init(int width, int height)
 {
 	Console *s = malloc(sizeof(Console));
+#ifdef SWAPXY
+	s->width = height;
+	s->height = width;
+#else
 	s->width = width;
 	s->height = height;
+#endif
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
 	s->screen = SDL_SetVideoMode(s->width, s->height, BPP, 0);
 	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY,

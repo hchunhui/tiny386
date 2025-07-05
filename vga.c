@@ -857,9 +857,234 @@ static void vga_text_refresh(VGAState *s,
     redraw_func(opaque, 0, 0, fb_dev->width, fb_dev->height);
 }
 
-static void simplefb_refresh(FBDevice *fb_dev,
-                             SimpleFBDrawFunc *redraw_func, void *opaque)
+static void vga_graphic_refresh(VGAState *s,
+                                SimpleFBDrawFunc *redraw_func, void *opaque,
+                                int full_update)
 {
+    FBDevice *fb_dev = s->fb_dev;
+    int w = (s->cr[0x01] + 1) * 8;
+    int h = s->cr[0x12] |
+        ((s->cr[0x07] & 0x02) << 7) |
+        ((s->cr[0x07] & 0x40) << 3);
+    h++;
+
+    int shift_control = (s->gr[0x05] >> 5) & 3;
+    int double_scan = (s->cr[0x09] >> 7);
+    int multi_scan, multi_run;
+    if (shift_control != 1) {
+        multi_scan = (((s->cr[0x09] & 0x1f) + 1) << double_scan) - 1;
+    } else {
+        /* in CGA modes, multi_scan is ignored */
+        /* XXX: is it correct ? */
+        multi_scan = double_scan;
+    }
+    multi_run = multi_scan;
+
+    uint32_t start_addr = s->cr[0x0d] | (s->cr[0x0c] << 8);
+    uint32_t line_offset = s->cr[0x13];
+    line_offset <<= 3;
+    uint32_t line_compare = s->cr[0x18] |
+        ((s->cr[0x07] & 0x10) << 4) |
+        ((s->cr[0x09] & 0x40) << 3);
+    if (vbe_enabled(s)) {
+        line_offset = s->vbe_line_offset;
+        start_addr = s->vbe_start_addr;
+        line_compare = 65535;
+    }
+    uint32_t addr1 = 4 * start_addr;
+    uint8_t *vram = s->vga_ram;
+    uint32_t palette[256];
+    int xdiv = 1;
+    int bpp = 4;
+    if (shift_control == 0 || shift_control == 1) {
+        update_palette16(s, palette);
+        if (s->sr[0x01] & 8) {
+            xdiv = 2;
+        }
+    } else {
+        if (!vbe_enabled(s)) {
+            update_palette256(s, palette);
+            xdiv = 2;
+            bpp = 8;
+        } else {
+            bpp = s->vbe_regs[VBE_DISPI_INDEX_BPP];
+            if (bpp == 8)
+                update_palette256(s, palette);
+        }
+    }
+
+    int y1 = 0;
+    int i0 = 0;
+#ifdef SCALE_3_2
+    int hx = fb_dev->height * 3 / 2;
+    int wx = fb_dev->width * 3 / 2;
+    if (h < hx)
+#ifdef SWAPXY
+        i0 += (hx - h) / 3 * (BPP / 8);
+#else
+        i0 += (hx - h) / 3 * fb_dev->stride;
+#endif
+    else
+        h = hx;
+    if (w < wx)
+#ifdef SWAPXY
+        i0 += (wx - w) / 3 * fb_dev->stride;
+#else
+        i0 += (wx - w) / 3 * (BPP / 8);
+#endif
+    else
+        w = wx;
+    int yyt = 0;
+    int yy = 0;
+#else
+    int hx = fb_dev->height;
+    int wx = fb_dev->width;
+    if (h < hx)
+        i0 += (hx - h) / 2 * fb_dev->stride;
+    else
+        h = hx;
+    if (w < wx)
+        i0 += (wx - w) / 2 * (BPP / 8);
+    else
+        w = wx;
+#endif
+    for (int y = 0; y < h; y++) {
+        uint32_t addr = addr1;
+        if (!(s->cr[0x17] & 1)) {
+            int shift;
+            /* CGA compatibility handling */
+            shift = 14 + ((s->cr[0x17] >> 6) & 1);
+            addr = (addr & ~(1 << shift)) | ((y1 & 1) << shift);
+        }
+        if (!(s->cr[0x17] & 2)) {
+            addr = (addr & ~0x8000) | ((y1 & 2) << 14);
+        }
+        for (int x = 0; x < w; x++) {
+            int x1 = x / xdiv;
+            uint32_t color;
+            if (shift_control == 0 || shift_control == 1) {
+                int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1) << 0;
+                k |= ((vram[addr + 4 * (x1 >> 3) + 1] >> (7 - (x1 & 7))) & 1) << 1;
+                k |= ((vram[addr + 4 * (x1 >> 3) + 2] >> (7 - (x1 & 7))) & 1) << 2;
+                k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x1 & 7))) & 1) << 3;
+                color = palette[k];
+            } else
+#if BPP == 32
+            {
+                switch (bpp) {
+                case 8: {
+                    int k = vram[addr + x1];
+                    color = palette[k];
+                    break;
+                }
+                case 15: {
+                    int k = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
+                    int b = (k & ((1 << 5) - 1)) << 3;
+                    int g = ((k >> 5) & ((1 << 5) - 1)) << 3;
+                    int r = ((k >> 10) & ((1 << 5) - 1)) << 3;
+                    color = b | (g << 8) | (r << 16);
+                    break;
+                }
+                case 16: {
+                    int k = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
+                    int b = (k & ((1 << 5) - 1)) << 3;
+                    int g = ((k >> 5) & ((1 << 6) - 1)) << 2;
+                    int r = ((k >> 11) & ((1 << 5) - 1)) << 3;
+                    color = b | (g << 8) | (r << 16);
+                    break;
+                }
+                case 24: {
+                    color = vram[addr + 3 * x1] |
+                        (vram[addr + 3 * x1 + 1] << 8) |
+                        (vram[addr + 3 * x1 + 2] << 16);
+                    break;
+                }
+                case 32: {
+                    color = vram[addr + 4 * x1] |
+                        (vram[addr + 4 * x1 + 1] << 8) |
+                        (vram[addr + 4 * x1 + 2] << 16) |
+                        (vram[addr + 4 * x1 + 3] << 24);
+                    break;
+                }
+                default:
+                    fprintf(stderr, "vga bpp is %d\n", bpp);
+                    abort();
+                }
+            }
+            int i = (BPP / 8) * (y * fb_dev->width + x) + i0;
+            fb_dev->fb_data[i + 0] = color;
+            fb_dev->fb_data[i + 1] = color >> 8;
+            fb_dev->fb_data[i + 2] = color >> 16;
+            fb_dev->fb_data[i + 3] = color >> 24;
+#elif BPP == 16
+            {
+                switch (bpp) {
+                case 8: {
+                    color = palette[vram[addr + x1]];
+                    break;
+                }
+                case 15: {
+                    int k = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
+                    color = (k & 0x1f) | ((k & ~0x1f) << 1);
+                    break;
+                }
+                case 16: {
+                    color = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
+                    break;
+                }
+                case 24: {
+                    color = ((vram[addr + 3 * x1] >> 3)) |
+                        ((vram[addr + 3 * x1 + 1] >> 2) << 5) |
+                        ((vram[addr + 3 * x1 + 2] >> 3) << 11);
+                    break;
+                }
+                case 32: {
+                    color = ((vram[addr + 4 * x1] >> 3)) |
+                        ((vram[addr + 4 * x1 + 1] >> 2) << 5) |
+                        ((vram[addr + 4 * x1 + 2] >> 3) << 11);
+                    break;
+                }
+                default:
+                    fprintf(stderr, "vga bpp is %d\n", bpp);
+                    abort();
+                }
+            }
+#ifdef SCALE_3_2
+            int i = (BPP / 8) * (yyt * w + x);
+            s->tmpbuf[i + 0] = color;
+            s->tmpbuf[i + 1] = color >> 8;
+#else
+            int i = (BPP / 8) * (y * fb_dev->width + x) + i0;
+            fb_dev->fb_data[i + 0] = color;
+            fb_dev->fb_data[i + 1] = color >> 8;
+#endif
+#else
+#error "bad bpp"
+#endif
+        }
+        if (!multi_run) {
+            int mask = (s->cr[0x17] & 3) ^ 3;
+            if ((y1 & mask) == mask)
+                addr1 += line_offset;
+            y1++;
+            multi_run = multi_scan;
+        } else {
+            multi_run--;
+        }
+#ifdef SCALE_3_2
+        yyt++;
+        if (yyt == 3) {
+#ifdef SWAPXY
+            int ii0 = (BPP / 8) * yy + i0;
+#else
+            int ii0 = (BPP / 8) * (yy * fb_dev->width) + i0;
+#endif
+            scale_3_2(fb_dev->fb_data + ii0, fb_dev->stride, s->tmpbuf, w);
+            yyt = 0;
+            yy += 2;
+        }
+#endif
+    }
     redraw_func(opaque, 0, 0, fb_dev->width, fb_dev->height);
 }
 
@@ -882,7 +1107,11 @@ int vga_step(VGAState *s)
         } else {
             s->st01 &= ~(ST01_V_RETRACE | ST01_DISP_ENABLE);
             s->retrace_phase = 0;
+#ifdef BUILD_ESP32
+            s->retrace_time = now + 15000/3;
+#else
             s->retrace_time = now + 15000;
+#endif
         }
     }
     return ret;
@@ -913,230 +1142,7 @@ void vga_refresh(VGAState *s,
     }
 
     if (s->graphic_mode == 2) {
-        int w = (s->cr[0x01] + 1) * 8;
-        int h = s->cr[0x12] |
-            ((s->cr[0x07] & 0x02) << 7) |
-            ((s->cr[0x07] & 0x40) << 3);
-        h++;
-
-        int shift_control = (s->gr[0x05] >> 5) & 3;
-        int double_scan = (s->cr[0x09] >> 7);
-        int multi_scan, multi_run;
-        if (shift_control != 1) {
-            multi_scan = (((s->cr[0x09] & 0x1f) + 1) << double_scan) - 1;
-        } else {
-            /* in CGA modes, multi_scan is ignored */
-            /* XXX: is it correct ? */
-            multi_scan = double_scan;
-        }
-        multi_run = multi_scan;
-
-        uint32_t start_addr = s->cr[0x0d] | (s->cr[0x0c] << 8);
-        uint32_t line_offset = s->cr[0x13];
-        line_offset <<= 3;
-        uint32_t line_compare = s->cr[0x18] |
-            ((s->cr[0x07] & 0x10) << 4) |
-            ((s->cr[0x09] & 0x40) << 3);
-        if (vbe_enabled(s)) {
-            line_offset = s->vbe_line_offset;
-            start_addr = s->vbe_start_addr;
-            line_compare = 65535;
-        }
-        uint32_t addr1 = 4 * start_addr;
-        uint8_t *vram = s->vga_ram;
-        uint32_t palette[256];
-        int xdiv = 1;
-        int bpp = 4;
-        if (shift_control == 0 || shift_control == 1) {
-            update_palette16(s, palette);
-            if (s->sr[0x01] & 8) {
-                xdiv = 2;
-            }
-        } else {
-            if (!vbe_enabled(s)) {
-                update_palette256(s, palette);
-                xdiv = 2;
-                bpp = 8;
-            } else {
-                bpp = s->vbe_regs[VBE_DISPI_INDEX_BPP];
-                if (bpp == 8)
-                    update_palette256(s, palette);
-            }
-        }
-
-        int y1 = 0;
-        int i0 = 0;
-#ifdef SCALE_3_2
-        int hx = fb_dev->height * 3 / 2;
-        int wx = fb_dev->width * 3 / 2;
-        if (h < hx)
-#ifdef SWAPXY
-            i0 += (hx - h) / 3 * (BPP / 8);
-#else
-            i0 += (hx - h) / 3 * fb_dev->stride;
-#endif
-        else
-            h = hx;
-        if (w < wx)
-#ifdef SWAPXY
-            i0 += (wx - w) / 3 * fb_dev->stride;
-#else
-            i0 += (wx - w) / 3 * (BPP / 8);
-#endif
-        else
-            w = wx;
-        int yyt = 0;
-        int yy = 0;
-#else
-        int hx = fb_dev->height;
-        int wx = fb_dev->width;
-        if (h < hx)
-            i0 += (hx - h) / 2 * fb_dev->stride;
-        else
-            h = hx;
-        if (w < wx)
-            i0 += (wx - w) / 2 * (BPP / 8);
-        else
-            w = wx;
-#endif
-        for (int y = 0; y < h; y++) {
-            uint32_t addr = addr1;
-            if (!(s->cr[0x17] & 1)) {
-                int shift;
-                /* CGA compatibility handling */
-                shift = 14 + ((s->cr[0x17] >> 6) & 1);
-                addr = (addr & ~(1 << shift)) | ((y1 & 1) << shift);
-            }
-            if (!(s->cr[0x17] & 2)) {
-                addr = (addr & ~0x8000) | ((y1 & 2) << 14);
-            }
-            for (int x = 0; x < w; x++) {
-                int x1 = x / xdiv;
-                uint32_t color;
-                if (shift_control == 0 || shift_control == 1) {
-                    int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1) << 0;
-                    k |= ((vram[addr + 4 * (x1 >> 3) + 1] >> (7 - (x1 & 7))) & 1) << 1;
-                    k |= ((vram[addr + 4 * (x1 >> 3) + 2] >> (7 - (x1 & 7))) & 1) << 2;
-                    k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x1 & 7))) & 1) << 3;
-                    color = palette[k];
-                } else
-#if BPP == 32
-                {
-                    switch (bpp) {
-                    case 8: {
-                        int k = vram[addr + x1];
-                        color = palette[k];
-                        break;
-                    }
-                    case 15: {
-                        int k = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
-                        int b = (k & ((1 << 5) - 1)) << 3;
-                        int g = ((k >> 5) & ((1 << 5) - 1)) << 3;
-                        int r = ((k >> 10) & ((1 << 5) - 1)) << 3;
-                        color = b | (g << 8) | (r << 16);
-                        break;
-                    }
-                    case 16: {
-                        int k = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
-                        int b = (k & ((1 << 5) - 1)) << 3;
-                        int g = ((k >> 5) & ((1 << 6) - 1)) << 2;
-                        int r = ((k >> 11) & ((1 << 5) - 1)) << 3;
-                        color = b | (g << 8) | (r << 16);
-                        break;
-                    }
-                    case 24: {
-                        color = vram[addr + 3 * x1] |
-                            (vram[addr + 3 * x1 + 1] << 8) |
-                            (vram[addr + 3 * x1 + 2] << 16);
-                        break;
-                    }
-                    case 32: {
-                        color = vram[addr + 4 * x1] |
-                            (vram[addr + 4 * x1 + 1] << 8) |
-                            (vram[addr + 4 * x1 + 2] << 16) |
-                            (vram[addr + 4 * x1 + 3] << 24);
-                        break;
-                    }
-                    default:
-                        fprintf(stderr, "vga bpp is %d\n", bpp);
-                        abort();
-                    }
-                }
-                int i = (BPP / 8) * (y * fb_dev->width + x) + i0;
-                fb_dev->fb_data[i + 0] = color;
-                fb_dev->fb_data[i + 1] = color >> 8;
-                fb_dev->fb_data[i + 2] = color >> 16;
-                fb_dev->fb_data[i + 3] = color >> 24;
-#elif BPP == 16
-                {
-                    switch (bpp) {
-                    case 8: {
-                        color = palette[vram[addr + x1]];
-                        break;
-                    }
-                    case 15: {
-                        int k = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
-                        color = (k & 0x1f) | ((k & ~0x1f) << 1);
-                        break;
-                    }
-                    case 16: {
-                        color = vram[addr + 2 * x1] | (vram[addr + 2 * x1 + 1] << 8);
-                        break;
-                    }
-                    case 24: {
-                        color = ((vram[addr + 3 * x1] >> 3)) |
-                                ((vram[addr + 3 * x1 + 1] >> 2) << 5) |
-                                ((vram[addr + 3 * x1 + 2] >> 3) << 11);
-                        break;
-                    }
-                    case 32: {
-                        color = ((vram[addr + 4 * x1] >> 3)) |
-                                ((vram[addr + 4 * x1 + 1] >> 2) << 5) |
-                                ((vram[addr + 4 * x1 + 2] >> 3) << 11);
-                        break;
-                    }
-                    default:
-                        fprintf(stderr, "vga bpp is %d\n", bpp);
-                        abort();
-                    }
-                }
-#ifdef SCALE_3_2
-                int i = (BPP / 8) * (yyt * w + x);
-                s->tmpbuf[i + 0] = color;
-                s->tmpbuf[i + 1] = color >> 8;
-#else
-                int i = (BPP / 8) * (y * fb_dev->width + x) + i0;
-                fb_dev->fb_data[i + 0] = color;
-                fb_dev->fb_data[i + 1] = color >> 8;
-#endif
-#else
-#error "bad bpp"
-#endif
-            }
-            if (!multi_run) {
-                int mask = (s->cr[0x17] & 3) ^ 3;
-                if ((y1 & mask) == mask)
-                    addr1 += line_offset;
-                y1++;
-                multi_run = multi_scan;
-            } else {
-                multi_run--;
-            }
-#ifdef SCALE_3_2
-            yyt++;
-            if (yyt == 3) {
-#ifdef SWAPXY
-                    int ii0 = (BPP / 8) * yy + i0;
-#else
-                    int ii0 = (BPP / 8) * (yy * fb_dev->width) + i0;
-#endif
-                    scale_3_2(fb_dev->fb_data + ii0, fb_dev->stride, s->tmpbuf, w);
-                    yyt = 0;
-                    yy += 2;
-            }
-#endif
-        }
-        simplefb_refresh(fb_dev, redraw_func, opaque);
+        vga_graphic_refresh(s, redraw_func, opaque, full_update);
     } else if (s->graphic_mode == 1) {
         vga_text_refresh(s, redraw_func, opaque, full_update);
     }
