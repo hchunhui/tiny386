@@ -49,7 +49,7 @@ static uint32_t get_uticks()
 typedef CPUKVM CPU;
 void *bigmalloc(size_t size)
 {
-	return mmap(NULL, conf->mem_size, PROT_READ | PROT_WRITE,
+	return mmap(NULL, size, PROT_READ | PROT_WRITE,
 		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 }
 #else
@@ -1039,7 +1039,7 @@ static void load_bios_and_reset(PC *pc)
 		load(pc, pc->bios, 0xe0000);
 	if (pc->vga_bios && pc->vga_bios[0])
 		load(pc, pc->vga_bios, 0xc0000);
-
+#ifndef USEKVM
 	if (pc->kernel && pc->kernel[0]) {
 		int start_addr = 0x10000;
 		int cmdline_addr = 0xf800;
@@ -1061,7 +1061,7 @@ static void load_bios_and_reset(PC *pc)
 	} else {
 		cpui386_reset(pc->cpu);
 	}
-
+#endif
 }
 
 static long parse_mem_size(const char *value)
