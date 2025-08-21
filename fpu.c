@@ -782,7 +782,8 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 			temp = fpget(fpu, 0);
 			switch (i) {
 			case 0: // FCHS
-				fpset(fpu, 0, copysign(temp, -1.0));
+				fpset(fpu, 0, copysign(temp,
+						       signbit(temp) ? 1.0 : -1.0));
 				break;
 			case 1: // FABS
 				fpset(fpu, 0, fabs(temp));
