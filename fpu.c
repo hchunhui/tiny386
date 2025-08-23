@@ -102,8 +102,6 @@ static double fromf80(F80 f80)
 #else
 // if USE_FLOAT80 is defined, we have native f80 support (e.g. x87)
 #include <tgmath.h>
-#define double long double
-#define sincos sincosl
 
 union union80 {
 	__float80 f;
@@ -121,6 +119,9 @@ static long double fromf80(F80 f80)
 	union union80 u = { .f80 = f80 };
 	return u.f;
 }
+
+#define double long double
+#define sincos sincosl
 #endif
 
 struct FPU {
