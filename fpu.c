@@ -130,7 +130,8 @@ struct FPU {
 
 	double st[8];
 	F80 rawst[8];
-	u8 rawtag;
+	u8 rawtagr;
+	u8 rawtagw;
 };
 
 static u16 getsw(FPU *fpu)
@@ -156,9 +157,9 @@ static double fpget(FPU *fpu, int i)
 {
 	unsigned int idx = (fpu->top + i) & 7;
 	unsigned int mask = 1 << idx;
-	if (fpu->rawtag & mask) {
+	if (!(fpu->rawtagr & mask) && !(fpu->rawtagw & mask)) {
 		fpu->st[idx] = fromf80(fpu->rawst[idx]);
-		fpu->rawtag &= ~mask;
+		fpu->rawtagr |= mask;
 	}
 	return fpu->st[idx];
 }
@@ -168,7 +169,7 @@ static void fpset(FPU *fpu, int i, double val)
 	unsigned int idx = (fpu->top + i) & 7;
 	unsigned int mask = 1 << idx;
 	fpu->st[idx] = val;
-	fpu->rawtag &= ~mask;
+	fpu->rawtagw |= mask;
 }
 
 static void fppush(FPU *fpu, double val)
@@ -649,7 +650,8 @@ bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uin
 				if (!cpu_load16(cpu, seg, start + 8,
 						&fpu->rawst[j].high))
 					return false;
-				fpu->rawtag |= 1 << j;
+				fpu->rawtagr &= ~(1 << j);
+				fpu->rawtagw &= ~(1 << j);
 				start += 10;
 			}
 			break;
@@ -679,9 +681,9 @@ bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uin
 				start += 28;
 			}
 			for (int j = 0; j < 8; j++) {
-				if (!(fpu->rawtag & (1 << j))) {
+				if (fpu->rawtagw & (1 << j)) {
 					fpu->rawst[j] = tof80(fpu->st[j]);
-					fpu->rawtag |= 1 << j;
+					fpu->rawtagw &= ~(1 << j);
 				}
 				if (!cpu_store32(cpu, seg, start,
 						 fpu->rawst[j].mant0))
