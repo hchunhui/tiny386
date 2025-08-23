@@ -1,9 +1,8 @@
 // incomplete x87 emulation, use at your own risk!
-// no exception, no tag word, no float80, no subnormal numbers
+// no exception, no tag word, no float80
 #include "fpu.h"
 #include "i386.h"
 #include <string.h>
-#include <math.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -22,6 +21,8 @@ union union32 {
 	uint32_t i;
 };
 
+#ifndef USE_FLOAT80
+#include <math.h>
 #define BIAS80 16383
 #define BIAS64 1023
 static F80 tof80(double val)
@@ -33,8 +34,12 @@ static F80 tof80(double val)
 	uint64_t mant80 = (v & (((uint64_t) 1 << 52) - 1)) << 11;
 	if (exp == 0) {
 		// zero or subnormal
-		// XXX: subnormal => zero
-		mant80 = 0;
+		if (mant80 != 0) {
+			// subnormal
+			int shift = 64 - __builtin_ffsll(mant80);
+			mant80 <<= shift;
+			exp += BIAS80 - BIAS64 + 1 - shift;
+		}
 	} else if (exp == (1 << 11) - 1) {
 		// inf or nan
 		mant80 |= (uint64_t) 1 << 63;
@@ -61,8 +66,7 @@ static double fromf80(F80 f80)
 
 	uint64_t mant64;
 	if (exp == 0) {
-		// zero or subnormal
-		// XXX: subnormal => zero
+		// f80 subnormal/zero => f64 zero
 		mant64 = 0;
 	} else if (exp == 0x7fff) {
 		// inf or nan
@@ -73,10 +77,16 @@ static double fromf80(F80 f80)
 	} else {
 		// normal
 		exp += BIAS64 - BIAS80;
-		if (exp <= 0) {
+		if (exp <= -52) {
+			// => f64 zero
 			exp = 0;
 			mant64 = 0;
+		} else if (exp <= 0) {
+			// => f64 subnormal
+			mant64 = mant80 >> (12 - exp);
+			exp = 0;
 		} else if (exp >= (1 << 11) - 1) {
+			// => f64 inf
 			exp = (1 << 11) - 1;
 			mant64 = 0;
 		} else {
@@ -89,6 +99,29 @@ static double fromf80(F80 f80)
 	union union64 u = { .i = res };
 	return u.f;
 }
+#else
+// if USE_FLOAT80 is defined, we have native f80 support (e.g. x87)
+#include <tgmath.h>
+#define double long double
+#define sincos sincosl
+
+union union80 {
+	__float80 f;
+	F80 f80;
+};
+
+static F80 tof80(long double val)
+{
+	union union80 u = { .f = val };
+	return u.f80;
+}
+
+static long double fromf80(F80 f80)
+{
+	union union80 u = { .f80 = f80 };
+	return u.f;
+}
+#endif
 
 struct FPU {
 	u16 cw, sw; // TODO: tag word
