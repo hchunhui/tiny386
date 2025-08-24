@@ -22,6 +22,8 @@
 #include "misc.h"
 #include "adlib.h"
 #include "ne2000.h"
+#include "i8257.h"
+#include "sb16.h"
 #include "pci.h"
 
 #include "ini.h"
@@ -107,6 +109,8 @@ typedef struct {
 	PS2MouseState *mouse;
 	AdlibState *adlib;
 	NE2000State *ne2000;
+	I8257State *isa_dma, *isa_hdma;
+	SB16State *sb16;
 
 	I440FXState *i440fx;
 	PCIBus *pcibus;
@@ -208,6 +212,44 @@ u8 pc_io_read(void *o, int addr)
 	case 0x31f:
 		val = ne2000_reset_ioport_read(pc->ne2000, addr);
 		return val;
+	case 0x00: case 0x01: case 0x02: case 0x03:
+	case 0x04: case 0x05: case 0x06: case 0x07:
+		val = i8257_read_chan(pc->isa_dma, addr - 0x00, 1);
+		return val;
+	case 0x08: case 0x09: case 0x0a: case 0x0b:
+	case 0x0c: case 0x0d: case 0x0e: case 0x0f:
+		val = i8257_read_cont(pc->isa_dma, addr - 0x08, 1);
+		return val;
+	case 0x80: case 0x81: case 0x82: case 0x83:
+	case 0x84: case 0x85: case 0x86: case 0x87:
+		val = i8257_read_page(pc->isa_dma, addr - 0x80);
+		return val;
+	case 0x480: case 0x481: case 0x482: case 0x483:
+	case 0x484: case 0x485: case 0x486: case 0x487:
+		val = i8257_read_pageh(pc->isa_dma, addr - 0x480);
+		return val;
+	case 0xc0: case 0xc2: case 0xc4: case 0xc6:
+	case 0xc8: case 0xca: case 0xcc: case 0xce:
+		val = i8257_read_chan(pc->isa_hdma, addr - 0xc0, 1);
+		return val;
+	case 0xd0: case 0xd2: case 0xd4: case 0xd6:
+	case 0xd8: case 0xda: case 0xdc: case 0xde:
+		val = i8257_read_cont(pc->isa_hdma, addr - 0xd0, 1);
+		return val;
+	case 0x88: case 0x89: case 0x8a: case 0x8b:
+	case 0x8c: case 0x8d: case 0x8e: case 0x8f:
+		val = i8257_read_page(pc->isa_hdma, addr - 0x88);
+		return val;
+	case 0x488: case 0x489: case 0x48a: case 0x48b:
+	case 0x48c: case 0x48d: case 0x48e: case 0x48f:
+		val = i8257_read_pageh(pc->isa_hdma, addr - 0x488);
+		return val;
+	case 0x225:
+		val = sb16_mixer_read(pc->sb16, addr);
+		return val;
+	case 0x226: case 0x22a: case 0x22c: case 0x22d: case 0x22e: case 0x22f:
+		val = sb16_dsp_read(pc->sb16, addr);
+		return val;
 	default:
 		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0xff);
 		return 0xff;
@@ -287,8 +329,6 @@ void pc_io_write(void *o, int addr, u8 val)
 	case 0x3e8: case 0x3e9: case 0x3ea: case 0x3eb:
 	case 0x3ec: case 0x3ed: case 0x3ee: case 0x3ef:
 		return;
-	case 0x80:
-		return;
 	case 0x40: case 0x41: case 0x42: case 0x43:
 		i8254_ioport_write(pc->pit, addr, val);
 		return;
@@ -365,6 +405,47 @@ void pc_io_write(void *o, int addr, u8 val)
 		return;
 	case 0x31f:
 		ne2000_reset_ioport_write(pc->ne2000, addr, val);
+		return;
+	case 0x00: case 0x01: case 0x02: case 0x03:
+	case 0x04: case 0x05: case 0x06: case 0x07:
+		i8257_write_chan(pc->isa_dma, addr - 0x00, val, 1);
+		return;
+	case 0x08: case 0x09: case 0x0a: case 0x0b:
+	case 0x0c: case 0x0d: case 0x0e: case 0x0f:
+		i8257_write_cont(pc->isa_dma, addr - 0x08, val, 1);
+		return;
+	case 0x80: case 0x81: case 0x82: case 0x83:
+	case 0x84: case 0x85: case 0x86: case 0x87:
+		i8257_write_page(pc->isa_dma, addr - 0x80, val);
+		return;
+	case 0x480: case 0x481: case 0x482: case 0x483:
+	case 0x484: case 0x485: case 0x486: case 0x487:
+		i8257_write_pageh(pc->isa_dma, addr - 0x480, val);
+		return;
+	case 0xc0: case 0xc2: case 0xc4: case 0xc6:
+	case 0xc8: case 0xca: case 0xcc: case 0xce:
+		i8257_write_chan(pc->isa_hdma, addr - 0xc0, val, 1);
+		return;
+	case 0xd0: case 0xd2: case 0xd4: case 0xd6:
+	case 0xd8: case 0xda: case 0xdc: case 0xde:
+		i8257_write_cont(pc->isa_hdma, addr - 0xd0, val, 1);
+		return;
+	case 0x88: case 0x89: case 0x8a: case 0x8b:
+	case 0x8c: case 0x8d: case 0x8e: case 0x8f:
+		i8257_write_page(pc->isa_hdma, addr - 0x88, val);
+		return;
+	case 0x488: case 0x489: case 0x48a: case 0x48b:
+	case 0x48c: case 0x48d: case 0x48e: case 0x48f:
+		i8257_write_pageh(pc->isa_hdma, addr - 0x488, val);
+		return;
+	case 0x224:
+		sb16_mixer_write_indexb(pc->sb16, addr, val);
+		return;
+	case 0x225:
+		sb16_mixer_write_datab(pc->sb16, addr, val);
+		return;
+	case 0x226: case 0x22c:
+		sb16_dsp_write(pc->sb16, addr, val);
 		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);
@@ -458,6 +539,8 @@ void pc_step(PC *pc)
 		u8250_update(pc->serial);
 	kbd_step(pc->i8042);
 	ne2000_step(pc->ne2000);
+	i8257_dma_run(pc->isa_dma);
+	i8257_dma_run(pc->isa_hdma);
 	pc->poll(pc->redraw_data);
 #ifndef BUILD_ESP32
 	if (refresh) {
@@ -692,6 +775,13 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 			       pc, pc_reset_request);
 	pc->adlib = adlib_new();
 	pc->ne2000 = isa_ne2000_init(0x300, 9, pc->pic, set_irq);
+	pc->isa_dma = i8257_new(pc->phys_mem, pc->phys_mem_size,
+				0x00, 0x80, 0x480, 0);
+	pc->isa_hdma = i8257_new(pc->phys_mem, pc->phys_mem_size,
+				 0xc0, 0x88, 0x488, 1);
+	pc->sb16 = sb16_new(0x220, 5,
+			    pc->isa_dma, pc->isa_hdma,
+			    pc->pic, set_irq);
 
 	pc->port92 = 0x2;
 	pc->shutdown_state = 0;
