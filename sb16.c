@@ -152,6 +152,9 @@ struct SB16State {
     /* mixer state */
     int mixer_nreg;
     uint8_t mixer_regs[256];
+
+    uint8_t e2_valadd;
+    uint8_t e2_valxor;
 };
 
 static void set_audio(void *s, int format, int freq, int nchan)
@@ -848,10 +851,10 @@ static void complete (SB16State *s)
             break;
 
         case 0xe2:
-#ifdef DEBUG
             d0 = dsp_get_data (s);
-            dolog ("E2 = %#x\n", d0);
-#endif
+            s->e2_valadd += ((uint8_t) d0) ^ s->e2_valxor;
+            s->e2_valxor = (s->e2_valxor >> 2) | (s->e2_valxor << 6);
+            i8257_dma_write_memory(s->isa_dma, s->dma, &(s->e2_valadd), 0, 1);
             break;
 
         case 0xe4:
@@ -923,6 +926,9 @@ static void reset (SB16State *s)
     s->highspeed = 0;
     s->v2x6 = 0;
     s->cmd = -1;
+
+    s->e2_valadd = 0xaa;
+    s->e2_valxor = 0x96;
 
     dsp_out_data (s, 0xaa);
     speaker (s, 0);
