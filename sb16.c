@@ -48,13 +48,8 @@ typedef enum {
     AUDIO_FORMAT_S16,
 } AudioFormat;
 
-static void SB_audio_callback (void *opaque, uint8_t *stream, int free);
-
 #ifdef BUILD_ESP32
 static void AUD_set_active_out (void *s, int i)
-{
-}
-static void set_audio0(void *s, int format, int freq, int nchan)
 {
 }
 #else
@@ -62,30 +57,6 @@ static void set_audio0(void *s, int format, int freq, int nchan)
 static void AUD_set_active_out (void *s, int i)
 {
     SDL_PauseAudio(!i);
-}
-static void set_audio0(void *s, int format, int freq, int nchan)
-{
-    int afmt;
-    switch(format) {
-    case AUDIO_FORMAT_U8: afmt = AUDIO_U8; break;
-    case AUDIO_FORMAT_S8: afmt = AUDIO_S8; break;
-    case AUDIO_FORMAT_U16: afmt = AUDIO_U16SYS; break;
-    case AUDIO_FORMAT_S16: afmt = AUDIO_S16SYS; break;
-    default:
-        dolog("bad format %d\n", format);
-        return;
-    }
-    SDL_AudioSpec audio_spec = {0};
-    audio_spec.freq = freq;
-    audio_spec.format = afmt;
-    audio_spec.channels = nchan;
-    audio_spec.samples = 512;
-    audio_spec.callback = SB_audio_callback;
-    audio_spec.userdata = s;
-    fprintf(stderr, "open audio fmt %d freq %d chan %d\n",
-            format, freq, nchan);
-    SDL_CloseAudio();
-    SDL_OpenAudio(&audio_spec, 0);
 }
 #endif
 
@@ -144,7 +115,8 @@ struct SB16State {
     int bytes_per_second;
     int align;
     int audio_free;
-    uint8_t audio_buf[2048];
+#define AUDIO_BUF_LEN 4096
+    uint8_t audio_buf[AUDIO_BUF_LEN];
     int audio_len;
     void *voice;
 
@@ -159,16 +131,8 @@ struct SB16State {
 
 static void set_audio(void *s, int format, int freq, int nchan)
 {
-    SB16State *t = s;
-#ifndef BUILD_ESP32
-    SDL_LockAudio();
-#endif
-    t->audio_free = 512;
-    t->audio_len = 0;
-#ifndef BUILD_ESP32
-    SDL_UnlockAudio();
-#endif
-    set_audio0(s, format, freq, nchan);
+    fprintf(stderr, "audio fmt %d freq %d chan %d\n",
+            format, freq, nchan);
 }
 
 static int magic_of_irq (int irq)
@@ -1203,9 +1167,6 @@ static int write_audio (SB16State *s, int nchan, int dma_pos,
     temp = len;
     net = 0;
 
-#ifndef BUILD_ESP32
-    SDL_LockAudio();
-#endif
     while (temp) {
         int left = dma_len - dma_pos;
         int copied;
@@ -1220,7 +1181,7 @@ static int write_audio (SB16State *s, int nchan, int dma_pos,
 
         copied = i8257_dma_read_memory(isa_dma, nchan, tmpbuf, dma_pos, to_copy);
 
-        int len = 2048 - s->audio_len;
+        int len = AUDIO_BUF_LEN - s->audio_len;
         if (copied < len)
             len = copied;
         if (len) {
@@ -1237,9 +1198,6 @@ static int write_audio (SB16State *s, int nchan, int dma_pos,
             break;
         }
     }
-#ifndef BUILD_ESP32
-    SDL_UnlockAudio();
-#endif
     return net;
 }
 
@@ -1309,20 +1267,167 @@ static int SB_read_DMA (void *opaque, int nchan, int dma_pos, int dma_len)
     return dma_pos;
 }
 
-static void SB_audio_callback (void *opaque, uint8_t *stream, int free)
+static int gcd(int a, int b)
+{
+    while (b != 0) {
+        int temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+static int resample_s16m(int16_t *out, int olen, int os,
+                         int16_t *in, int ilen, int is)
+{
+    int g = gcd(os, is);
+    os = os / g;
+    is = is / g;
+    int uc = os;
+    int dc = is;
+    int i = 0;
+    int j = 0;
+    while (i < ilen && j + 1 < olen) {
+        dc--;
+        if (dc == 0) {
+            dc = is;
+            out[j] = in[i];
+            out[j + 1] = in[i];
+            j += 2;
+        }
+        uc--;
+        if (uc == 0) {
+            uc = os;
+            i++;
+        }
+    }
+    return i;
+}
+
+static int resample_s16s(int16_t *out, int olen, int os,
+                         int16_t *in, int ilen, int is)
+{
+    int g = gcd(os, is);
+    os = os / g;
+    is = is / g;
+    int uc = os;
+    int dc = is;
+    int i = 0;
+    int j = 0;
+    while (i + 1 < ilen && j + 1 < olen) {
+        dc--;
+        if (dc == 0) {
+            dc = is;
+            out[j] = in[i];
+            out[j + 1] = in[i + 1];
+            j += 2;
+        }
+        uc--;
+        if (uc == 0) {
+            uc = os;
+            i += 2;
+        }
+    }
+    return i;
+}
+
+static int resample_u8m(int16_t *out, int olen, int os,
+                        uint8_t *in, int ilen, int is)
+{
+    int g = gcd(os, is);
+    os = os / g;
+    is = is / g;
+    int uc = os;
+    int dc = is;
+    int i = 0;
+    int j = 0;
+    while (i < ilen && j + 1 < olen) {
+        dc--;
+        if (dc == 0) {
+            dc = is;
+            int8_t d = in[i] - 128;
+            out[j] = d << 8;
+            out[j + 1] = out[j];
+            j += 2;
+        }
+        uc--;
+        if (uc == 0) {
+            uc = os;
+            i++;
+        }
+    }
+    return i;
+}
+
+static int resample_u8s(int16_t *out, int olen, int os,
+                        uint8_t *in, int ilen, int is)
+{
+    int g = gcd(os, is);
+    os = os / g;
+    is = is / g;
+    int uc = os;
+    int dc = is;
+    int i = 0;
+    int j = 0;
+    while (i + 1 < ilen && j + 1 < olen) {
+        dc--;
+        if (dc == 0) {
+            dc = is;
+            int8_t d;
+            d = in[i] - 128;
+            out[j] = d << 8;
+            d = in[i + 1] - 128;
+            out[j + 1] = d << 8;
+            j += 2;
+        }
+        uc--;
+        if (uc == 0) {
+            uc = os;
+            i += 2;
+        }
+    }
+    return i;
+}
+
+void sb16_audio_callback (void *opaque, uint8_t *stream, int free)
 {
     SB16State *s = opaque;
-    int len = s->audio_len;
-    if (free < len)
-        len = free;
-//    if (len) {
-//        dolog("audio_callback free = %d audio_len = %d, len = %d\n",
-//              free, s->audio_len, len);
-//    }
-    memcpy(stream, s->audio_buf, len);
-    memmove(s->audio_buf, s->audio_buf + len, s->audio_len - len);
-    s->audio_len -= len;
-    s->audio_free = free;
+    if (s->audio_len < 0 || s->audio_len > AUDIO_BUF_LEN) {
+        s->audio_len = 0;
+        return;
+    }
+
+    int i;
+    switch (s->fmt) {
+    case AUDIO_FORMAT_S16:
+        if (s->fmt_stereo) {
+            i = resample_s16s((int16_t *) stream, free / 2, 44100,
+                              (int16_t *) s->audio_buf, s->audio_len / 2, s->freq);
+        } else {
+            i = resample_s16m((int16_t *) stream, free / 2, 44100,
+                              (int16_t *) s->audio_buf, s->audio_len / 2, s->freq);
+        }
+        i *= 2;
+        memmove(s->audio_buf, s->audio_buf + i, s->audio_len - i);
+        s->audio_len -= i;
+        s->audio_free = free;
+        break;
+    case AUDIO_FORMAT_U8:
+        if (s->fmt_stereo) {
+            i = resample_u8s((int16_t *) stream, free / 2, 44100,
+                             s->audio_buf, s->audio_len, s->freq);
+        } else {
+            i = resample_u8m((int16_t *) stream, free / 2, 44100,
+                             s->audio_buf, s->audio_len, s->freq);
+        }
+        memmove(s->audio_buf, s->audio_buf + i, s->audio_len - i);
+        s->audio_len -= i;
+        s->audio_free = free;
+        break;
+    default:
+        dolog("bad format %d\n", s->fmt);
+        s->audio_len = 0;
+    }
 }
 
 static int sb16_post_load (void *opaque, int version_id)

@@ -194,6 +194,7 @@ u8 pc_io_read(void *o, int addr)
 		return val;
 	case 0x61:
 		return 0xff;
+	case 0x220: case 0x221:
 	case 0x228: case 0x229:
 	case 0x388: case 0x389: case 0x38a:
 		return adlib_read(pc->adlib, addr);
@@ -280,6 +281,8 @@ u16 pc_io_read16(void *o, int addr)
 	case 0x310:
 		val = ne2000_asic_ioport_read(pc->ne2000, addr);
 		return val;
+	case 0x220:
+		return 0xffff;
 	default:
 		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0xffff);
 		return 0xffff;
@@ -374,6 +377,9 @@ void pc_io_write(void *o, int addr, u8 val)
 		return;
 	case 0x61:
 		return;
+	case 0x222:
+		return;
+	case 0x220: case 0x221:
 	case 0x228: case 0x229:
 	case 0x388: case 0x389: case 0x38a:
 		adlib_write(pc->adlib, addr, val);
@@ -1041,15 +1047,41 @@ static void poll(void *opaque)
 	}
 }
 
+void mixer_callback (void *opaque, uint8_t *stream, int free)
+{
+	static uint8_t tmpbuf[2048];
+	PC *pc = opaque;
+	assert(free / 2 < 2048);
+	memset(tmpbuf, 0, 4096);
+	adlib_callback(pc->adlib, tmpbuf, free / 2); // s16, mono
+	sb16_audio_callback(pc->sb16, stream, free); // s16, stereo
+
+	int16_t *d2 = (int16_t *) stream;
+	int16_t *d1 = (int16_t *) tmpbuf;
+	for (int i = 0; i < free / 2; i++) {
+		int res = d2[i] + d1[i / 2];
+		if (res > 32767) res = 32767;
+		if (res < -32768) res = -32768;
+		d2[i] = res;
+	}
+}
+
 void console_set_audio(Console *console)
 {
 	SDL_AudioSpec audio_spec = {0};
 	audio_spec.freq = 44100;
 	audio_spec.format = AUDIO_S16SYS;
+#if 0
 	audio_spec.channels = 1;
-	audio_spec.samples = 1024;
+	audio_spec.samples = 512;
 	audio_spec.callback = adlib_callback;
 	audio_spec.userdata = console->pc->adlib;
+#else
+	audio_spec.channels = 2;
+	audio_spec.samples = 512;
+	audio_spec.callback = mixer_callback;
+	audio_spec.userdata = console->pc;
+#endif
 	SDL_OpenAudio(&audio_spec, 0);
 }
 
