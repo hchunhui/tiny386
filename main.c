@@ -1051,8 +1051,8 @@ void mixer_callback (void *opaque, uint8_t *stream, int free)
 {
 	static uint8_t tmpbuf[2048];
 	PC *pc = opaque;
-	assert(free / 2 < 2048);
-	memset(tmpbuf, 0, 4096);
+	assert(free / 2 <= 2048);
+	memset(tmpbuf, 0, 2048);
 	adlib_callback(pc->adlib, tmpbuf, free / 2); // s16, mono
 	sb16_audio_callback(pc->sb16, stream, free); // s16, stereo
 
