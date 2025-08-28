@@ -194,9 +194,9 @@ u8 pc_io_read(void *o, int addr)
 		return val;
 	case 0x61:
 		return 0xff;
-	case 0x220: case 0x221:
+	case 0x220: case 0x221: case 0x222: case 0x223:
 	case 0x228: case 0x229:
-	case 0x388: case 0x389: case 0x38a:
+	case 0x388: case 0x389: case 0x38a: case 0x38b:
 		return adlib_read(pc->adlib, addr);
 	case 0xcfc: case 0xcfd: case 0xcfe: case 0xcff:
 		val = i440fx_read_data(pc->i440fx, addr - 0xcfc, 0);
@@ -282,7 +282,7 @@ u16 pc_io_read16(void *o, int addr)
 		val = ne2000_asic_ioport_read(pc->ne2000, addr);
 		return val;
 	case 0x220:
-		return 0xffff;
+		return adlib_read(pc->adlib, addr);
 	default:
 		fprintf(stderr, "inw 0x%x <= 0x%x\n", addr, 0xffff);
 		return 0xffff;
@@ -377,11 +377,9 @@ void pc_io_write(void *o, int addr, u8 val)
 		return;
 	case 0x61:
 		return;
-	case 0x222:
-		return;
-	case 0x220: case 0x221:
+	case 0x220: case 0x221: case 0x222: case 0x223:
 	case 0x228: case 0x229:
-	case 0x388: case 0x389: case 0x38a:
+	case 0x388: case 0x389: case 0x38a: case 0x38b:
 		adlib_write(pc->adlib, addr, val);
 		return;
 	case 0x8900:
