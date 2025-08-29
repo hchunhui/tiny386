@@ -24,6 +24,7 @@
 #include "ne2000.h"
 #include "i8257.h"
 #include "sb16.h"
+#include "pcspk.h"
 #include "pci.h"
 
 #include "ini.h"
@@ -111,6 +112,7 @@ typedef struct {
 	NE2000State *ne2000;
 	I8257State *isa_dma, *isa_hdma;
 	SB16State *sb16;
+	PCSpkState *pcspk;
 
 	I440FXState *i440fx;
 	PCIBus *pcibus;
@@ -154,7 +156,12 @@ u8 pc_io_read(void *o, int addr)
 	case 0x3e8: case 0x3e9: case 0x3ea: case 0x3eb:
 	case 0x3ec: case 0x3ed: case 0x3ee: case 0x3ef:
 		return 0;
-	case 0x40: case 0x41: case 0x42: case 0x43:
+	case 0x42:
+		/* read delay for PIT channel 2 */
+		/* certain guest code needs it to drive pc speaker properly */
+		usleep(0);
+		/* fall through */
+	case 0x40: case 0x41: case 0x43:
 		val = i8254_ioport_read(pc->pit, addr);
 		return val;
 	case 0x70: case 0x71:
@@ -193,7 +200,8 @@ u8 pc_io_read(void *o, int addr)
 		val = kbd_read_status(pc->i8042, addr);
 		return val;
 	case 0x61:
-		return 0xff;
+		val = pcspk_ioport_read(pc->pcspk);
+		return val;
 	case 0x220: case 0x221: case 0x222: case 0x223:
 	case 0x228: case 0x229:
 	case 0x388: case 0x389: case 0x38a: case 0x38b:
@@ -376,6 +384,7 @@ void pc_io_write(void *o, int addr, u8 val)
 		kbd_write_command(pc->i8042, addr, val);
 		return;
 	case 0x61:
+		pcspk_ioport_write(pc->pcspk, val);
 		return;
 	case 0x220: case 0x221: case 0x222: case 0x223:
 	case 0x228: case 0x229:
@@ -786,6 +795,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->sb16 = sb16_new(0x220, 5,
 			    pc->isa_dma, pc->isa_hdma,
 			    pc->pic, set_irq);
+	pc->pcspk = pcspk_init(pc->pit);
 
 	pc->port92 = 0x2;
 	pc->shutdown_state = 0;
@@ -1048,16 +1058,20 @@ static void poll(void *opaque)
 void mixer_callback (void *opaque, uint8_t *stream, int free)
 {
 	static uint8_t tmpbuf[2048];
+	static uint8_t tmpbuf2[1024];
 	PC *pc = opaque;
 	assert(free / 2 <= 2048);
 	memset(tmpbuf, 0, 2048);
+	memset(tmpbuf2, 0x80, 1024);
 	adlib_callback(pc->adlib, tmpbuf, free / 2); // s16, mono
 	sb16_audio_callback(pc->sb16, stream, free); // s16, stereo
+	pcspk_callback(pc->pcspk, tmpbuf2, free / 4); // u8, mono
 
 	int16_t *d2 = (int16_t *) stream;
 	int16_t *d1 = (int16_t *) tmpbuf;
 	for (int i = 0; i < free / 2; i++) {
 		int res = d2[i] + d1[i / 2];
+		res += ((int) tmpbuf2[i / 2] - 0x80) << 8;
 		if (res > 32767) res = 32767;
 		if (res < -32768) res = -32768;
 		d2[i] = res;
