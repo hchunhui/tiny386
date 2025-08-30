@@ -314,3 +314,58 @@ PITState *i8254_init(int irq, void *pic, void (*set_irq)(void *pic, int irq, int
 	pit->channels[0].irq = irq;
 	return pit;
 }
+
+int pit_get_out(PITState *pit, int channel)
+{
+	PITChannelState *s = &pit->channels[channel];
+	uint32_t uticks = get_uticks();
+	return pit_get_out1(s, uticks);
+}
+
+int pit_get_gate(PITState *pit, int channel)
+{
+	PITChannelState *s = &pit->channels[channel];
+	return s->gate;
+}
+
+/* val must be 0 or 1 */
+void pit_set_gate(PITState *pit, int channel, int val)
+{
+	PITChannelState *s = &pit->channels[channel];
+
+	switch(s->mode) {
+	default:
+	case 0:
+	case 4:
+		/* XXX: just disable/enable counting */
+		break;
+	case 1:
+	case 5:
+		if (s->gate < val) {
+			/* restart counting on rising edge */
+			s->count_load_time = get_uticks();
+		}
+		break;
+	case 2:
+	case 3:
+		if (s->gate < val) {
+			/* restart counting on rising edge */
+			s->count_load_time = get_uticks();
+		}
+		/* XXX: disable/enable counting */
+		break;
+	}
+	s->gate = val;
+}
+
+int pit_get_initial_count(PITState *pit, int channel)
+{
+	PITChannelState *s = &pit->channels[channel];
+	return s->count;
+}
+
+int pit_get_mode(PITState *pit, int channel)
+{
+	PITChannelState *s = &pit->channels[channel];
+	return s->mode;
+}
