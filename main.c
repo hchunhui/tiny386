@@ -1058,23 +1058,31 @@ static void poll(void *opaque)
 void mixer_callback (void *opaque, uint8_t *stream, int free)
 {
 	static uint8_t tmpbuf[2048];
-	static uint8_t tmpbuf2[1024];
 	PC *pc = opaque;
 	assert(free / 2 <= 2048);
 	memset(tmpbuf, 0, 2048);
-	memset(tmpbuf2, 0x80, 1024);
 	adlib_callback(pc->adlib, tmpbuf, free / 2); // s16, mono
 	sb16_audio_callback(pc->sb16, stream, free); // s16, stereo
-	pcspk_callback(pc->pcspk, tmpbuf2, free / 4); // u8, mono
 
 	int16_t *d2 = (int16_t *) stream;
 	int16_t *d1 = (int16_t *) tmpbuf;
 	for (int i = 0; i < free / 2; i++) {
 		int res = d2[i] + d1[i / 2];
-		res += ((int) tmpbuf2[i / 2] - 0x80) << 8;
 		if (res > 32767) res = 32767;
 		if (res < -32768) res = -32768;
 		d2[i] = res;
+	}
+
+	if (pcspk_get_active_out(pc->pcspk)) {
+		memset(tmpbuf, 0x80, 1024);
+		pcspk_callback(pc->pcspk, tmpbuf, free / 4); // u8, mono
+		for (int i = 0; i < free / 2; i++) {
+			int res = d2[i];
+			res += ((int) tmpbuf[i / 2] - 0x80) << 5;
+			if (res > 32767) res = 32767;
+			if (res < -32768) res = -32768;
+			d2[i] = res;
+		}
 	}
 }
 
@@ -1083,18 +1091,12 @@ void console_set_audio(Console *console)
 	SDL_AudioSpec audio_spec = {0};
 	audio_spec.freq = 44100;
 	audio_spec.format = AUDIO_S16SYS;
-#if 0
-	audio_spec.channels = 1;
-	audio_spec.samples = 512;
-	audio_spec.callback = adlib_callback;
-	audio_spec.userdata = console->pc->adlib;
-#else
 	audio_spec.channels = 2;
 	audio_spec.samples = 512;
 	audio_spec.callback = mixer_callback;
 	audio_spec.userdata = console->pc;
-#endif
 	SDL_OpenAudio(&audio_spec, 0);
+	SDL_PauseAudio(0);
 }
 
 u8 *console_get_fb(Console *console)

@@ -48,18 +48,6 @@ typedef enum {
     AUDIO_FORMAT_S16,
 } AudioFormat;
 
-#ifdef BUILD_ESP32
-static void AUD_set_active_out (void *s, int i)
-{
-}
-#else
-#include <SDL.h>
-static void AUD_set_active_out (void *s, int i)
-{
-    SDL_PauseAudio(!i);
-}
-#endif
-
 static const char e3[] = "COPYRIGHT (C) CREATIVE TECHNOLOGY LTD, 1992.";
 
 struct SB16State {
@@ -117,8 +105,9 @@ struct SB16State {
     int audio_free;
 #define AUDIO_BUF_LEN 4096
     uint8_t audio_buf[AUDIO_BUF_LEN];
-    int audio_len;
+    unsigned int audio_p, audio_q;
     void *voice;
+    int active_out;
 
 //    QEMUTimer *aux_ts;
     /* mixer state */
@@ -128,6 +117,11 @@ struct SB16State {
     uint8_t e2_valadd;
     uint8_t e2_valxor;
 };
+
+static void AUD_set_active_out (SB16State *s, int i)
+{
+    s->active_out = i;
+}
 
 static void set_audio(void *s, int format, int freq, int nchan)
 {
@@ -222,7 +216,7 @@ static void continue_dma8 (SB16State *s)
 {
     if (s->freq > 0) {
         set_audio(s, s->fmt, s->freq, 1 << s->fmt_stereo);
-        s->voice = (void *) 1;
+        s->voice = s;
     }
 
     control (s, 1);
@@ -352,7 +346,7 @@ static void dma_cmd (SB16State *s, uint8_t cmd, uint8_t d0, int dma_len)
 
     if (s->freq) {
         set_audio(s, s->fmt, s->freq, 1 << s->fmt_stereo);
-        s->voice = (void *) 1;
+        s->voice = s;
     }
 
     control (s, 1);
@@ -865,7 +859,7 @@ static void legacy_reset (SB16State *s)
     s->fmt_bits = 8;
     s->fmt_stereo = 0;
     set_audio(s, AUDIO_FORMAT_U8, s->freq, 1);
-    s->voice = (void *) 1;
+    s->voice = s;
 
     /* Not sure about that... */
     /* AUD_set_active_out (s->voice, 1); */
@@ -1181,12 +1175,21 @@ static int write_audio (SB16State *s, int nchan, int dma_pos,
 
         copied = i8257_dma_read_memory(isa_dma, nchan, tmpbuf, dma_pos, to_copy);
 
-        int len = AUDIO_BUF_LEN - s->audio_len;
+        unsigned int len = AUDIO_BUF_LEN - (s->audio_q - s->audio_p);
+        if (len > AUDIO_BUF_LEN)
+            len = 0;
         if (copied < len)
             len = copied;
         if (len) {
-            memcpy(s->audio_buf + s->audio_len, tmpbuf, len);
-            s->audio_len += len;
+            unsigned int q = s->audio_q % AUDIO_BUF_LEN;
+            if (q + len < AUDIO_BUF_LEN) {
+                memcpy(s->audio_buf + q, tmpbuf, len);
+            } else {
+                unsigned int r = AUDIO_BUF_LEN - q;
+                memcpy(s->audio_buf + q, tmpbuf, r);
+                memcpy(s->audio_buf, tmpbuf + r, len - r);
+            }
+            s->audio_q += len;
         }
         copied = len;
 
@@ -1278,7 +1281,7 @@ static int gcd(int a, int b)
 }
 
 static int resample_s16m(int16_t *out, int olen, int os,
-                         int16_t *in, int ilen, int is)
+                         int16_t *in, int ip, int ilen, int itlen, int is)
 {
     int g = gcd(os, is);
     os = os / g;
@@ -1291,8 +1294,7 @@ static int resample_s16m(int16_t *out, int olen, int os,
         dc--;
         if (dc == 0) {
             dc = is;
-            out[j] = in[i];
-            out[j + 1] = in[i];
+            out[j + 1] = out[j] = in[(ip + i) % itlen];
             j += 2;
         }
         uc--;
@@ -1305,7 +1307,7 @@ static int resample_s16m(int16_t *out, int olen, int os,
 }
 
 static int resample_s16s(int16_t *out, int olen, int os,
-                         int16_t *in, int ilen, int is)
+                         int16_t *in, int ip, int ilen, int itlen, int is)
 {
     int g = gcd(os, is);
     os = os / g;
@@ -1318,8 +1320,8 @@ static int resample_s16s(int16_t *out, int olen, int os,
         dc--;
         if (dc == 0) {
             dc = is;
-            out[j] = in[i];
-            out[j + 1] = in[i + 1];
+            out[j] = in[(ip + i) % itlen];
+            out[j + 1] = in[(ip + i + 1) % itlen];
             j += 2;
         }
         uc--;
@@ -1332,7 +1334,7 @@ static int resample_s16s(int16_t *out, int olen, int os,
 }
 
 static int resample_u8m(int16_t *out, int olen, int os,
-                        uint8_t *in, int ilen, int is)
+                        uint8_t *in, int ip, int ilen, int itlen, int is)
 {
     int g = gcd(os, is);
     os = os / g;
@@ -1345,7 +1347,7 @@ static int resample_u8m(int16_t *out, int olen, int os,
         dc--;
         if (dc == 0) {
             dc = is;
-            int8_t d = in[i] - 128;
+            int8_t d = in[(ip + i) % itlen] - 128;
             out[j] = d << 8;
             out[j + 1] = out[j];
             j += 2;
@@ -1360,7 +1362,7 @@ static int resample_u8m(int16_t *out, int olen, int os,
 }
 
 static int resample_u8s(int16_t *out, int olen, int os,
-                        uint8_t *in, int ilen, int is)
+                        uint8_t *in, int ip, int ilen, int itlen, int is)
 {
     int g = gcd(os, is);
     os = os / g;
@@ -1374,9 +1376,9 @@ static int resample_u8s(int16_t *out, int olen, int os,
         if (dc == 0) {
             dc = is;
             int8_t d;
-            d = in[i] - 128;
+            d = in[(ip + i) % itlen] - 128;
             out[j] = d << 8;
-            d = in[i + 1] - 128;
+            d = in[(ip + i + 1) % itlen] - 128;
             out[j + 1] = d << 8;
             j += 2;
         }
@@ -1392,41 +1394,47 @@ static int resample_u8s(int16_t *out, int olen, int os,
 void sb16_audio_callback (void *opaque, uint8_t *stream, int free)
 {
     SB16State *s = opaque;
-    if (s->audio_len < 0 || s->audio_len > AUDIO_BUF_LEN) {
-        s->audio_len = 0;
+    s->audio_free = free;
+
+    if (!s->active_out)
+        return;
+
+    unsigned int len = s->audio_q - s->audio_p;
+    if (len > AUDIO_BUF_LEN) {
+        s->audio_p = s->audio_q;
         return;
     }
+
+    unsigned int p = s->audio_p % AUDIO_BUF_LEN;
 
     int i;
     switch (s->fmt) {
     case AUDIO_FORMAT_S16:
         if (s->fmt_stereo) {
             i = resample_s16s((int16_t *) stream, free / 2, 44100,
-                              (int16_t *) s->audio_buf, s->audio_len / 2, s->freq);
+                              (int16_t *) s->audio_buf, p / 2, len / 2,
+                              AUDIO_BUF_LEN / 2, s->freq);
         } else {
             i = resample_s16m((int16_t *) stream, free / 2, 44100,
-                              (int16_t *) s->audio_buf, s->audio_len / 2, s->freq);
+                              (int16_t *) s->audio_buf, p / 2, len / 2,
+                              AUDIO_BUF_LEN / 2, s->freq);
         }
         i *= 2;
-        memmove(s->audio_buf, s->audio_buf + i, s->audio_len - i);
-        s->audio_len -= i;
-        s->audio_free = free;
+        s->audio_p += i;
         break;
     case AUDIO_FORMAT_U8:
         if (s->fmt_stereo) {
             i = resample_u8s((int16_t *) stream, free / 2, 44100,
-                             s->audio_buf, s->audio_len, s->freq);
+                             s->audio_buf, p, len, AUDIO_BUF_LEN, s->freq);
         } else {
             i = resample_u8m((int16_t *) stream, free / 2, 44100,
-                             s->audio_buf, s->audio_len, s->freq);
+                             s->audio_buf, p, len, AUDIO_BUF_LEN, s->freq);
         }
-        memmove(s->audio_buf, s->audio_buf + i, s->audio_len - i);
-        s->audio_len -= i;
-        s->audio_free = free;
+        s->audio_p += i;
         break;
     default:
         dolog("bad format %d\n", s->fmt);
-        s->audio_len = 0;
+        s->audio_p = s->audio_q;
     }
 }
 
@@ -1442,7 +1450,7 @@ static int sb16_post_load (void *opaque, int version_id)
     if (s->dma_running) {
         if (s->freq) {
             set_audio(s, s->fmt, s->freq, 1 << s->fmt_stereo);
-            s->voice = (void *) 1;
+            s->voice = s;
         }
 
         control (s, 1);
@@ -1473,6 +1481,7 @@ SB16State *sb16_new(
 {
     SB16State *s = malloc(sizeof(SB16State));
     memset(s, 0, sizeof(SB16State));
+    s->voice = s;
 
     s->ver = 0x0405;
     s->port = port;

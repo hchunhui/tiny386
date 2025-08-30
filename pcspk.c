@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PCSPK_BUF_LEN 2048
+#define PCSPK_BUF_LEN 1792
 //#define PCSPK_SAMPLE_RATE 32000
 #define PCSPK_SAMPLE_RATE 44100
 #define PCSPK_MAX_FREQ (PCSPK_SAMPLE_RATE >> 1)
@@ -42,6 +42,7 @@ struct PCSpkState {
     unsigned int play_pos;
     int data_on;
     int dummy_refresh_clock;
+    int active_out;
 };
 
 static inline void generate_samples(PCSpkState *s)
@@ -86,16 +87,18 @@ void pcspk_callback(void *opaque, uint8_t *stream, int free)
         generate_samples(s);
     }
 
+    int k = 0;
     while (free > 0) {
         n = s->samples - s->play_pos;
         if (n > free)
             n = free;
-        memcpy(stream, &s->sample_buf[s->play_pos], n);
+        memcpy(stream + k, &s->sample_buf[s->play_pos], n);
 //        n = AUD_write(s->voice, &s->sample_buf[s->play_pos], n);
         if (!n)
             break;
         s->play_pos = (s->play_pos + n) % s->samples;
         free -= n;
+        k += n;
     }
 }
 
@@ -110,17 +113,10 @@ uint32_t pcspk_ioport_read(void *opaque)
     return pit_get_gate(s->pit, 2) | (s->data_on << 1) | s->dummy_refresh_clock | out;
 }
 
-#ifdef BUILD_ESP32
-static void AUD_set_active_out (void *s, int i)
+static void AUD_set_active_out (PCSpkState *s, int i)
 {
+    s->active_out = i;
 }
-#else
-#include <SDL.h>
-static void AUD_set_active_out (void *s, int i)
-{
-    SDL_PauseAudio(!i);
-}
-#endif
 
 void pcspk_ioport_write(void *opaque, uint32_t val)
 {
@@ -135,8 +131,13 @@ void pcspk_ioport_write(void *opaque, uint32_t val)
 
     int newout = gate & s->data_on;
     if (oldout != newout) {
-        AUD_set_active_out(0, gate & s->data_on);
+        AUD_set_active_out(s, gate & s->data_on);
     }
+}
+
+int pcspk_get_active_out(PCSpkState *s)
+{
+    return s->active_out;
 }
 
 PCSpkState *pcspk_init(PITState *pit)

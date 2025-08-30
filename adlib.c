@@ -24,6 +24,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <stdlib.h>
 #include "adlib.h"
 
@@ -47,18 +48,6 @@
 
 #include "fmopl.h"
 #define SHIFT 1
-
-#ifdef BUILD_ESP32
-static void AUD_set_active_out (void *s, int i)
-{
-}
-#else
-#include <SDL.h>
-static void AUD_set_active_out (void *s, int i)
-{
-    SDL_PauseAudio(!i);
-}
-#endif
 
 struct AdlibState {
     uint32_t freq;
@@ -96,7 +85,7 @@ void adlib_write(void *opaque, uint32_t nport, uint32_t val)
     int a = nport & 3;
 
     s->active = 1;
-    AUD_set_active_out (s->voice, 1);
+//    AUD_set_active_out (s->voice, 1);
 
     adlib_kill_timers (s);
 
