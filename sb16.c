@@ -29,6 +29,12 @@
 #include <string.h>
 #include "i8257.h"
 
+#ifdef BUILD_ESP32
+void *pcmalloc(long size);
+#else
+#define pcmalloc malloc
+#endif
+
 #define dolog(...) fprintf(stderr, "sb16: " __VA_ARGS__)
 #define qemu_log_mask(_, ...) fprintf(stderr, "sb16: " __VA_ARGS__)
 
@@ -1479,7 +1485,7 @@ SB16State *sb16_new(
     void *pic,
     void (*set_irq)(void *pic, int irq, int level))
 {
-    SB16State *s = malloc(sizeof(SB16State));
+    SB16State *s = pcmalloc(sizeof(SB16State));
     memset(s, 0, sizeof(SB16State));
     s->voice = s;
 

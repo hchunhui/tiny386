@@ -26,6 +26,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef BUILD_ESP32
+void *pcmalloc(long size);
+#else
+#define pcmalloc malloc
+#endif
+
 #define PCSPK_BUF_LEN 1792
 //#define PCSPK_SAMPLE_RATE 32000
 #define PCSPK_SAMPLE_RATE 44100
@@ -142,7 +148,7 @@ int pcspk_get_active_out(PCSpkState *s)
 
 PCSpkState *pcspk_init(PITState *pit)
 {
-    PCSpkState *s = malloc(sizeof(PCSpkState));
+    PCSpkState *s = pcmalloc(sizeof(PCSpkState));
     memset(s, 0, sizeof(PCSpkState));
 
     s->pit = pit;

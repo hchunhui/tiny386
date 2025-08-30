@@ -796,11 +796,46 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 			    pc->isa_dma, pc->isa_hdma,
 			    pc->pic, set_irq);
 	pc->pcspk = pcspk_init(pc->pit);
-
 	pc->port92 = 0x2;
 	pc->shutdown_state = 0;
 	pc->reset_request = 0;
 	return pc;
+}
+
+#ifdef BUILD_ESP32
+#define MIXER_BUF_LEN 128
+#else
+#define MIXER_BUF_LEN 2048
+#endif
+void mixer_callback (void *opaque, uint8_t *stream, int free)
+{
+	static uint8_t tmpbuf[MIXER_BUF_LEN];
+	PC *pc = opaque;
+	assert(free / 2 <= MIXER_BUF_LEN);
+	memset(tmpbuf, 0, MIXER_BUF_LEN);
+	adlib_callback(pc->adlib, tmpbuf, free / 2); // s16, mono
+	sb16_audio_callback(pc->sb16, stream, free); // s16, stereo
+
+	int16_t *d2 = (int16_t *) stream;
+	int16_t *d1 = (int16_t *) tmpbuf;
+	for (int i = 0; i < free / 2; i++) {
+		int res = d2[i] + d1[i / 2];
+		if (res > 32767) res = 32767;
+		if (res < -32768) res = -32768;
+		d2[i] = res;
+	}
+
+	if (pcspk_get_active_out(pc->pcspk)) {
+		memset(tmpbuf, 0x80, MIXER_BUF_LEN / 2);
+		pcspk_callback(pc->pcspk, tmpbuf, free / 4); // u8, mono
+		for (int i = 0; i < free / 2; i++) {
+			int res = d2[i];
+			res += ((int) tmpbuf[i / 2] - 0x80) << 5;
+			if (res > 32767) res = 32767;
+			if (res < -32768) res = -32768;
+			d2[i] = res;
+		}
+	}
 }
 
 #ifdef BUILD_ESP32
@@ -1055,37 +1090,6 @@ static void poll(void *opaque)
 	}
 }
 
-void mixer_callback (void *opaque, uint8_t *stream, int free)
-{
-	static uint8_t tmpbuf[2048];
-	PC *pc = opaque;
-	assert(free / 2 <= 2048);
-	memset(tmpbuf, 0, 2048);
-	adlib_callback(pc->adlib, tmpbuf, free / 2); // s16, mono
-	sb16_audio_callback(pc->sb16, stream, free); // s16, stereo
-
-	int16_t *d2 = (int16_t *) stream;
-	int16_t *d1 = (int16_t *) tmpbuf;
-	for (int i = 0; i < free / 2; i++) {
-		int res = d2[i] + d1[i / 2];
-		if (res > 32767) res = 32767;
-		if (res < -32768) res = -32768;
-		d2[i] = res;
-	}
-
-	if (pcspk_get_active_out(pc->pcspk)) {
-		memset(tmpbuf, 0x80, 1024);
-		pcspk_callback(pc->pcspk, tmpbuf, free / 4); // u8, mono
-		for (int i = 0; i < free / 2; i++) {
-			int res = d2[i];
-			res += ((int) tmpbuf[i / 2] - 0x80) << 5;
-			if (res > 32767) res = 32767;
-			if (res < -32768) res = -32768;
-			d2[i] = res;
-		}
-	}
-}
-
 void console_set_audio(Console *console)
 {
 	SDL_AudioSpec audio_spec = {0};
@@ -1271,7 +1275,6 @@ static int parse_conf_ini(void* user, const char* section,
 extern void *thepc;
 extern void *thekbd;
 extern void *themouse;
-extern void *theadlib;
 int main(int argc, char *argv[])
 {
 	struct pcconfig conf;
@@ -1299,7 +1302,6 @@ int main(int argc, char *argv[])
 	thepc = pc;
 	thekbd = pc->kbd;
 	themouse = pc->mouse;
-	theadlib = pc->adlib;
 
 	load_bios_and_reset(pc);
 

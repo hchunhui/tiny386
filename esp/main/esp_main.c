@@ -245,28 +245,28 @@ void *fbmalloc(long size)
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 
 static i2s_chan_handle_t                tx_chan;        // I2S tx channel handler
-void *theadlib;
-void adlib_callback (void *opaque, uint8_t *stream, int free);
+void *pcmalloc(long size);
+void mixer_callback (void *opaque, uint8_t *stream, int free);
+
 static void i2s_task(void *arg)
 {
 	int core_id = esp_cpu_get_core_id();
 	fprintf(stderr, "i2s runs on core %d\n", core_id);
 
+	while (!thepc)
+		usleep(200000);
+	int16_t *buf = pcmalloc(128 * 2);
 	size_t chunkSize = sizeof(int8_t);
-	int16_t buf[32] = {0};
 
 	i2s_channel_enable(tx_chan);
 	for (;;) {
 		size_t bwritten;
-		if (theadlib) {
-			adlib_callback(theadlib, buf, 32 * 2);
-			for (int i = 0; i < 32; i++) {
-				buf[i] = buf[i] / 16;
-			}
-			i2s_channel_write(tx_chan, buf, 32 * 2, &bwritten, portMAX_DELAY);
-		} else {
-			usleep(200000);
+		memset(buf, 0, 128 * 2);
+		mixer_callback(thepc, buf, 128 * 2);
+		for (int i = 0; i < 128; i++) {
+			buf[i] = buf[i] / 16;
 		}
+		i2s_channel_write(tx_chan, buf, 128 * 2, &bwritten, portMAX_DELAY);
 	}
 	i2s_channel_disable(tx_chan);
 }
@@ -286,8 +286,8 @@ void i2s_main()
 	 * These two helper macros is defined in 'i2s_std.h' which can only be used in STD mode.
 	 * They can help to specify the slot and clock configurations for initialization or re-configuring */
 	i2s_std_config_t tx_std_cfg = {
-		.clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(16000),
-		.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+		.clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(44100),
+		.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
 		.gpio_cfg = {
 			.mclk = I2S_GPIO_UNUSED,    // some codecs may require mclk signal, this example doesn't need it
 			.bclk = 42,
