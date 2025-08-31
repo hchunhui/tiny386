@@ -245,18 +245,16 @@ void *fbmalloc(long size)
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 
 static i2s_chan_handle_t                tx_chan;        // I2S tx channel handler
-void *pcmalloc(long size);
 void mixer_callback (void *opaque, uint8_t *stream, int free);
 
 static void i2s_task(void *arg)
 {
+	static int16_t buf[128];
 	int core_id = esp_cpu_get_core_id();
 	fprintf(stderr, "i2s runs on core %d\n", core_id);
 
 	while (!thepc)
 		usleep(200000);
-	int16_t *buf = pcmalloc(128 * 2);
-	size_t chunkSize = sizeof(int8_t);
 
 	i2s_channel_enable(tx_chan);
 	for (;;) {
@@ -302,7 +300,7 @@ void i2s_main()
 		},
 	};
 	ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
-	xTaskCreatePinnedToCore(i2s_task, "i2s_task", 4096, NULL, 0, NULL, 0);
+	xTaskCreatePinnedToCore(i2s_task, "i2s_task", 4608, NULL, 0, NULL, 0);
 }
 
 void wifi_main();
@@ -400,7 +398,7 @@ void app_main(void)
 	psram = esp_psram_get(&len);
 	psram_len = len;
 	if (psram) {
-		xTaskCreatePinnedToCore(i386_task, "i386_main", 4096, NULL, 3, NULL, 1);
-		xTaskCreatePinnedToCore(vga_task, "vga_task", 4096, NULL, 0, NULL, 0);
+		xTaskCreatePinnedToCore(i386_task, "i386_main", 4608, NULL, 3, NULL, 1);
+		xTaskCreatePinnedToCore(vga_task, "vga_task", 4608, NULL, 0, NULL, 0);
 	}
 }
