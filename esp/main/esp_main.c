@@ -20,6 +20,8 @@
 #include "esp_vfs_fat.h"
 #include "esp_system.h"
 
+#include "sdmmc_cmd.h"
+
 static const char *TAG = "esp_main";
 
 int main(int argc, char *argv[]);
@@ -303,6 +305,8 @@ void i2s_main()
 	xTaskCreatePinnedToCore(i2s_task, "i2s_task", 4608, NULL, 0, NULL, 0);
 }
 
+void *rawsd;
+
 void wifi_main();
 void app_main(void)
 {
@@ -325,10 +329,11 @@ void app_main(void)
 	}
 #endif
 
+#ifndef USE_RAWSD
 	// Options for mounting the filesystem.
 	esp_vfs_fat_sdmmc_mount_config_t sdmount_config = {
 		.format_if_mount_failed = false,
-		.max_files = 5,
+		.max_files = 3,
 		.allocation_unit_size = 16 * 1024
 	};
 	sdmmc_card_t *card;
@@ -379,6 +384,32 @@ void app_main(void)
 	} else {
 		ESP_LOGI(TAG, "Filesystem mounted");
 	}
+#else
+	sdmmc_card_t *card = malloc(sizeof(sdmmc_card_t));
+	memset(card, 0, sizeof(sdmmc_card_t));
+	ESP_LOGI(TAG, "Initializing SD card");
+	ESP_LOGI(TAG, "Using SDMMC peripheral");
+	sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+	host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
+
+	sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+	slot_config.width = 1;
+	slot_config.clk = 12;
+	slot_config.cmd = 11;
+	slot_config.d0 = 13;
+	slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+	esp_err_t ret;
+	ret = host.init();
+	assert(ret == 0);
+	ret = sdmmc_host_init_slot(host.slot, &slot_config);
+	assert(ret == 0);
+	ret = sdmmc_card_init(&host, card);
+	assert(ret == 0);
+	sdmmc_card_print_info(stderr, card);
+#endif
+	rawsd = card;
+
 
 #if 0
 	const esp_vfs_fat_mount_config_t mount_config = {
@@ -398,7 +429,7 @@ void app_main(void)
 	psram = esp_psram_get(&len);
 	psram_len = len;
 	if (psram) {
-		xTaskCreatePinnedToCore(i386_task, "i386_main", 4608, NULL, 3, NULL, 1);
+		xTaskCreatePinnedToCore(i386_task, "i386_main", 5120, NULL, 3, NULL, 1);
 		xTaskCreatePinnedToCore(vga_task, "vga_task", 4608, NULL, 0, NULL, 0);
 	}
 }

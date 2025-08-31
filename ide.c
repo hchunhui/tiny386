@@ -827,7 +827,11 @@ static IDEState *ide_drive_init(IDEIFState *ide_if, BlockDevice *bs)
     uint32_t cylinders;
     uint64_t nb_sectors;
 
+#ifndef USE_RAWSD
     s = pcmalloc(sizeof(*s));
+#else
+    s = malloc(sizeof(*s));
+#endif
     memset(s, 0, sizeof(*s));
 
     s->ide_if = ide_if;
@@ -1046,6 +1050,80 @@ static BlockDevice *block_device_init(const char *filename,
     return bs;
 }
 
+#ifdef BUILD_ESP32
+#include "sdmmc_cmd.h"
+typedef struct BlockDeviceESPSD {
+    sdmmc_card_t *card;
+    int64_t start_sector;
+    int64_t nb_sectors;
+} BlockDeviceESPSD;
+
+static int64_t espsd_get_sector_count(BlockDevice *bs)
+{
+    BlockDeviceESPSD *bf = bs->opaque;
+    return bf->nb_sectors;
+}
+
+//#define DUMP_BLOCK_READ
+
+static int espsd_read_async(BlockDevice *bs,
+                         uint64_t sector_num, uint8_t *buf, int n,
+                         BlockDeviceCompletionFunc *cb, void *opaque)
+{
+    BlockDeviceESPSD *bf = bs->opaque;
+    if (!bf->card)
+        return -1;
+    esp_err_t ret;
+    ret = sdmmc_read_sectors(bf->card, buf, bf->start_sector + sector_num, n);
+    if (ret != 0)
+        return -1;
+    /* synchronous read */
+    return 0;
+}
+
+static int espsd_write_async(BlockDevice *bs,
+                          uint64_t sector_num, const uint8_t *buf, int n,
+                          BlockDeviceCompletionFunc *cb, void *opaque)
+{
+    BlockDeviceESPSD *bf = bs->opaque;
+    if (!bf->card)
+        return -1;
+    esp_err_t ret;
+    ret = sdmmc_write_sectors(bf->card, buf, bf->start_sector + sector_num, n);
+    if (ret != 0)
+        return -1;
+    return 0;
+}
+
+extern void *rawsd;
+static BlockDevice *block_device_init_espsd(int64_t start_sector, int64_t nb_sectors)
+{
+    sdmmc_card_t *card = rawsd;
+    assert(card);
+    assert(card->csd.sector_size == 512);
+    BlockDevice *bs;
+    BlockDeviceESPSD *bf;
+
+    bs = pcmalloc(sizeof(*bs));
+    bf = pcmalloc(sizeof(*bf));
+    memset(bs, 0, sizeof(*bs));
+    memset(bf, 0, sizeof(*bf));
+    bf->card = card;
+    bf->start_sector = start_sector;
+    if (nb_sectors == -1) {
+        bf->nb_sectors = card->csd.capacity;
+    } else {
+        bf->nb_sectors = nb_sectors;
+    }
+    bs->opaque = bf;
+    bs->get_sector_count = espsd_get_sector_count;
+    bs->get_chs = NULL;
+    bs->read_async = espsd_read_async;
+    bs->write_async = espsd_write_async;
+    return bs;
+}
+#endif
+
 IDEIFState *ide_allocate(int irq, void *pic, void (*set_irq)(void *pic, int irq, int level))
 {
     int i;
@@ -1064,7 +1142,16 @@ IDEIFState *ide_allocate(int irq, void *pic, void (*set_irq)(void *pic, int irq,
 
 int ide_attach(IDEIFState *s, int drive, const char *filename)
 {
+#ifdef BUILD_ESP32
+    BlockDevice *bs;
+    if (strcmp(filename, "/dev/mmcblk0") == 0) {
+        bs = block_device_init_espsd(0, -1);
+    } else {
+        bs = block_device_init(filename, BF_MODE_RW);
+    }
+#else
     BlockDevice *bs = block_device_init(filename, BF_MODE_RW);
+#endif
     s->drives[drive] = ide_drive_init(s, bs);
     return 0;
 }
