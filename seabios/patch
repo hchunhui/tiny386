@@ -157,3 +157,17 @@ index e906ab97..e7bae7ab 100644
  }
  
  void
+diff --git a/src/post.c b/src/post.c
+index f93106a1..8594e502 100644
+--- a/src/post.c
++++ b/src/post.c
+@@ -68,6 +68,9 @@ ivt_init(void)
+     // set vector 0x79 to zero
+     // this is used by 'gardian angel' protection system
+     SET_IVT(0x79, SEGOFF(0, 0));
++
++    for (i=0x78; i<=0xff; i++)
++        SET_IVT(i, SEGOFF(0, 0));
+ }
+ 
+ static void
