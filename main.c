@@ -982,11 +982,14 @@ static void sdl_handle_key_event(const SDL_KeyboardEvent *ev, PC *pc)
 
 	keycode = sdl_get_keycode(ev);
 	if (keycode) {
+#if SDL_PATCHLEVEL < 50 /* not sdl12-compat */
 		if (keycode == 0x3a || keycode ==0x45) {
 			/* SDL does not generate key up for numlock & caps lock */
 			ps2_put_keycode(pc->kbd, 1, keycode);
 			ps2_put_keycode(pc->kbd, 0, keycode);
-		} else {
+		} else
+#endif
+		{
 			keypress = (ev->type == SDL_KEYDOWN);
 			if (keycode == 0x1b && keypress &&
 			    (key_pressed[0x1d])) {
