@@ -1100,9 +1100,13 @@ int vga_step(VGAState *s)
     int ret = 0;
     if (after_eq(now, s->retrace_time)) {
         if (s->retrace_phase == 0) {
-            s->st01 |= (ST01_V_RETRACE | ST01_DISP_ENABLE);
+            s->st01 |= ST01_DISP_ENABLE;
             s->retrace_phase = 1;
-            s->retrace_time = now + 1666;
+            s->retrace_time = now + 833;
+        } else if (s->retrace_phase == 1) {
+            s->st01 |= ST01_V_RETRACE;
+            s->retrace_phase = 2;
+            s->retrace_time = now + 833;
             ret = 1;
         } else {
             s->st01 &= ~(ST01_V_RETRACE | ST01_DISP_ENABLE);
