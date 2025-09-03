@@ -251,7 +251,7 @@ void mixer_callback (void *opaque, uint8_t *stream, int free);
 
 static void i2s_task(void *arg)
 {
-	static int16_t buf[128];
+	int16_t buf[128];
 	int core_id = esp_cpu_get_core_id();
 	fprintf(stderr, "i2s runs on core %d\n", core_id);
 
@@ -302,7 +302,7 @@ void i2s_main()
 		},
 	};
 	ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_chan, &tx_std_cfg));
-	xTaskCreatePinnedToCore(i2s_task, "i2s_task", 4608, NULL, 0, NULL, 0);
+	xTaskCreatePinnedToCore(i2s_task, "i2s_task", 4096, NULL, 0, NULL, 0);
 }
 
 void *rawsd;
@@ -429,7 +429,7 @@ void app_main(void)
 	psram = esp_psram_get(&len);
 	psram_len = len;
 	if (psram) {
-		xTaskCreatePinnedToCore(i386_task, "i386_main", 5120, NULL, 3, NULL, 1);
-		xTaskCreatePinnedToCore(vga_task, "vga_task", 4608, NULL, 0, NULL, 0);
+		xTaskCreatePinnedToCore(i386_task, "i386_main", 4096, NULL, 3, NULL, 1);
+		xTaskCreatePinnedToCore(vga_task, "vga_task", 4096, NULL, 0, NULL, 0);
 	}
 }

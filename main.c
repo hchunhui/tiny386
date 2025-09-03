@@ -809,13 +809,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 #endif
 void mixer_callback (void *opaque, uint8_t *stream, int free)
 {
-#ifdef BUILD_ESP32
-	static uint8_t *tmpbuf;
-	if (!tmpbuf)
-		tmpbuf = pcmalloc(MIXER_BUF_LEN);
-#else
-	static uint8_t tmpbuf[MIXER_BUF_LEN];
-#endif
+	uint8_t tmpbuf[MIXER_BUF_LEN];
 	PC *pc = opaque;
 	assert(free / 2 <= MIXER_BUF_LEN);
 	memset(tmpbuf, 0, MIXER_BUF_LEN);
