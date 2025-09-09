@@ -3341,75 +3341,107 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 
 static bool larsl_helper(CPUI386 *cpu, int sel, uword *ar, uword *sl, int *zf)
 {
-	if (!(cpu->cr0 & 1)) {
+	sel = sel & 0xffff;
+
+	if (!(cpu->cr0 & 1) || (cpu->flags & VM)) {
 		cpu->excno = EX_UD;
 		return false;
 	}
 
-	uword off = sel & ~0x7;
-	uword limit;
-	if (sel & 0x4) {
-		limit = cpu->seg[SEG_LDT].limit;
-	} else {
-		limit = cpu->gdt.limit;
-	}
-	if (off + 7 > limit) {
+	if ((sel & ~0x3) == 0) {
 		*zf = 0;
 		return true;
 	}
 
 	uword w1, w2;
-	TRY(read_desc(cpu, sel, &w1, &w2));
-
-	int dpl = (w2 >> 13) & 0x3;
-	if (((w2 >> 11) & 0x3) != 0x3 && cpu->cpl > dpl || (sel & 0x3) > dpl) {
+	if (!read_desc(cpu, sel, &w1, &w2)) {
 		*zf = 0;
 		return true;
+	}
+
+	if ((w2 >> 12) & 1) {
+		int dpl = (w2 >> 13) & 0x3;
+		if (((w2 >> 10) & 0x3) != 0x3 && (cpu->cpl > dpl || (sel & 0x3) > dpl)) {
+			*zf = 0;
+			return true;
+		}
+	} else {
+		int type = (w2 >> 8) & 0xf;
+		if (ar) {
+			switch (type) {
+			case 0: case 6: case 7: case 8: case 10:
+			case 13: case 14: case 15:
+				*zf = 0;
+				return true;
+			}
+		}
+		if (sl) {
+			switch (type) {
+			case 0: case 4: case 5: case 6: case 7: case 8:
+			case 10: case 12: case 13: case 14: case 15:
+				*zf = 0;
+				return true;
+			}
+		}
 	}
 
 	if (ar)
 		*ar = w2 & 0x00ffff00;
 	if (sl) {
+		*sl = (w2 & 0xf0000) | (w1 & 0xffff);
 		if (w2 & 0x00800000)
-			*sl = ((w1 & 0xffff) << 12) | 0xfff;
-		else
-			*sl = w1 & 0xffff;
+			*sl = (*sl << 12) | 0xfff;
 	}
+
 	*zf = 1;
 	return true;
 }
 
 static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 {
-	if (!(cpu->cr0 & 1)) {
+	sel = sel & 0xffff;
+
+	if (!(cpu->cr0 & 1) || (cpu->flags & VM)) {
 		cpu->excno = EX_UD;
 		return false;
 	}
 
-	uword off = sel & ~0x7;
-	uword limit;
-	if (sel & 0x4) {
-		limit = cpu->seg[SEG_LDT].limit;
-	} else {
-		limit = cpu->gdt.limit;
-	}
-	if (off + 7 > limit) {
+	if ((sel & ~0x3) == 0) {
 		*zf = 0;
 		return true;
 	}
 
 	uword w1, w2;
-	TRY(read_desc(cpu, sel, &w1, &w2));
-
-	int dpl = (w2 >> 13) & 0x3;
-	if (((w2 >> 12) & 0x1) == 0 ||
-	    ((w2 >> 11) & 0x1) == 0 && cpu->cpl > dpl ||
-	    (sel & 0x3) > dpl) {
+	if (!read_desc(cpu, sel, &w1, &w2)) {
 		*zf = 0;
 		return true;
 	}
 
-	// ...
+	if (((w2 >> 12) & 0x1) == 0) {
+		*zf = 0;
+		return true;
+	}
+
+	int dpl = (w2 >> 13) & 0x3;
+	if (((w2 >> 10) & 0x3) != 0x3 && (cpu->cpl > dpl || (sel & 0x3) > dpl)) {
+		*zf = 0;
+		return true;
+	}
+
+	if (((w2 >> 11) & 0x1) == 0) {
+		/* data */
+		if (wr && ((w2 >> 9) & 0x1) == 0) {
+			*zf = 0;
+			return true;
+		}
+	} else {
+		/* code */
+		if (!wr && ((w2 >> 9) & 0x1) == 0) {
+			*zf = 0;
+			return true;
+		}
+	}
+
 	*zf = 1;
 	return true;
 }
