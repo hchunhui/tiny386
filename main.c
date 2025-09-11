@@ -50,6 +50,8 @@ static uint32_t get_uticks()
 #include "kvm.h"
 #include <sys/mman.h>
 typedef CPUKVM CPU;
+#define cpu_raise_irq cpukvm_raise_irq
+#define cpu_get_cycle cpukvm_get_cycle
 void *bigmalloc(size_t size)
 {
 	return mmap(NULL, size, PROT_READ | PROT_WRITE,
@@ -57,6 +59,8 @@ void *bigmalloc(size_t size)
 }
 #else
 typedef CPUI386 CPU;
+#define cpu_raise_irq cpui386_raise_irq
+#define cpu_get_cycle cpui386_get_cycle
 #ifdef BUILD_ESP32
 void *psmalloc(long size);
 void *fbmalloc(long size);
@@ -568,8 +572,7 @@ void pc_step(PC *pc)
 
 static void raise_irq(void *o, PicState2 *s)
 {
-	CPU *cpu = o;
-	cpu->intr = true;
+	cpu_raise_irq(o);
 }
 
 static int read_irq(void *o)
@@ -694,15 +697,16 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 {
 	PC *pc = malloc(sizeof(PC));
 	char *mem = bigmalloc(conf->mem_size);
+	CPU_CB *cb = NULL;
 	memset(mem, 0, conf->mem_size);
 #ifdef BUILD_ESP32
 	pcram = mem + 0xa0000;
 	pcram_len = 0xc0000 - 0xa0000;
 #endif
 #ifdef USEKVM
-	pc->cpu = cpukvm_new(mem, conf->mem_size);
+	pc->cpu = cpukvm_new(mem, conf->mem_size, &cb);
 #else
-	pc->cpu = cpui386_new(conf->cpu_gen, mem, conf->mem_size);
+	pc->cpu = cpui386_new(conf->cpu_gen, mem, conf->mem_size, &cb);
 	if (conf->fpu)
 		cpui386_enable_fpu(pc->cpu);
 #endif
@@ -717,8 +721,8 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 		CaptureKeyboardInput();
 
 	pc->pic = i8259_init(raise_irq, pc->cpu);
-	pc->cpu->pic = pc->pic;
-	pc->cpu->pic_read_irq = read_irq;
+	cb->pic = pc->pic;
+	cb->pic_read_irq = read_irq;
 
 	pc->pit = i8254_init(0, pc->pic, set_irq);
 	pc->serial = u8250_init(4, pc->pic, set_irq);
@@ -748,13 +752,13 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->phys_mem = mem;
 	pc->phys_mem_size = conf->mem_size;
 
-	pc->cpu->io = pc;
-	pc->cpu->io_read8 = pc_io_read;
-	pc->cpu->io_write8 = pc_io_write;
-	pc->cpu->io_read16 = pc_io_read16;
-	pc->cpu->io_write16 = pc_io_write16;
-	pc->cpu->io_read32 = pc_io_read32;
-	pc->cpu->io_write32 = pc_io_write32;
+	cb->io = pc;
+	cb->io_read8 = pc_io_read;
+	cb->io_write8 = pc_io_write;
+	cb->io_read16 = pc_io_read16;
+	cb->io_write16 = pc_io_write16;
+	cb->io_read32 = pc_io_read32;
+	cb->io_write32 = pc_io_write32;
 
 	pc->boot_start_time = 0;
 
@@ -766,13 +770,13 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->pci_vga = vga_pci_init(pc->vga, pc->pcibus, pc, set_pci_vga_bar);
 	pc->pci_vga_ram_addr = -1;
 
-	pc->cpu->iomem = pc;
-	pc->cpu->iomem_read8 = iomem_read8;
-	pc->cpu->iomem_write8 = iomem_write8;
-	pc->cpu->iomem_read16 = iomem_read16;
-	pc->cpu->iomem_write16 = iomem_write16;
-	pc->cpu->iomem_read32 = iomem_read32;
-	pc->cpu->iomem_write32 = iomem_write32;
+	cb->iomem = pc;
+	cb->iomem_read8 = iomem_read8;
+	cb->iomem_write8 = iomem_write8;
+	cb->iomem_read16 = iomem_read16;
+	cb->iomem_write16 = iomem_write16;
+	cb->iomem_read32 = iomem_read32;
+	cb->iomem_write32 = iomem_write32;
 
 	pc->redraw = redraw;
 	pc->redraw_data = redraw_data;
@@ -1186,16 +1190,16 @@ static void load_bios_and_reset(PC *pc)
 		if (pc->initrd && pc->initrd[0])
 			initrd_size = load(pc, pc->initrd, 0x00400000);
 		if (pc->cmdline && pc->cmdline[0])
-			strcpy(pc->cpu->phys_mem + cmdline_addr, pc->cmdline);
+			strcpy(pc->phys_mem + cmdline_addr, pc->cmdline);
 		else
-			strcpy(pc->cpu->phys_mem + cmdline_addr, "");
+			strcpy(pc->phys_mem + cmdline_addr, "");
 
 		load(pc, pc->linuxstart, start_addr);
 		cpui386_reset_pm(pc->cpu, 0x10000);
-		pc->cpu->gpr[0] = pc->phys_mem_size;
-		pc->cpu->gpr[3] = initrd_size;
-		pc->cpu->gpr[1] = cmdline_addr;
-		pc->cpu->gpr[2] = kernel_size;
+		cpui386_set_gpr(pc->cpu, 0, pc->phys_mem_size);
+		cpui386_set_gpr(pc->cpu, 3, initrd_size);
+		cpui386_set_gpr(pc->cpu, 1, cmdline_addr);
+		cpui386_set_gpr(pc->cpu, 2, kernel_size);
 	} else {
 		cpui386_reset(pc->cpu);
 	}
@@ -1305,7 +1309,7 @@ int main(int argc, char *argv[])
 
 	pc->boot_start_time = get_uticks();
 	for (; pc->shutdown_state != 8;) {
-		long last = pc->cpu->cycle;
+		long last = cpu_get_cycle(pc->cpu);
 		pc_step(pc);
 	}
 	return 0;
@@ -1345,10 +1349,10 @@ int main(int argc, char *argv[])
 	pc->boot_start_time = get_uticks();
 	long k = 0;
 	for (; pc->shutdown_state != 8;) {
-		long last = pc->cpu->cycle;
+		long last = cpu_get_cycle(pc->cpu);
 		pc_step(pc);
 #ifndef USEKVM
-		k += pc->cpu->cycle - last;
+		k += cpu_get_cycle(pc->cpu) - last;
 		if (k >= 4096) {
 			usleep(0);
 //			usleep(4000);

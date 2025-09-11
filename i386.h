@@ -16,74 +16,9 @@ typedef u32 uword;
 typedef s32 sword;
 
 typedef struct FPU FPU;
+typedef struct CPUI386 CPUI386;
 
 typedef struct {
-	union {
-		uword gpr[8];
-		union {
-			u32 r32;
-			u16 r16;
-			u8 r8[2];
-		} gprx[8];
-	};
-	uword ip, next_ip;
-	uword flags;
-	uword flags_mask;
-	int cpl;
-	bool code16;
-	uword sp_mask;
-	bool halt;
-
-	struct {
-		uword sel;
-		uword base;
-		uword limit;
-		uword flags;
-	} seg[8];
-
-	struct {
-		uword base;
-		uword limit;
-	} idt, gdt;
-
-	uword cr0;
-	uword cr2;
-	uword cr3;
-
-	uword dr[8];
-
-	struct {
-		uword lpgno;
-		uword paddr;
-	} ifetch;
-
-	struct {
-		int op;
-		uword dst;
-		uword dst2;
-		uword src1;
-		uword src2;
-		uword mask;
-	} cc;
-
-	struct {
-		int size;
-		struct tlb_entry {
-			uword lpgno;
-			uword pte;
-			u8 *ppte;
-		} *tab;
-	} tlb;
-
-	char *phys_mem;
-	long phys_mem_size;
-
-	long cycle;
-
-	int excno;
-	uword excerr;
-
-	bool intr;
 	void *pic;
 	int (*pic_read_irq)(void *);
 
@@ -102,15 +37,17 @@ typedef struct {
 	void (*iomem_write16)(void *, uword, u16);
 	u32 (*iomem_read32)(void *, uword);
 	void (*iomem_write32)(void *, uword, u32);
+} CPU_CB;
 
-	FPU *fpu;
-} CPUI386;
 
-CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size);
+CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb);
 void cpui386_enable_fpu(CPUI386 *cpu);
 void cpui386_reset(CPUI386 *cpu);
 void cpui386_reset_pm(CPUI386 *cpu, uint32_t start_addr);
 void cpui386_step(CPUI386 *cpu, int stepcount);
+void cpui386_raise_irq(CPUI386 *cpu);
+void cpui386_set_gpr(CPUI386 *cpu, int i, u32 val);
+long cpui386_get_cycle(CPUI386 *cpu);
 
 bool cpu_load8(CPUI386 *cpu, int seg, uword addr, u8 *res);
 bool cpu_store8(CPUI386 *cpu, int seg, uword addr, u8 val);

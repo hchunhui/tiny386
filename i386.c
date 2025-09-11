@@ -13,6 +13,78 @@
 #endif
 #define I386_OPT
 
+struct CPUI386 {
+	union {
+		uword gpr[8];
+		union {
+			u32 r32;
+			u16 r16;
+			u8 r8[2];
+		} gprx[8];
+	};
+	uword ip, next_ip;
+	uword flags;
+	uword flags_mask;
+	int cpl;
+	bool code16;
+	uword sp_mask;
+	bool halt;
+
+	struct {
+		uword sel;
+		uword base;
+		uword limit;
+		uword flags;
+	} seg[8];
+
+	struct {
+		uword base;
+		uword limit;
+	} idt, gdt;
+
+	uword cr0;
+	uword cr2;
+	uword cr3;
+
+	uword dr[8];
+
+	struct {
+		uword lpgno;
+		uword paddr;
+	} ifetch;
+
+	struct {
+		int op;
+		uword dst;
+		uword dst2;
+		uword src1;
+		uword src2;
+		uword mask;
+	} cc;
+
+	struct {
+		int size;
+		struct tlb_entry {
+			uword lpgno;
+			uword pte;
+			u8 *ppte;
+		} *tab;
+	} tlb;
+
+	char *phys_mem;
+	long phys_mem_size;
+
+	long cycle;
+
+	int excno;
+	uword excerr;
+
+	bool intr;
+	CPU_CB cb;
+
+	FPU *fpu;
+};
+
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #define wordmask ((uword) ((sword) -1))
@@ -609,8 +681,8 @@ static inline bool in_iomem(uword addr)
 static u8 IRAM_ATTR load8(CPUI386 *cpu, OptAddr *res)
 {
 	uword addr = res->addr1;
-	if (in_iomem(addr) && cpu->iomem_read8)
-		return cpu->iomem_read8(cpu->iomem, addr);
+	if (in_iomem(addr) && cpu->cb.iomem_read8)
+		return cpu->cb.iomem_read8(cpu->cb.iomem, addr);
 	if (unlikely(addr >= cpu->phys_mem_size)) {
 		return 0;
 	}
@@ -619,8 +691,8 @@ static u8 IRAM_ATTR load8(CPUI386 *cpu, OptAddr *res)
 
 static u16 IRAM_ATTR load16(CPUI386 *cpu, OptAddr *res)
 {
-	if (in_iomem(res->addr1) && cpu->iomem_read16)
-		return cpu->iomem_read16(cpu->iomem, res->addr1);
+	if (in_iomem(res->addr1) && cpu->cb.iomem_read16)
+		return cpu->cb.iomem_read16(cpu->cb.iomem, res->addr1);
 	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
 		return 0;
 	}
@@ -633,8 +705,8 @@ static u16 IRAM_ATTR load16(CPUI386 *cpu, OptAddr *res)
 
 static u32 IRAM_ATTR load32(CPUI386 *cpu, OptAddr *res)
 {
-	if (in_iomem(res->addr1) && cpu->iomem_read32)
-		return cpu->iomem_read32(cpu->iomem, res->addr1);
+	if (in_iomem(res->addr1) && cpu->cb.iomem_read32)
+		return cpu->cb.iomem_read32(cpu->cb.iomem, res->addr1);
 	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
 		return 0;
 	}
@@ -658,8 +730,8 @@ static u32 IRAM_ATTR load32(CPUI386 *cpu, OptAddr *res)
 static void IRAM_ATTR store8(CPUI386 *cpu, OptAddr *res, u8 val)
 {
 	uword addr = res->addr1;
-	if (in_iomem(addr) && cpu->iomem_write8) {
-		cpu->iomem_write8(cpu->iomem, addr, val);
+	if (in_iomem(addr) && cpu->cb.iomem_write8) {
+		cpu->cb.iomem_write8(cpu->cb.iomem, addr, val);
 		return;
 	}
 	if (unlikely(addr >= cpu->phys_mem_size)) {
@@ -670,8 +742,8 @@ static void IRAM_ATTR store8(CPUI386 *cpu, OptAddr *res, u8 val)
 
 static void IRAM_ATTR store16(CPUI386 *cpu, OptAddr *res, u16 val)
 {
-	if (in_iomem(res->addr1) && cpu->iomem_write16) {
-		cpu->iomem_write16(cpu->iomem, res->addr1, val);
+	if (in_iomem(res->addr1) && cpu->cb.iomem_write16) {
+		cpu->cb.iomem_write16(cpu->cb.iomem, res->addr1, val);
 		return;
 	}
 	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
@@ -687,8 +759,8 @@ static void IRAM_ATTR store16(CPUI386 *cpu, OptAddr *res, u16 val)
 
 static void IRAM_ATTR store32(CPUI386 *cpu, OptAddr *res, u32 val)
 {
-	if (in_iomem(res->addr1) && cpu->iomem_write32) {
-		cpu->iomem_write32(cpu->iomem, res->addr1, val);
+	if (in_iomem(res->addr1) && cpu->cb.iomem_write32) {
+		cpu->cb.iomem_write32(cpu->cb.iomem, res->addr1, val);
 		return;
 	}
 	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
@@ -2703,7 +2775,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 
 #define indxstdi(BIT, ABIT) \
 	TRY(translate ## BIT(cpu, &meml, 2, SEG_ES, lreg ## ABIT(7))); \
-	ax = cpu->io_read ## BIT(cpu->io, lreg16(2)); \
+	ax = cpu->cb.io_read ## BIT(cpu->cb.io, lreg16(2)); \
 	saddr ## BIT(&meml, ax); \
 	sreg ## ABIT(7, lreg ## ABIT(7) + dir);
 
@@ -2738,7 +2810,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	if (curr_seg == -1) curr_seg = SEG_DS; \
 	TRY(translate ## BIT(cpu, &meml, 1, curr_seg, lreg ## ABIT(6))); \
 	ax = laddr ## BIT(&meml); \
-	cpu->io_write ## BIT(cpu->io, lreg16(2), ax); \
+	cpu->cb.io_write ## BIT(cpu->cb.io, lreg16(2), ax); \
 	sreg ## ABIT(6, lreg ## ABIT(6) + dir);
 
 #define OUTS_helper(BIT) \
@@ -3199,32 +3271,32 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 #define INb(a, b, la, sa, lb, sb) \
 	int port = lb(b); \
 	TRY(check_ioperm(cpu, port, 8)); \
-	sa(a, cpu->io_read8(cpu->io, port));
+	sa(a, cpu->cb.io_read8(cpu->cb.io, port));
 
 #define INw(a, b, la, sa, lb, sb) \
 	int port = lb(b); \
 	TRY(check_ioperm(cpu, port, 16)); \
-	sa(a, cpu->io_read16(cpu->io, port));
+	sa(a, cpu->cb.io_read16(cpu->cb.io, port));
 
 #define INd(a, b, la, sa, lb, sb) \
 	int port = lb(b); \
 	TRY(check_ioperm(cpu, port, 32)); \
-	sa(a, cpu->io_read32(cpu->io, port));
+	sa(a, cpu->cb.io_read32(cpu->cb.io, port));
 
 #define OUTb(a, b, la, sa, lb, sb) \
 	int port = la(a); \
 	TRY(check_ioperm(cpu, port, 8)); \
-	cpu->io_write8(cpu->io, port, lb(b));
+	cpu->cb.io_write8(cpu->cb.io, port, lb(b));
 
 #define OUTw(a, b, la, sa, lb, sb) \
 	int port = la(a); \
 	TRY(check_ioperm(cpu, port, 16)); \
-	cpu->io_write16(cpu->io, port, lb(b));
+	cpu->cb.io_write16(cpu->cb.io, port, lb(b));
 
 #define OUTd(a, b, la, sa, lb, sb) \
 	int port = la(a); \
 	TRY(check_ioperm(cpu, port, 32)); \
-	cpu->io_write32(cpu->io, port, lb(b));
+	cpu->cb.io_write32(cpu->cb.io, port, lb(b));
 
 #define CLTS() \
 	cpu->cr0 &= ~(1 << 3);
@@ -4830,7 +4902,7 @@ void cpui386_step(CPUI386 *cpu, int stepcount)
 	if ((cpu->flags & IF) && cpu->intr) {
 		cpu->intr = false;
 		cpu->halt = false;
-		int no = cpu->pic_read_irq(cpu->pic);
+		int no = cpu->cb.pic_read_irq(cpu->cb.pic);
 		cpu->ip = cpu->next_ip;
 		TRY1(call_isr(cpu, no, false, 1));
 	}
@@ -4930,7 +5002,22 @@ void cpui386_reset_pm(CPUI386 *cpu, uint32_t start_addr)
 	cpu->seg[SEG_ES] = cpu->seg[SEG_SS];
 }
 
-CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size)
+void cpui386_raise_irq(CPUI386 *cpu)
+{
+	cpu->intr = true;
+}
+
+void cpui386_set_gpr(CPUI386 *cpu, int i, u32 val)
+{
+	sreg32(i, val);
+}
+
+long cpui386_get_cycle(CPUI386 *cpu)
+{
+	return cpu->cycle;
+}
+
+CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb)
 {
 	CPUI386 *cpu = malloc(sizeof(CPUI386));
 	switch (gen) {
@@ -4949,28 +5036,13 @@ CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size)
 	cpu->cycle = 0;
 
 	cpu->intr = false;
-	cpu->pic = NULL;
-	cpu->pic_read_irq = NULL;
-
-	cpu->io = NULL;
-	cpu->io_read8 = NULL;
-	cpu->io_write8 = NULL;
-	cpu->io_read16 = NULL;
-	cpu->io_write16 = NULL;
-	cpu->io_read32 = NULL;
-	cpu->io_write32 = NULL;
-
-	cpu->iomem = NULL;
-	cpu->iomem_read8 = NULL;
-	cpu->iomem_write8 = NULL;
-	cpu->iomem_read16 = NULL;
-	cpu->iomem_write16 = NULL;
-	cpu->iomem_read32 = NULL;
-	cpu->iomem_write32 = NULL;
 
 	cpu->fpu = NULL;
 
 	cpui386_reset(cpu);
+
+	if (cb)
+		*cb = &(cpu->cb);
 	return cpu;
 }
 

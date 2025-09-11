@@ -25,16 +25,32 @@ typedef s32 sword;
 
 #include "kvm.h"
 
+struct CPUKVM {
+	int kvm_fd;
+	int vm_fd;
+	int vcpu_fd;
+	struct kvm_run *kvm_run;
+	int kvm_run_size;
+
+	char *phys_mem;
+	long phys_mem_size;
+	long cycle;
+
+	bool intr;
+	CPU_CB cb;
+};
+
 static void sigalrm_handler(int sig)
 {
 }
 
 static bool in_iomem(uword addr)
 {
-	return addr >= 0xa0000 && addr < 0xc0000;
+	return addr >= 0xa0000 && addr < 0xc0000 || addr >= 0xe0000000;
+//	return addr >= 0xa0000 && addr < 0xc0000;
 }
 
-CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size)
+CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 {
 	CPUKVM *cpu = malloc(sizeof(CPUKVM));
 	memset(cpu, 0, sizeof(CPUKVM));
@@ -145,6 +161,8 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size)
 		exit(1);
 	}
 
+	if (cb)
+		*cb = &(cpu->cb);
 	return cpu;
 }
 
@@ -158,7 +176,7 @@ void cpukvm_step(CPUKVM *cpu, int stepcount)
 	if (cpu->intr) {
 		if (run->ready_for_interrupt_injection) {
 			cpu->intr = false;
-			int no = cpu->pic_read_irq(cpu->pic);
+			int no = cpu->cb.pic_read_irq(cpu->cb.pic);
 //			fprintf(stderr, "kvm: inject %d %x\n", no, no);
 			kintr.irq = no;
 			ret = ioctl(cpu->vcpu_fd, KVM_INTERRUPT, &kintr);
@@ -204,13 +222,13 @@ void cpukvm_step(CPUKVM *cpu, int stepcount)
 			if (run->io.direction == KVM_EXIT_IO_OUT) {
 				switch(run->io.size) {
 				case 1:
-					cpu->io_write8(cpu->io, run->io.port, *(u8 *)ptr);
+					cpu->cb.io_write8(cpu->cb.io, run->io.port, *(u8 *)ptr);
 					break;
 				case 2:
-					cpu->io_write16(cpu->io, run->io.port, *(u16 *)ptr);
+					cpu->cb.io_write16(cpu->cb.io, run->io.port, *(u16 *)ptr);
 					break;
 				case 4:
-					cpu->io_write32(cpu->io, run->io.port, *(u32 *)ptr);
+					cpu->cb.io_write32(cpu->cb.io, run->io.port, *(u32 *)ptr);
 					break;
 				default:
 					abort();
@@ -218,13 +236,13 @@ void cpukvm_step(CPUKVM *cpu, int stepcount)
 			} else {
 				switch(run->io.size) {
 				case 1:
-					*(u8 *)ptr = cpu->io_read8(cpu->io, run->io.port);
+					*(u8 *)ptr = cpu->cb.io_read8(cpu->cb.io, run->io.port);
 					break;
 				case 2:
-					*(u16 *)ptr =cpu->io_read16(cpu->io, run->io.port);
+					*(u16 *)ptr =cpu->cb.io_read16(cpu->cb.io, run->io.port);
 					break;
 				case 4:
-					*(u32 *)ptr = cpu->io_read32(cpu->io, run->io.port);
+					*(u32 *)ptr = cpu->cb.io_read32(cpu->cb.io, run->io.port);
 					break;
 				default:
 					abort();
@@ -242,13 +260,13 @@ void cpukvm_step(CPUKVM *cpu, int stepcount)
 		if (run->mmio.is_write) {
 			switch(run->mmio.len) {
 			case 1:
-				cpu->iomem_write8(cpu->iomem, addr, *(u8 *) data);
+				cpu->cb.iomem_write8(cpu->cb.iomem, addr, *(u8 *) data);
 				break;
 			case 2:
-				cpu->iomem_write16(cpu->iomem, addr, *(u16 *) data);
+				cpu->cb.iomem_write16(cpu->cb.iomem, addr, *(u16 *) data);
 				break;
 			case 4:
-				cpu->iomem_write32(cpu->iomem, addr, *(u32 *) data);
+				cpu->cb.iomem_write32(cpu->cb.iomem, addr, *(u32 *) data);
 				break;
 			default:
 				abort();
@@ -256,13 +274,13 @@ void cpukvm_step(CPUKVM *cpu, int stepcount)
 		} else {
 			switch(run->mmio.len) {
 			case 1:
-				*(u8 *) data = cpu->iomem_read8(cpu->iomem, addr);
+				*(u8 *) data = cpu->cb.iomem_read8(cpu->cb.iomem, addr);
 				break;
 			case 2:
-				*(u16 *) data = cpu->iomem_read16(cpu->iomem, addr);
+				*(u16 *) data = cpu->cb.iomem_read16(cpu->cb.iomem, addr);
 				break;
 			case 4:
-				*(u32 *) data = cpu->iomem_read32(cpu->iomem, addr);
+				*(u32 *) data = cpu->cb.iomem_read32(cpu->cb.iomem, addr);
 				break;
 			default:
 				abort();
@@ -292,4 +310,14 @@ void cpukvm_step(CPUKVM *cpu, int stepcount)
 		fprintf(stderr, "KVM: unsupported exit_reason=%d\n", run->exit_reason);
 		abort();
 	}
+}
+
+void cpukvm_raise_irq(CPUKVM *cpu)
+{
+	cpu->intr = true;
+}
+
+long cpukvm_get_cycle(CPUKVM *cpu)
+{
+	return cpu->cycle;
 }
