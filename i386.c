@@ -2248,7 +2248,8 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 #define SAHF() \
 	cpu->cc.mask &= OF; \
 	cpu->flags = cpu->flags & (wordmask ^ 0xff) | lreg8(4); \
-	cpu->flags &= EFLAGS_MASK;
+	cpu->flags &= EFLAGS_MASK; \
+	cpu->flags |= 0x2;
 
 #define CMC() \
 	int cf = get_CF(cpu); \
