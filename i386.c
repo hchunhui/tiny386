@@ -930,12 +930,25 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	uword w1, w2;
 	TRY(read_desc(cpu, sel, &w1, &w2));
 
-	int p = (w2 >> 15) & 1;
-	if ((off != 0 || (sel & 0x4)) && !p) {
-//		fprintf(stderr, "set seg: seg %d not present %0x\n", seg, sel);
-		cpu->excno = EX_NP;
-		cpu->excerr = sel & ~0x3;
-		return false;
+	// TODO: various permission checks
+	bool s = (w2 >> 12) & 1;
+	bool p = (w2 >> 15) & 1;
+	if (sel & ~0x3) {
+		switch(seg) {
+		case SEG_DS: case SEG_ES: case SEG_FS: case SEG_GS:
+			if (!s) {
+				// to avoid win95 BSOD...
+				cpu->excno = EX_GP;
+				cpu->excerr = sel & ~0x3;
+				return false;
+			}
+		}
+
+		if (!p) {
+			cpu->excno = (seg == SEG_SS ? EX_SS : EX_NP);
+			cpu->excerr = sel & ~0x3;
+			return false;
+		}
 	}
 
 	cpu->seg[seg].sel = sel;
