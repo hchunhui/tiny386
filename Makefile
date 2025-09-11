@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -O3 -g `sdl-config --cflags`
 #CFLAGS = -g `sdl-config --cflags`
 LIBS = `sdl-config --libs` -lm
-SRCS = main.c ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c kvm.c fmopl.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
+SRCS = ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c fmopl.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
 SRCS += pci.c
 
 # slirp
@@ -25,17 +25,37 @@ slirp/tcp_timer.c \
 slirp/cutils.c \
 slirp/udp.c
 
-tiny386: ${SRCS}
-	${CC} ${CFLAGS} -o $@ ${SRCS} ${LIBS}
+OBJS = ${SRCS:.c=.o}
 
-tiny386_nosdl: ${SRCS}
-	${CC} -DNOSDL ${CFLAGS} -o $@ ${SRCS} ${LIBS}
+PROGS = tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet
 
-tiny386_kvm: ${SRCS}
-	${CC} -DUSEKVM ${CFLAGS} -o $@ ${SRCS} ${LIBS}
+.PHONY: all clean dep
+.SUFFIXES: .c
+.c.o:
+	${CC} ${CFLAGS} -c $< -o $@
+
+all: ${PROGS}
+
+clean:
+	rm -f ${OBJS} .depends ${PROGS}
+
+tiny386: main.c ${OBJS}
+	${CC} ${CFLAGS} -o $@ $< ${OBJS} ${LIBS}
+
+tiny386_nosdl: main.c ${OBJS}
+	${CC} -DNOSDL ${CFLAGS} -o $@ $< ${OBJS} ${LIBS}
+
+tiny386_kvm: main.c kvm.c ${OBJS}
+	${CC} -DUSEKVM ${CFLAGS} -o $@ $< kvm.c ${OBJS} ${LIBS}
 
 wifikbd: wifikbd.c
 	${CC} ${CFLAGS} -o $@ wifikbd.c ${LIBS}
 
 initnet: initnet.c
 	${CC} -o $@ initnet.c
+
+.depends: ${SRCS}
+	${CC} ${CFLAGS} -MM $^$> 2> /dev/null > $@ || exit 0
+
+dep: .depends
+-include .depends
