@@ -15,7 +15,6 @@ typedef int8_t s8;
 typedef u32 uword;
 typedef s32 sword;
 
-typedef struct FPU FPU;
 typedef struct CPUI386 CPUI386;
 
 typedef struct {
@@ -38,7 +37,6 @@ typedef struct {
 	u32 (*iomem_read32)(void *, uword);
 	void (*iomem_write32)(void *, uword, u32);
 } CPU_CB;
-
 
 CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb);
 void cpui386_enable_fpu(CPUI386 *cpu);

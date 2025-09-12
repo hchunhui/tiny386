@@ -175,66 +175,66 @@ static uword sext32(u32 a)
 
 #ifdef I386_OPT
 /* only works on hosts that are little-endian and support unaligned access */
-static inline u8 pload8(CPUI386 *cpu, u32 addr)
+static inline u8 pload8(CPUI386 *cpu, uword addr)
 {
 	return cpu->phys_mem[addr];
 }
 
-static inline u16 pload16(CPUI386 *cpu, u32 addr)
+static inline u16 pload16(CPUI386 *cpu, uword addr)
 {
 	return *(u16 *)&(cpu->phys_mem[addr]);
 }
 
-static inline u32 pload32(CPUI386 *cpu, u32 addr)
+static inline u32 pload32(CPUI386 *cpu, uword addr)
 {
 	return *(u32 *)&(cpu->phys_mem[addr]);
 }
 
-static inline void pstore8(CPUI386 *cpu, u32 addr, u8 val)
+static inline void pstore8(CPUI386 *cpu, uword addr, u8 val)
 {
 	cpu->phys_mem[addr] = val;
 }
 
-static inline void pstore16(CPUI386 *cpu, u32 addr, u16 val)
+static inline void pstore16(CPUI386 *cpu, uword addr, u16 val)
 {
 	*(u16 *)&(cpu->phys_mem[addr]) = val;
 }
 
-static inline void pstore32(CPUI386 *cpu, u32 addr, u32 val)
+static inline void pstore32(CPUI386 *cpu, uword addr, u32 val)
 {
 	*(u32 *)&(cpu->phys_mem[addr]) = val;
 }
 #else
-static inline u8 pload8(CPUI386 *cpu, u32 addr)
+static inline u8 pload8(CPUI386 *cpu, uword addr)
 {
 	return cpu->phys_mem[addr];
 }
 
-static inline u16 pload16(CPUI386 *cpu, u32 addr)
+static inline u16 pload16(CPUI386 *cpu, uword addr)
 {
 	u8 *mem = (u8 *) cpu->phys_mem;
 	return mem[addr] | (mem[addr + 1] << 8);
 }
 
-static inline u32 pload32(CPUI386 *cpu, u32 addr)
+static inline u32 pload32(CPUI386 *cpu, uword addr)
 {
 	u8 *mem = (u8 *) cpu->phys_mem;
 	return mem[addr] | (mem[addr + 1] << 8) |
 		(mem[addr + 2] << 16) | (mem[addr + 3] << 24);
 }
 
-static inline void pstore8(CPUI386 *cpu, u32 addr, u8 val)
+static inline void pstore8(CPUI386 *cpu, uword addr, u8 val)
 {
 	cpu->phys_mem[addr] = val;
 }
 
-static inline void pstore16(CPUI386 *cpu, u32 addr, u16 val)
+static inline void pstore16(CPUI386 *cpu, uword addr, u16 val)
 {
 	cpu->phys_mem[addr] = val;
 	cpu->phys_mem[addr + 1] = val >> 8;
 }
 
-static inline void pstore32(CPUI386 *cpu, u32 addr, u32 val)
+static inline void pstore32(CPUI386 *cpu, uword addr, u32 val)
 {
 	cpu->phys_mem[addr] = val;
 	cpu->phys_mem[addr + 1] = val >> 8;
