@@ -35,8 +35,13 @@ void *pcmalloc(long size);
 #define pcmalloc malloc
 #endif
 
+#ifdef SB16_LOG
 #define dolog(...) fprintf(stderr, "sb16: " __VA_ARGS__)
 #define qemu_log_mask(_, ...) fprintf(stderr, "sb16: " __VA_ARGS__)
+#else
+#define dolog(...)
+#define qemu_log_mask(_, ...)
+#endif
 
 /* #define DEBUG */
 /* #define DEBUG_SB16_MOST */
@@ -131,8 +136,7 @@ static void AUD_set_active_out (SB16State *s, int i)
 
 static void set_audio(void *s, int format, int freq, int nchan)
 {
-    fprintf(stderr, "audio fmt %d freq %d chan %d\n",
-            format, freq, nchan);
+    dolog("audio fmt %d freq %d chan %d\n", format, freq, nchan);
 }
 
 static int magic_of_irq (int irq)
@@ -607,6 +611,7 @@ static void command (SB16State *s, uint8_t cmd)
             goto warn;
 
         case 0xfc:              /* FIXME */
+        case 0xf8:
             dsp_out_data (s, 0);
             goto warn;
 
@@ -793,7 +798,7 @@ static void complete (SB16State *s)
                 if (ticks < NANOSECONDS_PER_SECOND / 1024) {
                     s->set_irq(s->pic, s->irq, 1);
                 } else {
-                    fprintf(stderr, "sb16: TODO: aux_ts\n");
+                    dolog("TODO: aux_ts\n");
                 }
 //                else {
 //                    if (s->aux_ts) {
@@ -1343,6 +1348,59 @@ static int resample_s16s(int16_t *out, int olen, int os,
     return i;
 }
 
+static int resample_u16m(int16_t *out, int olen, int os,
+                         int16_t *in, int ip, int ilen, int itlen, int is)
+{
+    int g = gcd(os, is);
+    os = os / g;
+    is = is / g;
+    int uc = os;
+    int dc = is;
+    int i = 0;
+    int j = 0;
+    while (i < ilen && j + 1 < olen) {
+        dc--;
+        if (dc == 0) {
+            dc = is;
+            out[j + 1] = out[j] = in[(ip + i) % itlen] - 32768;
+            j += 2;
+        }
+        uc--;
+        if (uc == 0) {
+            uc = os;
+            i++;
+        }
+    }
+    return i;
+}
+
+static int resample_u16s(int16_t *out, int olen, int os,
+                         int16_t *in, int ip, int ilen, int itlen, int is)
+{
+    int g = gcd(os, is);
+    os = os / g;
+    is = is / g;
+    int uc = os;
+    int dc = is;
+    int i = 0;
+    int j = 0;
+    while (i + 1 < ilen && j + 1 < olen) {
+        dc--;
+        if (dc == 0) {
+            dc = is;
+            out[j] = in[(ip + i) % itlen] - 32768;
+            out[j + 1] = in[(ip + i + 1) % itlen] - 32768;
+            j += 2;
+        }
+        uc--;
+        if (uc == 0) {
+            uc = os;
+            i += 2;
+        }
+    }
+    return i;
+}
+
 static int resample_u8m(int16_t *out, int olen, int os,
                         uint8_t *in, int ip, int ilen, int itlen, int is)
 {
@@ -1426,6 +1484,19 @@ void sb16_audio_callback (void *opaque, uint8_t *stream, int free)
                               AUDIO_BUF_LEN / 2, s->freq);
         } else {
             i = resample_s16m((int16_t *) stream, free / 2, 44100,
+                              (int16_t *) s->audio_buf, p / 2, len / 2,
+                              AUDIO_BUF_LEN / 2, s->freq);
+        }
+        i *= 2;
+        s->audio_p += i;
+        break;
+    case AUDIO_FORMAT_U16:
+        if (s->fmt_stereo) {
+            i = resample_u16s((int16_t *) stream, free / 2, 44100,
+                              (int16_t *) s->audio_buf, p / 2, len / 2,
+                              AUDIO_BUF_LEN / 2, s->freq);
+        } else {
+            i = resample_u16m((int16_t *) stream, free / 2, 44100,
                               (int16_t *) s->audio_buf, p / 2, len / 2,
                               AUDIO_BUF_LEN / 2, s->freq);
         }
