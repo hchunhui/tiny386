@@ -121,6 +121,7 @@ struct VGAState {
     uint8_t dac_sub_index;
     uint8_t dac_read_index;
     uint8_t dac_write_index;
+    uint8_t dac_8bit;
     uint8_t dac_cache[3]; /* used when writing */
     uint8_t palette[768];
     int32_t bank_offset;
@@ -367,7 +368,7 @@ static int update_palette256(VGAState *s, uint32_t *palette)
     full_update = 0;
     v = 0;
     for(i = 0; i < 256; i++) {
-        if (/*s->dac_8bit*/ 0) {
+        if (s->dac_8bit) {
           col = rgb_to_pixel(s->palette[v],
                              s->palette[v + 1],
                              s->palette[v + 2]);
@@ -417,9 +418,15 @@ static int update_palette256(VGAState *s, uint32_t *palette)
     full_update = 0;
     v = 0;
     for(i = 0; i < 256; i++) {
-        col = (s->palette[v + 2] >> 1) |
-              ((s->palette[v + 1]) << 5) |
-              ((s->palette[v] >> 1) << 11);
+        if (s->dac_8bit) {
+            col = ((s->palette[v + 2] >> 3)) |
+                ((s->palette[v + 1] >> 2) << 5) |
+                ((s->palette[v] >> 3) << 11);
+        } else {
+            col = (s->palette[v + 2] >> 1) |
+                ((s->palette[v + 1]) << 5) |
+                ((s->palette[v] >> 1) << 11);
+        }
         if (col != palette[i]) {
             full_update = 1;
             palette[i] = col;
@@ -1440,6 +1447,7 @@ void vbe_write(VGAState *s, uint32_t offset, uint32_t val)
             } else {
                 s->bank_offset = 0;
             }
+            s->dac_8bit = (val & VBE_DISPI_8BIT_DAC) > 0;
             s->vbe_regs[s->vbe_index] = val;
             vbe_fixup_regs(s);
             vbe_update_vgaregs(s);
