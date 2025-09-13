@@ -2620,6 +2620,34 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 #define xdir16 int dir = (cpu->flags & DF) ? -2 : 2;
 #define xdir32 int dir = (cpu->flags & DF) ? -4 : 4;
 
+#define STOS_helper2(BIT, ABIT) \
+	OptAddr memld; \
+	uword cx = lreg ## ABIT(1); \
+	while (cx) { \
+		TRY(translate ## BIT(cpu, &memld, 2, SEG_ES, lreg ## ABIT(7))); \
+		if (memld.addr1 % (BIT / 8)) { \
+			/* slow path */ \
+			while (lreg ## ABIT(1)) { \
+				stdi(BIT, ABIT) \
+				sreg ## ABIT(1, lreg ## ABIT(1) - 1); \
+			} \
+			break; \
+		} \
+		uword count = cx; \
+		int countd; \
+		if (dir > 0) countd = (4096 - (memld.addr1 & 4095)) / (BIT / 8); \
+		else countd = 1 + (memld.addr1 & 4095) / (BIT / 8); \
+		if (countd < count) \
+			count = countd; \
+		for (uword i = 0; i <= count - 1; i++) { \
+			saddr ## BIT(&memld, ax); \
+			memld.addr1 += dir; \
+		} \
+		sreg ## ABIT(7, lreg ## ABIT(7) + count * dir); \
+		sreg ## ABIT(1, cx - count); \
+		cx = lreg ## ABIT(1); \
+	}
+
 #define STOS_helper(BIT) \
 	if (curr_seg == -1) curr_seg = SEG_DS; \
 	xdir ## BIT \
@@ -2627,17 +2655,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	if (rep == 0) { \
 		if (adsz16) { stdi(BIT, 16) } else { stdi(BIT, 32) } \
 	} else { \
-		if (adsz16) { \
-			while (lreg16(1)) { \
-				stdi(BIT, 16) \
-				sreg16(1, lreg16(1) - 1); \
-			} \
-		} else { \
-			while (lreg32(1)) { \
-				stdi(BIT, 32) \
-				sreg32(1, lreg32(1) - 1); \
-			} \
-		} \
+		if (adsz16) { STOS_helper2(BIT, 16) } else { STOS_helper2(BIT, 32) } \
 	}
 
 #define LODS_helper(BIT) \
@@ -2703,6 +2721,58 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		} \
 	}
 
+#define MOVS_helper2(BIT, ABIT) \
+	OptAddr memls, memld; \
+	uword cx = lreg ## ABIT(1); \
+	while (cx) { \
+		TRY(translate ## BIT(cpu, &memls, 1, curr_seg, lreg ## ABIT(6))); \
+		TRY(translate ## BIT(cpu, &memld, 2, SEG_ES, lreg ## ABIT(7))); \
+		if (memls.addr1 % (BIT / 8) || memld.addr1 % (BIT / 8)) { \
+			/* slow path */ \
+			while (lreg ## ABIT(1)) { \
+				ldsistdi(BIT, ABIT) \
+				sreg ## ABIT(1, lreg ## ABIT(1) - 1); \
+			} \
+			break; \
+		} \
+		uword count = cx; \
+		int counts, countd; \
+		if (dir > 0) { \
+			counts = (4096 - (memls.addr1 & 4095)) / (BIT / 8); \
+			countd = (4096 - (memld.addr1 & 4095)) / (BIT / 8); \
+		} else { \
+			counts = 1 + (memls.addr1 & 4095) / (BIT / 8); \
+			countd = 1 + (memld.addr1 & 4095) / (BIT / 8); \
+		} \
+		if (counts < count) \
+			count = counts; \
+		if (countd < count) \
+			count = countd; \
+		if (cpu->cb.iomem_write_string && in_iomem(memld.addr1) && \
+		    dir > 0  && in_iomem(memld.addr1 + count - 1) && \
+		    (memls.addr1 | 4095) < cpu->phys_mem_size && \
+		    !in_iomem(memls.addr1) && !in_iomem(memls.addr1 | 4095)) { \
+			if (cpu->cb.iomem_write_string( \
+				    cpu->cb.iomem, memld.addr1, \
+				    cpu->phys_mem + memls.addr1, count * dir)) { \
+				sreg ## ABIT(6, lreg ## ABIT(6) + count * dir); \
+				sreg ## ABIT(7, lreg ## ABIT(7) + count * dir); \
+				sreg ## ABIT(1, cx - count); \
+				cx = lreg ## ABIT(1); \
+				continue; \
+			} \
+		} \
+		for (uword i = 0; i <= count - 1; i++) { \
+			store ## BIT(cpu, &memld, load ## BIT(cpu, &memls)); \
+			memld.addr1 += dir; \
+			memls.addr1 += dir; \
+		} \
+		sreg ## ABIT(6, lreg ## ABIT(6) + count * dir); \
+		sreg ## ABIT(7, lreg ## ABIT(7) + count * dir); \
+		sreg ## ABIT(1, cx - count); \
+		cx = lreg ## ABIT(1); \
+	}
+
 #define MOVS_helper(BIT) \
 	if (curr_seg == -1) curr_seg = SEG_DS; \
 	xdir ## BIT \
@@ -2710,17 +2780,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	if (rep == 0) { \
 		if (adsz16) { ldsistdi(BIT, 16) } else { ldsistdi(BIT, 32) } \
 	} else { \
-		if (adsz16) { \
-			while (lreg16(1)) { \
-				ldsistdi(BIT, 16) \
-				sreg16(1, lreg16(1) - 1); \
-			} \
-		} else { \
-			while (lreg32(1)) { \
-				ldsistdi(BIT, 32) \
-				sreg32(1, lreg32(1) - 1); \
-			} \
-		} \
+		if (adsz16) { MOVS_helper2(BIT, 16) } else { MOVS_helper2(BIT, 32) } \
 	}
 
 #define CMPS_helper(BIT) \
@@ -2779,41 +2839,113 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	saddr ## BIT(&meml, ax); \
 	sreg ## ABIT(7, lreg ## ABIT(7) + dir);
 
+#define INS_helper2(BIT, ABIT) \
+	OptAddr memld; \
+	uword cx = lreg ## ABIT(1); \
+	while (cx) { \
+		TRY(translate ## BIT(cpu, &memld, 2, SEG_ES, lreg ## ABIT(7))); \
+		if (memld.addr1 % (BIT / 8)) { \
+			/* slow path */ \
+			while (lreg ## ABIT(1)) { \
+				indxstdi(BIT, ABIT) \
+				sreg ## ABIT(1, lreg ## ABIT(1) - 1); \
+			} \
+			break; \
+		} \
+		uword count = cx; \
+		int countd; \
+		if (dir > 0) countd = (4096 - (memld.addr1 & 4095)) / (BIT / 8); \
+		else countd = 1 + (memld.addr1 & 4095) / (BIT / 8); \
+		if (countd < count) \
+			count = countd; \
+		if (cpu->cb.io_read_string && dir > 0 && \
+		    (memld.addr1 | 4095) < cpu->phys_mem_size && \
+		    !in_iomem(memld.addr1) && !in_iomem(memld.addr1 | 4095)) { \
+			if (cpu->cb.io_read_string( \
+				    cpu->cb.io, lreg16(2), \
+				    cpu->phys_mem + memld.addr1, count * dir)) { \
+				sreg ## ABIT(7, lreg ## ABIT(7) + count * dir); \
+				sreg ## ABIT(1, cx - count); \
+				cx = lreg ## ABIT(1); \
+				continue; \
+			} \
+		} \
+		for (uword i = 0; i <= count - 1; i++) { \
+			ax = cpu->cb.io_read ## BIT(cpu->cb.io, lreg16(2)); \
+			saddr ## BIT(&memld, ax); \
+			memld.addr1 += dir; \
+		} \
+		sreg ## ABIT(7, lreg ## ABIT(7) + count * dir); \
+		sreg ## ABIT(1, cx - count); \
+		cx = lreg ## ABIT(1); \
+	}
+
 #define INS_helper(BIT) \
 	TRY(check_ioperm(cpu, lreg16(2), BIT)); \
 	xdir ## BIT \
 	u ## BIT ax; \
 	if (rep == 0) { \
-	       if (adsz16) { indxstdi(BIT, 16) } else { indxstdi(BIT, 32) } \
+		if (adsz16) { indxstdi(BIT, 16) } else { indxstdi(BIT, 32) } \
 	} else { \
 		if (rep != 1) { \
 			cpu->excno = EX_UD; \
 			return false; \
 		} \
-		if (adsz16) { \
-			while (lreg16(1)) { \
-				indxstdi(BIT, 16) \
-				sreg16(1, lreg16(1) - 1); \
-			} \
-		} else { \
-			while (lreg32(1)) { \
-				indxstdi(BIT, 32) \
-				sreg32(1, lreg32(1) - 1); \
-			} \
-		} \
+		if (adsz16) { INS_helper2(BIT, 16) } else { INS_helper2(BIT, 32) } \
 	}
 
 #define INSb() INS_helper(8)
 #define INS() if (opsz16) { INS_helper(16) } else { INS_helper(32) }
 
 #define ldsioutdx(BIT, ABIT) \
-	if (curr_seg == -1) curr_seg = SEG_DS; \
 	TRY(translate ## BIT(cpu, &meml, 1, curr_seg, lreg ## ABIT(6))); \
 	ax = laddr ## BIT(&meml); \
 	cpu->cb.io_write ## BIT(cpu->cb.io, lreg16(2), ax); \
 	sreg ## ABIT(6, lreg ## ABIT(6) + dir);
 
+#define OUTS_helper2(BIT, ABIT) \
+	OptAddr memls; \
+	uword cx = lreg ## ABIT(1); \
+	while (cx) { \
+		TRY(translate ## BIT(cpu, &memls, 1, curr_seg, lreg ## ABIT(6))); \
+		if (memls.addr1 % (BIT / 8)) { \
+			/* slow path */ \
+			while (lreg ## ABIT(1)) { \
+				ldsioutdx(BIT, ABIT) \
+				sreg ## ABIT(1, lreg ## ABIT(1) - 1); \
+			} \
+			break; \
+		} \
+		uword count = cx; \
+		int counts; \
+		if (dir > 0) counts = (4096 - (memls.addr1 & 4095)) / (BIT / 8); \
+		else counts = 1 + (memls.addr1 & 4095) / (BIT / 8); \
+		if (counts < count) \
+			count = counts; \
+		if (cpu->cb.io_write_string && dir > 0 && \
+		    (memls.addr1 | 4095) < cpu->phys_mem_size && \
+		    !in_iomem(memls.addr1) && !in_iomem(memls.addr1 | 4095)) { \
+			if (cpu->cb.io_write_string( \
+				    cpu->cb.io, lreg16(2), \
+				    cpu->phys_mem + memls.addr1, count * dir)) { \
+				sreg ## ABIT(6, lreg ## ABIT(6) + count * dir); \
+				sreg ## ABIT(1, cx - count); \
+				cx = lreg ## ABIT(1); \
+				continue; \
+			} \
+		} \
+		for (uword i = 0; i <= count - 1; i++) { \
+			ax = laddr ## BIT(&memls); \
+			cpu->cb.io_write ## BIT(cpu->cb.io, lreg16(2), ax); \
+			memls.addr1 += dir; \
+		} \
+		sreg ## ABIT(6, lreg ## ABIT(6) + count * dir); \
+		sreg ## ABIT(1, cx - count); \
+		cx = lreg ## ABIT(1); \
+	}
+
 #define OUTS_helper(BIT) \
+	if (curr_seg == -1) curr_seg = SEG_DS; \
 	TRY(check_ioperm(cpu, lreg16(2), BIT)); \
 	xdir ## BIT \
 	u ## BIT ax; \
@@ -2825,15 +2957,9 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 			return false; \
 		} \
 		if (adsz16) { \
-			while (lreg16(1)) { \
-				ldsioutdx(BIT, 16) \
-				sreg16(1, lreg16(1) - 1); \
-			} \
+			OUTS_helper2(BIT, 16) \
 		} else { \
-			while (lreg32(1)) { \
-				ldsioutdx(BIT, 32) \
-				sreg32(1, lreg32(1) - 1); \
-			} \
+			OUTS_helper2(BIT, 32) \
 		} \
 	}
 

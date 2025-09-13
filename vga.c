@@ -1670,6 +1670,52 @@ void IRAM_ATTR vga_mem_write32(VGAState *s, uint32_t addr, uint32_t val)
     }
 }
 
+bool IRAM_ATTR vga_mem_write_string(VGAState *s, uint32_t addr, uint8_t *buf, int len)
+{
+    if (!(s->sr[VGA_SEQ_MEMORY_MODE] & VGA_SR04_CHN_4M)) {
+        return false;
+    }
+
+    int memory_map_mode, plane, write_mode, b, func_select, mask;
+    uint32_t write_mask, bit_mask, set_mask;
+
+#ifdef DEBUG_VGA_MEM
+    printf("vga: [0x" TARGET_FMT_plx "] = 0x%02x\n", addr, val);
+#endif
+    /* convert to VGA memory offset */
+    memory_map_mode = (s->gr[VGA_GFX_MISC] >> 2) & 3;
+    addr &= 0x1ffff;
+    switch(memory_map_mode) {
+    case 0:
+        break;
+    case 1:
+        if (addr >= 0x10000)
+            return false;
+        addr += s->bank_offset;
+        break;
+    case 2:
+        addr -= 0x10000;
+        if (addr >= 0x8000)
+            return false;
+        break;
+    default:
+    case 3:
+        addr -= 0x18000;
+        if (addr >= 0x8000)
+            return false;
+        break;
+    }
+
+    /* chain 4 mode : simplest access */
+    plane = addr & 3;
+    mask = (1 << plane);
+    if (s->sr[VGA_SEQ_PLANE_WRITE] & mask) {
+        memcpy(s->vga_ram + addr, buf, len);
+        return true;
+    }
+    return false;
+}
+
 void IRAM_ATTR vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
 {
     uint32_t val = val8;

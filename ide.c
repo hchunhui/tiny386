@@ -821,6 +821,43 @@ uint32_t ide_data_readl(void *opaque)
     return ret;
 }
 
+void ide_data_write_string(void *opaque, uint8_t *buf, int len)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s = s1->cur_drive;
+    if (!s)
+        return;
+
+    int len1 = len;
+    if (len1 > s->data_end - s->data_index)
+        len1 = s->data_end - s->data_index;
+    if (len1 >= 0) {
+        memcpy(s->io_buffer + s->data_index, buf, len1);
+    }
+    s->data_index += len;
+    if (s->data_index >= s->data_end)
+        s->end_transfer_func(s);
+}
+
+void ide_data_read_string(void *opaque, uint8_t *buf, int len)
+{
+    IDEIFState *s1 = opaque;
+    IDEState *s = s1->cur_drive;
+    if (!s)
+        return;
+
+    int len1 = len;
+    if (len1 > s->data_end - s->data_index)
+        len1 = s->data_end - s->data_index;
+    if (len1 >= 0) {
+        memcpy(buf, s->io_buffer + s->data_index, len1);
+        memset(buf + len1, 0, len - len1);
+    }
+    s->data_index += len;
+    if (s->data_index >= s->data_end)
+        s->end_transfer_func(s);
+}
+
 static IDEState *ide_drive_init(IDEIFState *ide_if, BlockDevice *bs)
 {
     IDEState *s;

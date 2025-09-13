@@ -322,6 +322,21 @@ u32 pc_io_read32(void *o, int addr)
 	return 0xffffffff;
 }
 
+bool pc_io_read_string(void *o, int addr, uint8_t *buf, int len)
+{
+	PC *pc = o;
+	u32 val;
+	switch(addr) {
+	case 0x1f0:
+		ide_data_read_string(pc->ide, buf, len);
+		return true;
+	case 0x170:
+		ide_data_read_string(pc->ide2, buf, len);
+		return true;
+	}
+	return false;
+}
+
 void pc_io_write(void *o, int addr, u8 val)
 {
 	PC *pc = o;
@@ -523,6 +538,19 @@ void pc_io_write32(void *o, int addr, u32 val)
 	}
 }
 
+bool pc_io_write_string(void *o, int addr, uint8_t *buf, int len)
+{
+	PC *pc = o;
+	switch(addr) {
+	case 0x1f0:
+		ide_data_write_string(pc->ide, buf, len);
+		return true;
+	case 0x170:
+		ide_data_write_string(pc->ide2, buf, len);
+		return true;
+	}
+	return false;
+}
 
 static void load_bios_and_reset(PC *pc);
 void pc_vga_step(void *o)
@@ -668,6 +696,23 @@ static void iomem_write32(void *iomem, uword addr, u32 val)
 //	iomem_write16(iomem, addr + 2, val >> 16);
 }
 
+static bool iomem_write_string(void *iomem, uword addr, uint8_t *buf, int len)
+{
+	PC *pc = iomem;
+	// fast path for vga ram
+	uword vga_addr2 = pc->pci_vga_ram_addr;
+	if (addr >= vga_addr2) {
+		uword vga_addr2 = pc->pci_vga_ram_addr;
+		addr -= vga_addr2;
+		if (addr + len < pc->vga_mem_size) {
+			memcpy(pc->vga_mem + addr, buf, len);
+			return true;
+		}
+		return false;
+	}
+	return vga_mem_write_string(pc->vga, addr - 0xa0000, buf, len);
+}
+
 static void pc_reset_request(void *p)
 {
 	PC *pc = p;
@@ -759,6 +804,8 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	cb->io_write16 = pc_io_write16;
 	cb->io_read32 = pc_io_read32;
 	cb->io_write32 = pc_io_write32;
+	cb->io_read_string = pc_io_read_string;
+	cb->io_write_string = pc_io_write_string;
 
 	pc->boot_start_time = 0;
 
@@ -777,6 +824,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	cb->iomem_write16 = iomem_write16;
 	cb->iomem_read32 = iomem_read32;
 	cb->iomem_write32 = iomem_write32;
+	cb->iomem_write_string = iomem_write_string;
 
 	pc->redraw = redraw;
 	pc->redraw_data = redraw_data;
