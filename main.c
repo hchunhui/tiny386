@@ -138,7 +138,7 @@ typedef struct {
 	int enable_serial;
 } PC;
 
-u8 pc_io_read(void *o, int addr)
+static u8 pc_io_read(void *o, int addr)
 {
 	PC *pc = o;
 	u8 val;
@@ -265,7 +265,7 @@ u8 pc_io_read(void *o, int addr)
 	}
 }
 
-u16 pc_io_read16(void *o, int addr)
+static u16 pc_io_read16(void *o, int addr)
 {
 	PC *pc = o;
 	u16 val;
@@ -297,7 +297,7 @@ u16 pc_io_read16(void *o, int addr)
 	}
 }
 
-u32 pc_io_read32(void *o, int addr)
+static u32 pc_io_read32(void *o, int addr)
 {
 	PC *pc = o;
 	u32 val;
@@ -322,7 +322,7 @@ u32 pc_io_read32(void *o, int addr)
 	return 0xffffffff;
 }
 
-bool pc_io_read_string(void *o, int addr, uint8_t *buf, int len)
+static bool pc_io_read_string(void *o, int addr, uint8_t *buf, int len)
 {
 	PC *pc = o;
 	u32 val;
@@ -337,7 +337,7 @@ bool pc_io_read_string(void *o, int addr, uint8_t *buf, int len)
 	return false;
 }
 
-void pc_io_write(void *o, int addr, u8 val)
+static void pc_io_write(void *o, int addr, u8 val)
 {
 	PC *pc = o;
 	switch(addr) {
@@ -480,7 +480,7 @@ void pc_io_write(void *o, int addr, u8 val)
 	}
 }
 
-void pc_io_write16(void *o, int addr, u16 val)
+static void pc_io_write16(void *o, int addr, u16 val)
 {
 	PC *pc = o;
 	switch(addr) {
@@ -516,7 +516,7 @@ void pc_io_write16(void *o, int addr, u16 val)
 	}
 }
 
-void pc_io_write32(void *o, int addr, u32 val)
+static void pc_io_write32(void *o, int addr, u32 val)
 {
 	PC *pc = o;
 	switch(addr) {
@@ -538,7 +538,7 @@ void pc_io_write32(void *o, int addr, u32 val)
 	}
 }
 
-bool pc_io_write_string(void *o, int addr, uint8_t *buf, int len)
+static bool pc_io_write_string(void *o, int addr, uint8_t *buf, int len)
 {
 	PC *pc = o;
 	switch(addr) {

@@ -5128,7 +5128,7 @@ void cpui386_reset_pm(CPUI386 *cpu, uint32_t start_addr)
 	cpu->seg[SEG_ES] = cpu->seg[SEG_SS];
 }
 
-void cpui386_raise_irq(CPUI386 *cpu)
+void IRAM_ATTR cpui386_raise_irq(CPUI386 *cpu)
 {
 	cpu->intr = true;
 }
@@ -5138,7 +5138,7 @@ void cpui386_set_gpr(CPUI386 *cpu, int i, u32 val)
 	sreg32(i, val);
 }
 
-long cpui386_get_cycle(CPUI386 *cpu)
+long IRAM_ATTR cpui386_get_cycle(CPUI386 *cpu)
 {
 	return cpu->cycle;
 }
