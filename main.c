@@ -260,7 +260,7 @@ static u8 pc_io_read(void *o, int addr)
 		val = sb16_dsp_read(pc->sb16, addr);
 		return val;
 	default:
-		fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0xff);
+		//fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0xff);
 		return 0xff;
 	}
 }
@@ -581,8 +581,8 @@ void pc_step(PC *pc)
 	ne2000_step(pc->ne2000);
 	i8257_dma_run(pc->isa_dma);
 	i8257_dma_run(pc->isa_hdma);
-	pc->poll(pc->redraw_data);
 #ifndef BUILD_ESP32
+	pc->poll(pc->redraw_data);
 	if (refresh) {
 		vga_refresh(pc->vga, pc->redraw, pc->redraw_data);
 	}
@@ -591,7 +591,7 @@ void pc_step(PC *pc)
 	cpukvm_step(pc->cpu, 4096);
 #else
 #ifdef BUILD_ESP32
-	cpui386_step(pc->cpu, 192);
+	cpui386_step(pc->cpu, 384);
 #else
 	cpui386_step(pc->cpu, 1024);
 #endif
@@ -669,8 +669,6 @@ static void iomem_write16(void *iomem, uword addr, u16 val)
 		return;
 	}
 	vga_mem_write16(pc->vga, addr - 0xa0000, val);
-//	iomem_write8(iomem, addr, val);
-//	iomem_write8(iomem, addr + 1, val >> 8);
 }
 
 static u32 iomem_read32(void *iomem, uword addr)
@@ -692,8 +690,6 @@ static void iomem_write32(void *iomem, uword addr, u32 val)
 		return;
 	}
 	vga_mem_write32(pc->vga, addr - 0xa0000, val);
-//	iomem_write16(iomem, addr, val);
-//	iomem_write16(iomem, addr + 2, val >> 16);
 }
 
 static bool iomem_write_string(void *iomem, uword addr, uint8_t *buf, int len)
@@ -1357,7 +1353,6 @@ int main(int argc, char *argv[])
 
 	pc->boot_start_time = get_uticks();
 	for (; pc->shutdown_state != 8;) {
-		long last = cpu_get_cycle(pc->cpu);
 		pc_step(pc);
 	}
 	return 0;
@@ -1395,18 +1390,8 @@ int main(int argc, char *argv[])
 	load_bios_and_reset(pc);
 
 	pc->boot_start_time = get_uticks();
-	long k = 0;
 	for (; pc->shutdown_state != 8;) {
-		long last = cpu_get_cycle(pc->cpu);
 		pc_step(pc);
-#ifndef USEKVM
-		k += cpu_get_cycle(pc->cpu) - last;
-		if (k >= 4096) {
-			usleep(0);
-//			usleep(4000);
-			k = 0;
-		}
-#endif
 	}
 	return 0;
 }

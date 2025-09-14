@@ -28,6 +28,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef BUILD_ESP32
+#include "esp_attr.h"
+#else
+#define IRAM_ATTR
+#define DRAM_ATTR
+#endif
+
 /* #define DEBUG_DMA */
 
 #define dolog(...) fprintf (stderr, "dma: " __VA_ARGS__)
@@ -340,7 +347,7 @@ static void i8257_channel_run(I8257State *d, int ichan)
     }
 }
 
-void i8257_dma_run(void *opaque)
+void IRAM_ATTR i8257_dma_run(void *opaque)
 {
     I8257State *d = opaque;
     int ichan;

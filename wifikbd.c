@@ -212,7 +212,7 @@ static void sdl_handle_mouse_motion_event(const SDL_Event *ev, PC *pc)
 	static uint32_t last = 0;
 	uint32_t now = get_uticks();
 	if (last == 0 || after_eq(now, last)) {
-		last = now + 20000;
+		last = now + 24000;
 		sdl_send_mouse_event(pc, x0, y0, 0, ev->motion.state, is_absolute);
 		x0 = 0;
 		y0 = 0;
