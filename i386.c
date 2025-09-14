@@ -1,5 +1,4 @@
 #include "i386.h"
-#include "fpu.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -11,7 +10,18 @@
 #define IRAM_ATTR
 #define DRAM_ATTR
 #endif
+
 #define I386_OPT
+#define I386_ENABLE_FPU
+
+#ifdef I386_ENABLE_FPU
+#include "fpu.h"
+#else
+#define fpu_new(...) NULL
+#define fpu_exec1(...) false
+#define fpu_exec2(...) false
+typedef void FPU;
+#endif
 
 struct CPUI386 {
 	union {
@@ -42,9 +52,7 @@ struct CPUI386 {
 		uword limit;
 	} idt, gdt;
 
-	uword cr0;
-	uword cr2;
-	uword cr3;
+	uword cr0, cr2, cr3;
 
 	uword dr[8];
 
@@ -85,12 +93,13 @@ struct CPUI386 {
 	FPU *fpu;
 };
 
+#define dolog(...) fprintf(stderr, __VA_ARGS__)
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 #define wordmask ((uword) ((sword) -1))
 #define TRY(f) if(!(f)) { return false; }
 #define TRYL(f) if(unlikely(!(f))) { return false; }
-#define TRY1(f) if(!(f)) { fprintf(stderr, "@ %s %s %d\n", __FILE__, __FUNCTION__, __LINE__); cpu_abort(cpu, -1); }
+#define TRY1(f) if(!(f)) { dolog("@ %s %s %d\n", __FILE__, __FUNCTION__, __LINE__); cpu_abort(cpu, -1); }
 
 enum {
 	EX_DE,
@@ -153,7 +162,7 @@ static void cpu_debug(CPUI386 *cpu);
 
 void cpu_abort(CPUI386 *cpu, int code)
 {
-	fprintf(stderr, "abort: %d %x cycle %ld\n", code, code, cpu->cycle);
+	dolog("abort: %d %x cycle %ld\n", code, code, cpu->cycle);
 	cpu_debug(cpu);
 	abort();
 }
@@ -271,7 +280,7 @@ static int get_CF(CPUI386 *cpu)
 			return cpu->cc.dst != 0;
 		case CC_DEC8: case CC_DEC16: case CC_DEC32:
 		case CC_INC8: case CC_INC16: case CC_INC32:
-			abort(); // should not happen
+			assert(false); // should not happen
 		case CC_IMUL8:
 			return sext8(cpu->cc.dst) != cpu->cc.dst;
 		case CC_IMUL16:
@@ -303,7 +312,7 @@ static int get_CF(CPUI386 *cpu)
 	} else {
 		return !!(cpu->flags & CF);
 	}
-	abort();
+	assert(false);
 }
 
 const static u8 parity_tab[256] = {
@@ -367,7 +376,7 @@ static int get_AF(CPUI386 *cpu)
 	} else {
 		return !!(cpu->flags & AF);
 	}
-	abort();
+	assert(false);
 }
 
 static int IRAM_ATTR get_ZF(CPUI386 *cpu)
@@ -430,11 +439,11 @@ static int get_OF(CPUI386 *cpu)
 		case CC_XOR:
 			return 0;
 		}
-		cpu_abort(cpu, -1);
+		assert(false);
 	} else {
 		return !!(cpu->flags & OF);
 	}
-	abort();
+	assert(false);
 }
 
 static void refresh_flags(CPUI386 *cpu)
@@ -586,7 +595,7 @@ static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int s
 		/* null selector check */
 		if ((cpu->seg[seg].sel & ~0x3) == 0 && cpu->seg[seg].limit == 0 &&
 		    !(cpu->flags & VM)) {
-//			fprintf(stderr, "segcheck: seg %d is null %x\n", seg, cpu->seg[seg].sel);
+//			dolog("segcheck: seg %d is null %x\n", seg, cpu->seg[seg].sel);
 			cpu->excno = EX_GP;
 			cpu->excerr = 0;
 			return false;
@@ -598,7 +607,7 @@ static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int s
 		if (expand_down)
 			over = addr <= cpu->seg[seg].limit;
 		if (over) {
-			fprintf(stderr, "over: addr %08x size %08x limit %08x\n", addr, size, cpu->seg[seg].limit);
+			dolog("over: addr %08x size %08x limit %08x\n", addr, size, cpu->seg[seg].limit);
 			cpu->excno = EX_GP;
 			cpu->excerr = 0;
 			return false;
@@ -724,7 +733,7 @@ static u32 IRAM_ATTR load32(CPUI386 *cpu, OptAddr *res)
 				(pload8(cpu, res->addr2) << 24);
 		}
 	}
-	abort();
+	assert(false);
 }
 
 static void IRAM_ATTR store8(CPUI386 *cpu, OptAddr *res, u8 val)
@@ -968,7 +977,7 @@ static bool read_desc(CPUI386 *cpu, int sel, uword *w1, uword *w2)
 	if (off + 7 > limit) {
 		cpu->excno = EX_GP;
 		cpu->excerr = sel & ~0x3;
-		fprintf(stderr, "read_desc: sel %04x base %x limit %x off %x\n", sel, base, limit, off);
+		dolog("read_desc: sel %04x base %x limit %x off %x\n", sel, base, limit, off);
 		return false;
 	}
 	if (w1) {
@@ -1031,7 +1040,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 	cpu->seg[seg].flags = (w2 >> 8) & 0xffff; // (w2 >> 20) & 0xf;
 	if (seg == SEG_CS) {
 //		if ((sel & 3) != cpu->cpl)
-//			fprintf(stderr, "set_seg: PVL %d => %d\n", cpu->cpl, sel & 3);
+//			dolog("set_seg: PVL %d => %d\n", cpu->cpl, sel & 3);
 		cpu->cpl = sel & 3;
 		cpu->code16 = !(cpu->seg[SEG_CS].flags & SEG_D_BIT);
 	}
@@ -1059,49 +1068,6 @@ static inline void clear_segs(CPUI386 *cpu)
 		}
 	}
 }
-
-#define ARGCOUNT_IMPL(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, ...) _17
-#define ARGCOUNT(...) ARGCOUNT_IMPL(~, ## __VA_ARGS__, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
-#define PASTE0(a, b) a ## b
-#define PASTE(a, b) PASTE0(a, b)
-
-#define C_1(_1)      CX(_1)
-#define C_2(_1, ...) CX(_1) C_1(__VA_ARGS__)
-#define C_3(_1, ...) CX(_1) C_2(__VA_ARGS__)
-#define C_4(_1, ...) CX(_1) C_3(__VA_ARGS__)
-#define C_5(_1, ...) CX(_1) C_4(__VA_ARGS__)
-#define C_6(_1, ...) CX(_1) C_5(__VA_ARGS__)
-#define C_7(_1, ...) CX(_1) C_6(__VA_ARGS__)
-#define C_8(_1, ...) CX(_1) C_7(__VA_ARGS__)
-#define C_9(_1, ...) CX(_1) C_8(__VA_ARGS__)
-#define C_10(_1, ...) CX(_1) C_9(__VA_ARGS__)
-#define C_11(_1, ...) CX(_1) C_10(__VA_ARGS__)
-#define C_12(_1, ...) CX(_1) C_11(__VA_ARGS__)
-#define C_13(_1, ...) CX(_1) C_12(__VA_ARGS__)
-#define C_14(_1, ...) CX(_1) C_13(__VA_ARGS__)
-#define C_15(_1, ...) CX(_1) C_14(__VA_ARGS__)
-#define C_16(_1, ...) CX(_1) C_15(__VA_ARGS__)
-#define C(...) PASTE(C_, ARGCOUNT(__VA_ARGS__))(__VA_ARGS__)
-
-#define I(...)
-#define I2(...)
-#define IG1b(...)
-#define IG1v(...)
-#define IG1vIb(...)
-#define IG2b(...)
-#define IG2v(...)
-#define IG2b1(...)
-#define IG2v1(...)
-#define IG2bC(...)
-#define IG2vC(...)
-#define IG3b(...)
-#define IG3v(...)
-#define IG4(...)
-#define IG5(...)
-#define IG6(...)
-#define IG7(...)
-#define IG8(...)
-#define IG9(...)
 
 /*
  * addressing modes
@@ -2160,7 +2126,10 @@ static inline void clear_segs(CPUI386 *cpu)
 	}
 
 #define LEAd(a, b, la, sa, lb, sb) \
-	if (mod == 3) cpu_abort(cpu, 0); \
+	if (mod == 3) { \
+		cpu->excno = EX_UD; \
+		return false; \
+	} \
 	sa(a, lb(b));
 #define LEAw LEAd
 
@@ -2235,7 +2204,7 @@ static inline void clear_segs(CPUI386 *cpu)
 static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 
 #define INT(i, li, _) \
-	/*fprintf(stderr, "int %02x %08x %04x:%08x\n", li(i), cpu->gpr[0], cpu->seg[SEG_CS].sel, cpu->ip);*/ \
+	/*dolog("int %02x %08x %04x:%08x\n", li(i), cpu->gpr[0], cpu->seg[SEG_CS].sel, cpu->ip);*/ \
 	if ((cpu->flags & VM)) { \
 		if(get_IOPL(cpu) < 3) { \
 			cpu->excno = EX_GP; \
@@ -3155,7 +3124,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 static bool enter_helper(CPUI386 *cpu, bool opsz16, uword sp_mask,
 			 int level, int allocsz)
 {
-	assert (level != 0);
+	assert(level != 0);
 	uword temp;
 	OptAddr meml1;
 
@@ -3838,6 +3807,28 @@ static bool IRAM_ATTR pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret);
 
 static bool verbose;
 
+#define ARGCOUNT_IMPL(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, ...) _17
+#define ARGCOUNT(...) ARGCOUNT_IMPL(~, ## __VA_ARGS__, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+#define PASTE0(a, b) a ## b
+#define PASTE(a, b) PASTE0(a, b)
+#define C_1(_1)      CX(_1)
+#define C_2(_1, ...) CX(_1) C_1(__VA_ARGS__)
+#define C_3(_1, ...) CX(_1) C_2(__VA_ARGS__)
+#define C_4(_1, ...) CX(_1) C_3(__VA_ARGS__)
+#define C_5(_1, ...) CX(_1) C_4(__VA_ARGS__)
+#define C_6(_1, ...) CX(_1) C_5(__VA_ARGS__)
+#define C_7(_1, ...) CX(_1) C_6(__VA_ARGS__)
+#define C_8(_1, ...) CX(_1) C_7(__VA_ARGS__)
+#define C_9(_1, ...) CX(_1) C_8(__VA_ARGS__)
+#define C_10(_1, ...) CX(_1) C_9(__VA_ARGS__)
+#define C_11(_1, ...) CX(_1) C_10(__VA_ARGS__)
+#define C_12(_1, ...) CX(_1) C_11(__VA_ARGS__)
+#define C_13(_1, ...) CX(_1) C_12(__VA_ARGS__)
+#define C_14(_1, ...) CX(_1) C_13(__VA_ARGS__)
+#define C_15(_1, ...) CX(_1) C_14(__VA_ARGS__)
+#define C_16(_1, ...) CX(_1) C_15(__VA_ARGS__)
+#define C(...) PASTE(C_, ARGCOUNT(__VA_ARGS__))(__VA_ARGS__)
+
 static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
 {
 #ifndef I386_OPT
@@ -3960,242 +3951,157 @@ static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
 #undef HANDLE_PREFIX
 #endif
 	eswitch(b1) {
-#undef I
 #define I(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
 #include "i386ins.def"
 #undef I
-#define I(...)
+
 #undef CX
 #define CX(_1) case _1:
+#define GRPBEG TRY(peek8(cpu, &modrm)); switch((modrm >> 3) & 7) {
+#define GRPCASE(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+#define GRPEND default: default_ud; } ebreak;
 
 	ecase(0x80): ecase(0x82): { // G1b
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG1b
-#define IG1b(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG1b GRPCASE
 #include "i386ins.def"
 #undef IG1b
-#define IG1b(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0x81): { // G1v
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG1v
-#define IG1v(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG1v GRPCASE
 #include "i386ins.def"
 #undef IG1v
-#define IG1v(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0x83): { // G1vIb
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG1vIb
-#define IG1vIb(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG1vIb GRPCASE
 #include "i386ins.def"
 #undef IG1vIb
-#define IG1vIb(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xc0): { // G2b
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG2b
-#define IG2b(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG2b GRPCASE
 #include "i386ins.def"
 #undef IG2b
-#define IG2b(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xc1): { // G2v
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG2v
-#define IG2v(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG2v GRPCASE
 #include "i386ins.def"
 #undef IG2v
-#define IG2v(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xd0): { // G2b1
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG2b1
-#define IG2b1(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG2b1 GRPCASE
 #include "i386ins.def"
 #undef IG2b1
-#define IG2b1(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xd1): { // G2v1
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG2v1
-#define IG2v1(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG2v1 GRPCASE
 #include "i386ins.def"
 #undef IG2v1
-#define IG2v1(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xd2): { // G2bC
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG2bC
-#define IG2bC(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG2bC GRPCASE
 #include "i386ins.def"
 #undef IG2bC
-#define IG2bC(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xd3): { // G2v1
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG2vC
-#define IG2vC(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG2vC GRPCASE
 #include "i386ins.def"
 #undef IG2vC
-#define IG2vC(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xf6): { // G3b
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG3b
-#define IG3b(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG3b GRPCASE
 #include "i386ins.def"
 #undef IG3b
-#define IG3b(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xf7): { // G3v
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG3v
-#define IG3v(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG3v GRPCASE
 #include "i386ins.def"
 #undef IG3v
-#define IG3v(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xfe): { // G4
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG4
-#define IG4(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG4 GRPCASE
 #include "i386ins.def"
 #undef IG4
-#define IG4(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0xff): { // G5
-		TRY(peek8(cpu, &modrm));
-		switch((modrm >> 3) & 7) {
-#undef IG5
-#define IG5(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG5 GRPCASE
 #include "i386ins.def"
 #undef IG5
-#define IG5(...)
-		default: default_ud;
-		}
-		ebreak;
+GRPEND
 	}
 
 	ecase(0x0f): { // two byte
 		TRY(fetch8(cpu, &b1));
 		switch(b1) {
-#undef I2
 #define I2(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
 #include "i386ins.def"
 #undef I2
-#define I2(...)
 
 		case 0x00: { // G6
-			TRY(peek8(cpu, &modrm));
-			switch((modrm >> 3) & 7) {
-#undef IG6
-#define IG6(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG6 GRPCASE
 #include "i386ins.def"
 #undef IG6
-#define IG6(...)
-			default: default_ud;
-			}
-			ebreak;
+GRPEND
 		}
 
 		case 0x01: { // G7
-			TRY(peek8(cpu, &modrm));
-			switch((modrm >> 3) & 7) {
-#undef IG7
-#define IG7(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG7 GRPCASE
 #include "i386ins.def"
 #undef IG7
-#define IG7(...)
-			default: default_ud;
-			}
-			ebreak;
+GRPEND
 		}
 
 		case 0xba: { // G8
-			TRY(peek8(cpu, &modrm));
-			switch((modrm >> 3) & 7) {
-#undef IG8
-#define IG8(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG8 GRPCASE
 #include "i386ins.def"
 #undef IG8
-#define IG8(...)
-			default: default_ud;
-			}
-			ebreak;
+GRPEND
 		}
 
 		case 0xc7: { // G9
-			TRY(peek8(cpu, &modrm));
-			switch((modrm >> 3) & 7) {
-#undef IG9
-#define IG9(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
+GRPBEG
+#define IG9 GRPCASE
 #include "i386ins.def"
 #undef IG9
-#define IG9(...)
-			default: default_ud;
-			}
-			ebreak;
+GRPEND
 		}
 		default: default_ud;
 		}
@@ -4226,7 +4132,7 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 	int dpl = (w2 >> 13) & 0x3;
 	int p = (w2 >> 15) & 1;
 	if (!p) {
-//		fprintf(stderr, "pmcall: seg not present %04x\n", sel);
+//		dolog("pmcall: seg not present %04x\n", sel);
 		cpu->excno = EX_NP;
 		cpu->excerr = sel & ~0x3;
 		return false;
@@ -4276,16 +4182,17 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 			}
 		}
 //		if ((sel & 3) != cpu->cpl)
-//			fprintf(stderr, "pmcall PVL %d => %d\n", cpu->cpl, sel & 3);
+//			dolog("pmcall PVL %d => %d\n", cpu->cpl, sel & 3);
 		TRY1(set_seg(cpu, SEG_CS, sel));
 		cpu->next_ip = addr;
 	} else {
-		assert(!isjmp);
+		if (isjmp) cpu_abort(cpu, -202);
 		int newcs = w1 >> 16;
 		uword newip = (w1 & 0xffff) | (w2 & 0xffff0000);
 		int gt = (w2 >> 8) & 0xf;
 		int wc = w2 & 31;
-		assert(gt == 4 || gt == 12); // call gate
+		// only call gates are supported now
+		if (gt != 4 && gt != 12) cpu_abort(cpu, -203);
 
 		if (dpl < cpu->cpl || dpl < (sel & 3)) {
 			cpu->excno = EX_GP;
@@ -4481,7 +4388,7 @@ static int __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
 			if (dpl != 0) {
 				cpu->excno = EX_GP;
 				cpu->excerr = (sel & ~0x3) | ext;
-				fprintf(stderr, "__call_isr_check_cs fail1: %d %d %d\n", conforming, dpl, cpu->cpl);
+				dolog("__call_isr_check_cs fail1: %d %d %d\n", conforming, dpl, cpu->cpl);
 				return 0;
 			} else {
 				return 3;
@@ -4498,7 +4405,7 @@ static int __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
 			} else {
 				cpu->excno = EX_GP;
 				cpu->excerr = (sel & ~0x3) | ext;
-				fprintf(stderr, "__call_isr_check_cs fail2: %d %d %d\n", conforming, dpl, cpu->cpl);
+				dolog("__call_isr_check_cs fail2: %d %d %d\n", conforming, dpl, cpu->cpl);
 				return 0;
 			}
 		}
@@ -4544,7 +4451,7 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	if (off + 7 > cpu->idt.limit) {
 		cpu->excno = EX_GP;
 		cpu->excerr = off | 2 | ext;
-		fprintf(stderr, "call_isr error0 %d %d\n", off, cpu->idt.limit);
+		dolog("call_isr error0 %d %d\n", off, cpu->idt.limit);
 		return false;
 	}
 
@@ -4557,7 +4464,7 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	if (gt != 6 && gt != 7 && gt != 0xe && gt != 0xf && gt != 5) {
 		cpu->excno = EX_GP;
 		cpu->excerr = off | 2 | ext;
-		fprintf(stderr, "call_isr error1 gt=%d\n", gt);
+		dolog("call_isr error1 gt=%d\n", gt);
 		return false;
 	}
 
@@ -4572,12 +4479,12 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	if (!p) {
 		cpu->excno = EX_NP;
 		cpu->excerr = off | 2 | ext;
-		fprintf(stderr, "call_isr error3\n");
+		dolog("call_isr error3\n");
 		return false;
 	}
 
 	/* task gate is not supported */
-	assert(gt != 5);
+	if (gt == 5) cpu_abort(cpu, -204);
 
 	/* TRAP-OR-INTERRUPT-GATE */
 	int newcs = w1 >> 16;
@@ -4638,7 +4545,7 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 		break;
 	}
 	case 2: /* inter PVL */ {
-//		fprintf(stderr, "call_isr %d %x PVL %d => %d\n", no, no, cpu->cpl, csdpl);
+//		dolog("call_isr %d %x PVL %d => %d\n", no, no, cpu->cpl, csdpl);
 		OptAddr msp0, mss0;
 		int newpl = csdpl;
 		uword oldss = cpu->seg[SEG_SS].sel;
@@ -4714,16 +4621,16 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 		break;
 	}
 	case 3: /* from v8086 */ {
-//		fprintf(stderr, "int from v8086\n");
-		assert(csdpl == 0);
-		assert(!gate16);
-//		fprintf(stderr, "call_isr %d %x PVL %d => 0\n", no, no, cpu->cpl, csdpl);
+//		dolog("int from v8086\n");
+		if (csdpl != 0) cpu_abort(cpu, -205);
+		if (gate16) cpu_abort(cpu, -206);
+//		dolog("call_isr %d %x PVL %d => 0\n", no, no, cpu->cpl, csdpl);
 		OptAddr msp0, mss0;
 		int newpl = 0;
 		uword oldss = cpu->seg[SEG_SS].sel;
 		uword oldsp = cpu->gpr[4];
 		uword newss, newsp;
-		assert(cpu->seg[SEG_TR].flags & 0x8);
+		if (!(cpu->seg[SEG_TR].flags & 0x8)) cpu_abort(cpu, -207);
 		TRY(translate(cpu, &msp0, 1, SEG_TR, 4 + 8 * newpl, 4, 0));
 		TRY(translate(cpu, &mss0, 1, SEG_TR, 8 + 8 * newpl, 4, 0));
 		newsp = load32(cpu, &msp0);
@@ -4802,7 +4709,7 @@ static bool __pmiret_check_cs_same(CPUI386 *cpu, int sel)
 	if ((sel & ~0x3) == 0) {
 		cpu->excno = EX_GP;
 		cpu->excerr = sel & ~0x3;
-		fprintf(stderr, "__pmiret_check_cs_same: sel %04x\n", sel);
+		dolog("__pmiret_check_cs_same: sel %04x\n", sel);
 		return false;
 	}
 	uword w2;
@@ -4835,7 +4742,7 @@ static bool __pmiret_check_cs_same(CPUI386 *cpu, int sel)
 	}
 
 	if (!p) {
-//		fprintf(stderr, "__pmiret_check_cs_same: seg not present %04x\n", sel);
+//		dolog("__pmiret_check_cs_same: seg not present %04x\n", sel);
 		cpu->excno = EX_NP;
 		cpu->excerr = sel & ~0x3;
 		return false;
@@ -4849,7 +4756,7 @@ static bool __pmiret_check_cs_outer(CPUI386 *cpu, int sel)
 	if ((sel & ~0x3) == 0) {
 		cpu->excno = EX_GP;
 		cpu->excerr = sel & ~0x3;
-		fprintf(stderr, "__pmiret_check_cs_outer: sel %04x\n", sel);
+		dolog("__pmiret_check_cs_outer: sel %04x\n", sel);
 		return false;
 	}
 	uword w2;
@@ -4883,7 +4790,7 @@ static bool __pmiret_check_cs_outer(CPUI386 *cpu, int sel)
 	}
 
 	if (!p) {
-//		fprintf(stderr, "__pmiret_check_cs_outer: seg not present %04x\n", sel);
+//		dolog("__pmiret_check_cs_outer: seg not present %04x\n", sel);
 		cpu->excno = EX_NP;
 		cpu->excerr = sel & ~0x3;
 		return false;
@@ -4900,9 +4807,8 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 			return false;
 		}
 		if ((cpu->flags & NT)) {
-			fprintf(stderr, "IRET NT\n");
-			cpu_debug(cpu);
-			abort();
+			dolog("IRET NT\n");
+			cpu_abort(cpu, -210);
 		}
 		if (opsz16)
 			off += 2;
@@ -4947,11 +4853,11 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 	}
 
 	if (isiret && (newflags & VM)) {
-		assert(cpu->cpl == 0);
+		if (cpu->cpl != 0) cpu_abort(cpu, -208);
 		// return to v8086
-//		fprintf(stderr, "pmiret PVL %d => %d (vm) %04x:%08x\n", cpu->cpl, 3, newcs, newip);
+//		dolog("pmiret PVL %d => %d (vm) %04x:%08x\n", cpu->cpl, 3, newcs, newip);
 		OptAddr meml_vmes, meml_vmds, meml_vmfs, meml_vmgs;
-		assert (!opsz16);
+		if (opsz16) cpu_abort(cpu, -209);
 		TRY(translate(cpu, &meml4, 1, SEG_SS, (sp + 12) & sp_mask, 4, 0));
 		TRY(translate(cpu, &meml5, 1, SEG_SS, (sp + 16) & sp_mask, 4, 0));
 		TRY(translate(cpu, &meml_vmes, 1, SEG_SS, (sp + 20) & sp_mask, 4, 0));
@@ -4979,7 +4885,7 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 		if (rpl == cpu->cpl) {
 			// return to same level
 			TRY(__pmiret_check_cs_same(cpu, newcs));
-//			fprintf(stderr, "pmiret PVL %d => %d %04x:%08x\n", cpu->cpl, newcs & 3, newcs, newip);
+//			dolog("pmiret PVL %d => %d %04x:%08x\n", cpu->cpl, newcs & 3, newcs, newip);
 			if (isiret)
 				cpu->flags = newflags;
 			TRY1(set_seg(cpu, SEG_CS, newcs));
@@ -4995,7 +4901,7 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 			TRY(__pmiret_check_cs_outer(cpu, newcs));
 			uword newsp;
 			uword newss;
-//			fprintf(stderr, "pmiret PVL %d => %d %04x:%08x\n", cpu->cpl, newcs & 3, newcs, newip);
+//			dolog("pmiret PVL %d => %d %04x:%08x\n", cpu->cpl, newcs & 3, newcs, newip);
 			if (opsz16) {
 				/* sp */ TRY(translate(cpu, &meml4, 1, SEG_SS, (sp + 4 + off) & sp_mask, 2, 0));
 				/* ss */ TRY(translate(cpu, &meml5, 1, SEG_SS, (sp + 6 + off) & sp_mask, 2, 0));
@@ -5150,7 +5056,7 @@ CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	case 3: cpu->flags_mask = EFLAGS_MASK_386; break;
 	case 4: cpu->flags_mask = EFLAGS_MASK_486; break;
 	case 5: cpu->flags_mask = EFLAGS_MASK_586; break;
-	default: abort();
+	default: assert(false);
 	}
 
 	cpu->tlb.size = tlb_size;
@@ -5177,7 +5083,7 @@ void cpui386_enable_fpu(CPUI386 *cpu)
 	cpu->fpu = fpu_new();
 }
 
-void activate()
+void cpui386_set_verbose() // for debugging
 {
 	verbose = true;
 	freopen("/tmp/xlog", "w", stderr);
@@ -5193,7 +5099,7 @@ static void cpu_debug(CPUI386 *cpu)
 	bool code32 = cpu->seg[SEG_CS].flags & SEG_D_BIT;
 	bool stack32 = cpu->seg[SEG_SS].flags & SEG_B_BIT;
 
-	fprintf(stderr, "IP %08x|AX %08x|CX %08x|DX %08x|BX %08x|SP %08x|BP %08x|SI %08x|DI %08x|FL %08x|CS %04x|DS %04x|SS %04x|ES %04x|FS %04x|GS %04x|CR0 %08x|CR2 %08x|CR3 %08x|CPL %d|IOPL %d|CSBASE %08x/%08x|DSBASE %08x/%08x|SSBASE %08x/%08x|ESBASE %08x/%08x|GSBASE %08x/%08x %c%c\n",
+	dolog("IP %08x|AX %08x|CX %08x|DX %08x|BX %08x|SP %08x|BP %08x|SI %08x|DI %08x|FL %08x|CS %04x|DS %04x|SS %04x|ES %04x|FS %04x|GS %04x|CR0 %08x|CR2 %08x|CR3 %08x|CPL %d|IOPL %d|CSBASE %08x/%08x|DSBASE %08x/%08x|SSBASE %08x/%08x|ESBASE %08x/%08x|GSBASE %08x/%08x %c%c\n",
 		cpu->ip, cpu->gpr[0], cpu->gpr[1], cpu->gpr[2], cpu->gpr[3],
 		cpu->gpr[4], cpu->gpr[5], cpu->gpr[6], cpu->gpr[7],
 		cpu->flags, SEGi(SEG_CS), SEGi(SEG_DS), SEGi(SEG_SS),
@@ -5209,34 +5115,34 @@ static void cpu_debug(CPUI386 *cpu)
 	cr2 = cpu->cr2;
 	excno = cpu->excno;
 	excerr = cpu->excerr;
-	fprintf(stderr, "code: ");
+	dolog("code: ");
 	for (int i = 0; i < 32; i++) {
 		OptAddr res;
 		if(translate8(cpu, &res, 1, SEG_CS, cpu->ip + i))
-			fprintf(stderr, " %02x", load8(cpu, &res));
+			dolog(" %02x", load8(cpu, &res));
 		else
-			fprintf(stderr, " ??");
+			dolog(" ??");
 	}
-	fprintf(stderr, "\n");
-	fprintf(stderr, "stack: ");
+	dolog("\n");
+	dolog("stack: ");
 	uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 	for (int i = 0; i < 32; i++) {
 		OptAddr res;
 		if(translate8(cpu, &res, 1, SEG_SS, (cpu->gpr[4] + i) & sp_mask))
-			fprintf(stderr, " %02x", load8(cpu, &res));
+			dolog(" %02x", load8(cpu, &res));
 		else
-			fprintf(stderr, " ??");
+			dolog(" ??");
 	}
-	fprintf(stderr, "\n");
-	fprintf(stderr, "stkf : ");
+	dolog("\n");
+	dolog("stkf : ");
 	for (int i = 0; i < 32; i++) {
 		OptAddr res;
 		if(translate8(cpu, &res, 1, SEG_SS, (cpu->gpr[5] + i) & sp_mask))
-			fprintf(stderr, " %02x", load8(cpu, &res));
+			dolog(" %02x", load8(cpu, &res));
 		else
-			fprintf(stderr, " ??");
+			dolog(" ??");
 	}
-	fprintf(stderr, "\n");
+	dolog("\n");
 
 	cpu->cr2 = cr2;
 	cpu->excno = excno;

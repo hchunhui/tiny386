@@ -1,5 +1,6 @@
 // 0: X 1: R 2: W 3: RW
 
+#ifdef I
 I(C(0x00), EbGb, 3, ADDb)
 I(C(0x01), EvGv, 3, ADD)
 I(C(0x02), GbEb, 1, ADDb)
@@ -201,7 +202,9 @@ I(C(0xfc), _,      0, CLD)
 I(C(0xfd), _,      0, STD)
 //  0xfe   GRP4
 //  0xff   GRP5
+#endif
 
+#ifdef I2
 //   0x00   GRP6
 //   0x01   GRP7
 I2(C(0x02), GvEw, 1, LAR)
@@ -244,7 +247,9 @@ I2(C(0xbc), GvEv,   1, BSF)
 I2(C(0xbd), GvEv,   1, BSR)
 I2(C(0xbe), GvEb,   1, MOVSX)
 I2(C(0xbf), GvEw,   1, MOVSX)
+#endif
 
+#ifdef IG1b
 IG1b(C(0x00), EbIb, 3, ADDb)
 IG1b(C(0x01), EbIb, 3, ORb)
 IG1b(C(0x02), EbIb, 3, ADCb)
@@ -253,7 +258,9 @@ IG1b(C(0x04), EbIb, 3, ANDb)
 IG1b(C(0x05), EbIb, 3, SUBb)
 IG1b(C(0x06), EbIb, 3, XORb)
 IG1b(C(0x07), EbIb, 1, CMPb)
+#endif
 
+#ifdef IG1v
 IG1v(C(0x00), EvIv, 3, ADD)
 IG1v(C(0x01), EvIv, 3, OR)
 IG1v(C(0x02), EvIv, 3, ADC)
@@ -262,7 +269,9 @@ IG1v(C(0x04), EvIv, 3, AND)
 IG1v(C(0x05), EvIv, 3, SUB)
 IG1v(C(0x06), EvIv, 3, XOR)
 IG1v(C(0x07), EvIv, 1, CMP)
+#endif
 
+#ifdef IG1vIb
 IG1vIb(C(0x00), EvIb, 3, ADD)
 IG1vIb(C(0x01), EvIb, 3, OR)
 IG1vIb(C(0x02), EvIb, 3, ADC)
@@ -271,7 +280,9 @@ IG1vIb(C(0x04), EvIb, 3, AND)
 IG1vIb(C(0x05), EvIb, 3, SUB)
 IG1vIb(C(0x06), EvIb, 3, XOR)
 IG1vIb(C(0x07), EvIb, 1, CMP)
+#endif
 
+#ifdef IG2b
 IG2b(C(0x00), EbIb, 3, ROLb)
 IG2b(C(0x01), EbIb, 3, RORb)
 IG2b(C(0x02), EbIb, 3, RCLb)
@@ -279,7 +290,9 @@ IG2b(C(0x03), EbIb, 3, RCRb)
 IG2b(C(0x04, 0x06), EbIb, 3, SHLb)
 IG2b(C(0x05), EbIb, 3, SHRb)
 IG2b(C(0x07), EbIb, 3, SARb)
+#endif
 
+#ifdef IG2b1
 IG2b1(C(0x00), Eb1, 3, ROLb)
 IG2b1(C(0x01), Eb1, 3, RORb)
 IG2b1(C(0x02), Eb1, 3, RCLb)
@@ -287,7 +300,9 @@ IG2b1(C(0x03), Eb1, 3, RCRb)
 IG2b1(C(0x04, 0x06), Eb1, 3, SHLb)
 IG2b1(C(0x05), Eb1, 3, SHRb)
 IG2b1(C(0x07), Eb1, 3, SARb)
+#endif
 
+#ifdef IG2bC
 IG2bC(C(0x00), EbCL, 3, ROLb)
 IG2bC(C(0x01), EbCL, 3, RORb)
 IG2bC(C(0x02), EbCL, 3, RCLb)
@@ -295,7 +310,9 @@ IG2bC(C(0x03), EbCL, 3, RCRb)
 IG2bC(C(0x04, 0x06), EbCL, 3, SHLb)
 IG2bC(C(0x05), EbCL, 3, SHRb)
 IG2bC(C(0x07), EbCL, 3, SARb)
+#endif
 
+#ifdef IG2v
 IG2v(C(0x00), EvIb, 3, ROL)
 IG2v(C(0x01), EvIb, 3, ROR)
 IG2v(C(0x02), EvIb, 3, RCL)
@@ -303,7 +320,9 @@ IG2v(C(0x03), EvIb, 3, RCR)
 IG2v(C(0x04, 0x06), EvIb, 3, SHL)
 IG2v(C(0x05), EvIb, 3, SHR)
 IG2v(C(0x07), EvIb, 3, SAR)
+#endif
 
+#ifdef IG2v1
 IG2v1(C(0x00), Ev1, 3, ROL)
 IG2v1(C(0x01), Ev1, 3, ROR)
 IG2v1(C(0x02), Ev1, 3, RCL)
@@ -311,7 +330,9 @@ IG2v1(C(0x03), Ev1, 3, RCR)
 IG2v1(C(0x04, 0x06), Ev1, 3, SHL)
 IG2v1(C(0x05), Ev1, 3, SHR)
 IG2v1(C(0x07), Ev1, 3, SAR)
+#endif
 
+#ifdef IG2vC
 IG2vC(C(0x00), EvCL, 3, ROL)
 IG2vC(C(0x01), EvCL, 3, ROR)
 IG2vC(C(0x02), EvCL, 3, RCL)
@@ -319,7 +340,9 @@ IG2vC(C(0x03), EvCL, 3, RCR)
 IG2vC(C(0x04, 0x06), EvCL, 3, SHL)
 IG2vC(C(0x05), EvCL, 3, SHR)
 IG2vC(C(0x07), EvCL, 3, SAR)
+#endif
 
+#ifdef IG3b
 IG3b(C(0x00, 0x01), EbIb, 1, TESTb)
 IG3b(C(0x02), Eb, 3, NOTb)
 IG3b(C(0x03), Eb, 3, NEGb)
@@ -327,7 +350,9 @@ IG3b(C(0x04), Eb, 1, MULb)
 IG3b(C(0x05), Eb, 1, IMULb)
 IG3b(C(0x06), Eb, 1, DIVb)
 IG3b(C(0x07), Eb, 1, IDIVb)
+#endif
 
+#ifdef IG3v
 IG3v(C(0x00, 0x01), EvIv, 1, TEST)
 IG3v(C(0x02), Ev, 3, NOT)
 IG3v(C(0x03), Ev, 3, NEG)
@@ -335,10 +360,14 @@ IG3v(C(0x04), Ev, 1, MUL)
 IG3v(C(0x05), Ev, 1, IMUL)
 IG3v(C(0x06), Ev, 1, DIV)
 IG3v(C(0x07), Ev, 1, IDIV)
+#endif
 
+#ifdef IG4
 IG4(C(0x00), Eb, 3, INCb)
 IG4(C(0x01), Eb, 3, DECb)
+#endif
 
+#ifdef IG5
 IG5(C(0x00), Ev, 3, INC)
 IG5(C(0x01), Ev, 3, DEC)
 IG5(C(0x02), Ev, 1, CALLABS)
@@ -346,43 +375,62 @@ IG5(C(0x03), Ep, 1, CALLFAR)
 IG5(C(0x04), Ev, 1, JMPABS)
 IG5(C(0x05), Ep, 1, JMPFAR)
 IG5(C(0x06), Ev, 1, PUSH)
+#endif
 
+#ifdef IG6
 IG6(C(0x00), Ew, 2, SLDT)
 IG6(C(0x01), Ew, 2, STR)
 IG6(C(0x02), Ew, 1, LLDT)
 IG6(C(0x03), Ew, 1, LTR)
 IG6(C(0x04), Ew, 1, VERR)
 IG6(C(0x05), Ew, 1, VERW)
+#endif
 
+#ifdef IG7
 IG7(C(0x00), Ms, 2, SGDT)
 IG7(C(0x01), Ms, 2, SIDT)
 IG7(C(0x02), Ms, 1, LGDT)
 IG7(C(0x03), Ms, 1, LIDT)
 IG7(C(0x04), Ew, 2, SMSW)
 IG7(C(0x06), Ew, 1, LMSW)
+#endif
 
+#ifdef IG8
 IG8(C(0x04), BTEvIb, 1, BT)
 IG8(C(0x05), BTEvIb, 3, BTS)
 IG8(C(0x06), BTEvIb, 3, BTR)
 IG8(C(0x07), BTEvIb, 3, BTC)
+#endif
 
+#ifdef I2
 I2(C(0xff), _,       0, UD0)
+#endif
 
 //486 (not in 386 ISA)
+#ifdef I2
 I2(C(0xb0), EbGb,    3, CMPXCHb)
 I2(C(0xb1), EvGv,    3, CMPXCH)
 I2(C(0xc0), EbGb,    3, XADDb)
 I2(C(0xc1), EvGv,    3, XADD)
 I2(C(0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf), PlusRegv, _, BSWAP)
-IG7(C(0x07), Ms,     0, INVLPG)
 I2(C(0x09), _,       0, WBINVD)
+#endif
+#ifdef IG7
+IG7(C(0x07), Ms,     0, INVLPG)
+#endif
 
 //used by win98se
+#ifdef I2
 I2(C(0xa2), _,       0, CPUID) // CPUID
 I2(C(0x77), _,       0, UD0) // EMMS
+#endif
 
 //used by winXP
+#ifdef IG9
 IG9(C(0x01), Mq,     0, CMPXCH8B)
+#endif
+#ifdef I2
 I2(C(0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
     0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f), GvEv, 0, CMOV)
 I2(C(0x31), _,       0, RDTSC)
+#endif
