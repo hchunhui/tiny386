@@ -696,6 +696,9 @@ bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uin
 					return false;
 				start += 10;
 			}
+			fpu->sw = 0;
+			fpu->top = 0;
+			fpu->cw = 0x37f;
 			break;
 		}
 		case 7: // FNSTSW
