@@ -9,7 +9,7 @@ typedef void SimpleFBDrawFunc(void *opaque,
                               int x, int y, int w, int h);
 
 typedef struct VGAState VGAState;
-VGAState *vga_init(uint8_t *vga_ram, int vga_ram_size,
+VGAState *vga_init(char *vga_ram, int vga_ram_size,
                    uint8_t *fb, int width, int height);
 
 int vga_step(VGAState *vga);

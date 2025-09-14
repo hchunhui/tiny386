@@ -607,7 +607,7 @@ static void vbe_fixup_regs(VGAState *s)
 //    }
 
     /* update vga state */
-    r[VBE_DISPI_INDEX_VIRT_HEIGHT] = maxy;
+//    r[VBE_DISPI_INDEX_VIRT_HEIGHT] = maxy;
     s->vbe_line_offset = linelength;
     s->vbe_start_addr  = offset / 4;
 }
@@ -1930,9 +1930,9 @@ uint8_t vga_mem_read(VGAState *s, uint32_t addr)
     return ret;
 }
 
-static void vga_initmode();
+static void vga_initmode(VGAState *s);
 
-VGAState *vga_init(uint8_t *vga_ram, int vga_ram_size,
+VGAState *vga_init(char *vga_ram, int vga_ram_size,
                    uint8_t *fb, int width, int height)
 {
     VGAState *s;
@@ -1956,7 +1956,7 @@ VGAState *vga_init(uint8_t *vga_ram, int vga_ram_size,
 #endif
     fb_dev->fb_data = fb;
 
-    s->vga_ram = vga_ram;
+    s->vga_ram = (uint8_t *) vga_ram;
     s->vga_ram_size = vga_ram_size;
 
     s->vbe_regs[VBE_DISPI_INDEX_ID] = VBE_DISPI_ID5;

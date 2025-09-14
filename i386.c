@@ -79,7 +79,7 @@ struct CPUI386 {
 		} *tab;
 	} tlb;
 
-	char *phys_mem;
+	u8 *phys_mem;
 	long phys_mem_size;
 
 	long cycle;
@@ -705,7 +705,6 @@ static u16 IRAM_ATTR load16(CPUI386 *cpu, OptAddr *res)
 	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
 		return 0;
 	}
-	u8 *mem = (u8 *) cpu->phys_mem;
 	if (likely(res->res == ADDR_OK1))
 		return pload16(cpu, res->addr1);
 	else
@@ -1001,13 +1000,12 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 			cpu->cpl = cpu->flags & VM ? 3 : 0;
 			cpu->code16 = true;
 		}
-		if (seg = SEG_SS) {
+		if (seg == SEG_SS) {
 			cpu->sp_mask = 0xffff;
 		}
 		return true;
 	}
 
-	uword off = sel & ~0x7;
 	uword w1, w2;
 	TRY(read_desc(cpu, sel, &w1, &w2));
 
@@ -1044,7 +1042,7 @@ static bool set_seg(CPUI386 *cpu, int seg, int sel)
 		cpu->cpl = sel & 3;
 		cpu->code16 = !(cpu->seg[SEG_CS].flags & SEG_D_BIT);
 	}
-	if (seg = SEG_SS) {
+	if (seg == SEG_SS) {
 		cpu->sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 	}
 	return true;
@@ -3723,9 +3721,9 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 #define BOUND_helper(BIT, a, b, la, sa, lb, sb) \
 	OptAddr meml1, meml2; \
 	s ## BIT idx = la(a); \
-	uword addr = lb(b); \
-	TRY(translate ## BIT(cpu, &meml1, 3, curr_seg, addr)); \
-	TRY(translate ## BIT(cpu, &meml2, 3, curr_seg, addr + BIT / 8)); \
+	uword addr1 = lb(b); \
+	TRY(translate ## BIT(cpu, &meml1, 3, curr_seg, addr1)); \
+	TRY(translate ## BIT(cpu, &meml2, 3, curr_seg, addr1 + BIT / 8)); \
 	s ## BIT lo = load ## BIT(cpu, &meml1); \
 	s ## BIT hi = load ## BIT(cpu, &meml2); \
 	if (idx < lo || idx > hi) { \
@@ -5062,7 +5060,7 @@ CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	cpu->tlb.size = tlb_size;
 	cpu->tlb.tab = malloc(sizeof(struct tlb_entry) * tlb_size);
 
-	cpu->phys_mem = phys_mem;
+	cpu->phys_mem = (u8 *) phys_mem;
 	cpu->phys_mem_size = phys_mem_size;
 
 	cpu->cycle = 0;

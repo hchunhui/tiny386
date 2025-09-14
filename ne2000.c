@@ -348,7 +348,7 @@ static void ne2000_receive(void *opaque, const uint8_t *buf, int size)
 #endif
 }
 
-#ifdef USE_TUNTAP
+#if defined(USE_TUNTAP)
 struct TUN {
     int fd;
 };
@@ -387,7 +387,7 @@ static void *net_open(NE2000State *s)
     return tun;
 }
 
-#elifdef USE_SLIRP
+#elif defined(USE_SLIRP)
 #include "slirp/libslirp.h"
 struct SLIRP {
     void *slirp;
