@@ -1579,6 +1579,7 @@ static void idecd_exec_cmd(IDEState *s, int val)
         //ide_transfer_halt(s);
         //ide_cancel_dma_sync(s);
         //ide_reset(s);
+        ide_set_signature(s);
         s->status = 0x00;
         break;
     case WIN_PACKETCMD:
