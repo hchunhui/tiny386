@@ -322,19 +322,18 @@ static u32 pc_io_read32(void *o, int addr)
 	return 0xffffffff;
 }
 
-static bool pc_io_read_string(void *o, int addr, uint8_t *buf, int len)
+static int pc_io_read_string(void *o, int addr, uint8_t *buf, int size, int count)
 {
 	PC *pc = o;
 	u32 val;
+
 	switch(addr) {
 	case 0x1f0:
-		ide_data_read_string(pc->ide, buf, len);
-		return true;
+		return ide_data_read_string(pc->ide, buf, size, count);
 	case 0x170:
-		ide_data_read_string(pc->ide2, buf, len);
-		return true;
+		return ide_data_read_string(pc->ide2, buf, size, count);
 	}
-	return false;
+	return 0;
 }
 
 static void pc_io_write(void *o, int addr, u8 val)
@@ -538,18 +537,16 @@ static void pc_io_write32(void *o, int addr, u32 val)
 	}
 }
 
-static bool pc_io_write_string(void *o, int addr, uint8_t *buf, int len)
+static int pc_io_write_string(void *o, int addr, uint8_t *buf, int size, int count)
 {
 	PC *pc = o;
 	switch(addr) {
 	case 0x1f0:
-		ide_data_write_string(pc->ide, buf, len);
-		return true;
+		return ide_data_write_string(pc->ide, buf, size, count);
 	case 0x170:
-		ide_data_write_string(pc->ide2, buf, len);
-		return true;
+		return ide_data_write_string(pc->ide2, buf, size, count);
 	}
-	return false;
+	return 0;
 }
 
 static void load_bios_and_reset(PC *pc);

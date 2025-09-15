@@ -2828,9 +2828,11 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		if (cpu->cb.io_read_string && dir > 0 && \
 		    (memld.addr1 | 4095) < cpu->phys_mem_size && \
 		    !in_iomem(memld.addr1) && !in_iomem(memld.addr1 | 4095)) { \
-			if (cpu->cb.io_read_string( \
-				    cpu->cb.io, lreg16(2), \
-				    cpu->phys_mem + memld.addr1, count * dir)) { \
+			int count1 = cpu->cb.io_read_string( \
+				cpu->cb.io, lreg16(2), \
+				cpu->phys_mem + memld.addr1, dir, count); \
+			if (count1 > 0) { \
+				count = count1; \
 				sreg ## ABIT(7, lreg ## ABIT(7) + count * dir); \
 				sreg ## ABIT(1, cx - count); \
 				cx = lreg ## ABIT(1); \
@@ -2892,9 +2894,11 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		if (cpu->cb.io_write_string && dir > 0 && \
 		    (memls.addr1 | 4095) < cpu->phys_mem_size && \
 		    !in_iomem(memls.addr1) && !in_iomem(memls.addr1 | 4095)) { \
-			if (cpu->cb.io_write_string( \
-				    cpu->cb.io, lreg16(2), \
-				    cpu->phys_mem + memls.addr1, count * dir)) { \
+			int count1 = cpu->cb.io_write_string( \
+				cpu->cb.io, lreg16(2), \
+				cpu->phys_mem + memls.addr1, dir, count); \
+			if (count1 > 0) { \
+				count = count1; \
 				sreg ## ABIT(6, lreg ## ABIT(6) + count * dir); \
 				sreg ## ABIT(1, cx - count); \
 				cx = lreg ## ABIT(1); \
