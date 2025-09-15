@@ -722,6 +722,7 @@ struct pcconfig {
 	long mem_size;
 	long vga_mem_size;
 	const char *disks[4];
+	int iscd[4];
 	int fill_cmos;
 	int width;
 	int height;
@@ -771,11 +772,18 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	for (int i = 0; i < 4; i++) {
 		if (!disks[i] || disks[i][0] == 0)
 			continue;
+		int ret;
 		if (i < 2) {
-			int ret = ide_attach(pc->ide, i, disks[i]);
+			if (conf->iscd[i])
+				ret = ide_attach_cd(pc->ide, i, disks[i]);
+			else
+				ret = ide_attach(pc->ide, i, disks[i]);
 			assert(ret == 0);
 		} else {
-			int ret = ide_attach(pc->ide2, i - 2, disks[i]);
+			if (conf->iscd[i])
+				ret = ide_attach_cd(pc->ide2, i - 2, disks[i]);
+			else
+				ret = ide_attach(pc->ide2, i - 2, disks[i]);
 			assert(ret == 0);
 		}
 	}
@@ -1277,12 +1285,28 @@ static int parse_conf_ini(void* user, const char* section,
 			conf->vga_mem_size = parse_mem_size(value);
 		} else if (NAME("hda")) {
 			conf->disks[0] = strdup(value);
+			conf->iscd[0] = 0;
 		} else if (NAME("hdb")) {
 			conf->disks[1] = strdup(value);
+			conf->iscd[1] = 0;
 		} else if (NAME("hdc")) {
 			conf->disks[2] = strdup(value);
+			conf->iscd[2] = 0;
 		} else if (NAME("hdd")) {
 			conf->disks[3] = strdup(value);
+			conf->iscd[3] = 0;
+		} else if (NAME("cda")) {
+			conf->disks[0] = strdup(value);
+			conf->iscd[0] = 1;
+		} else if (NAME("cdb")) {
+			conf->disks[1] = strdup(value);
+			conf->iscd[1] = 1;
+		} else if (NAME("cdc")) {
+			conf->disks[2] = strdup(value);
+			conf->iscd[2] = 1;
+		} else if (NAME("cdd")) {
+			conf->disks[3] = strdup(value);
+			conf->iscd[3] = 1;
 		} else if (NAME("fill_cmos")) {
 			conf->fill_cmos = atoi(value);
 		} else if (NAME("linuxstart")) {

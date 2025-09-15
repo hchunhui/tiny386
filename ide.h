@@ -30,6 +30,7 @@ typedef struct IDEIFState IDEIFState;
 
 IDEIFState *ide_allocate(int irq, void *pic, void (*set_irq)(void *pic, int irq, int level));
 int ide_attach(IDEIFState *s, int drive, const char *filename);
+int ide_attach_cd(IDEIFState *s, int drive, const char *filename);
 
 void ide_data_writew(void *opaque, uint32_t val);
 uint32_t ide_data_readw(void *opaque);
