@@ -124,6 +124,8 @@ typedef struct {
 	PCIDevice *pci_vga;
 	uword pci_vga_ram_addr;
 
+	EMULINK *emulink;
+
 	const char *bios;
 	const char *vga_bios;
 
@@ -316,6 +318,9 @@ static u32 pc_io_read32(void *o, int addr)
 	case 0xcfc:
 		val = i440fx_read_data(pc->i440fx, 0, 2);
 		return val;
+	case 0xf1f0:
+		val = emulink_status_read(pc->emulink);
+		return val;
 	default:
 		fprintf(stderr, "ind 0x%x <= 0x%x\n", addr, 0xffffffff);
 	}
@@ -332,6 +337,8 @@ static int pc_io_read_string(void *o, int addr, uint8_t *buf, int size, int coun
 		return ide_data_read_string(pc->ide, buf, size, count);
 	case 0x170:
 		return ide_data_read_string(pc->ide2, buf, size, count);
+	case 0xf1f4:
+		return emulink_data_read_string(pc->emulink, buf, size, count);
 	}
 	return 0;
 }
@@ -531,6 +538,12 @@ static void pc_io_write32(void *o, int addr, u32 val)
 	case 0xcfc:
 		i440fx_write_data(pc->i440fx, 0, val, 2);
 		return;
+	case 0xf1f0:
+		emulink_cmd_write(pc->emulink, val);
+		return;
+	case 0xf1f4:
+		emulink_data_write(pc->emulink, val);
+		return;
 	default:
 		fprintf(stderr, "outd 0x%x => 0x%x\n", val, addr);
 		return;
@@ -545,6 +558,8 @@ static int pc_io_write_string(void *o, int addr, uint8_t *buf, int size, int cou
 		return ide_data_write_string(pc->ide, buf, size, count);
 	case 0x170:
 		return ide_data_write_string(pc->ide2, buf, size, count);
+	case 0xf1f4:
+		return emulink_data_write_string(pc->emulink, buf, size, count);
 	}
 	return 0;
 }
@@ -723,6 +738,7 @@ struct pcconfig {
 	long vga_mem_size;
 	const char *disks[4];
 	int iscd[4];
+	const char *fdd[2];
 	int fill_cmos;
 	int width;
 	int height;
@@ -817,6 +833,16 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 			   fb, conf->width, conf->height);
 	pc->pci_vga = vga_pci_init(pc->vga, pc->pcibus, pc, set_pci_vga_bar);
 	pc->pci_vga_ram_addr = -1;
+
+	pc->emulink = emulink_init();
+	const char **fdd = conf->fdd;
+	for (int i = 0; i < 2; i++) {
+		if (!fdd[i] || fdd[i][0] == 0)
+			continue;
+		int ret;
+		ret = emulink_attach_floppy(pc->emulink, i, fdd[i]);
+		assert(ret == 0);
+	}
 
 	cb->iomem = pc;
 	cb->iomem_read8 = iomem_read8;
@@ -1307,6 +1333,10 @@ static int parse_conf_ini(void* user, const char* section,
 		} else if (NAME("cdd")) {
 			conf->disks[3] = strdup(value);
 			conf->iscd[3] = 1;
+		} else if (NAME("fda")) {
+			conf->fdd[0] = strdup(value);
+		} else if (NAME("fdb")) {
+			conf->fdd[1] = strdup(value);
 		} else if (NAME("fill_cmos")) {
 			conf->fill_cmos = atoi(value);
 		} else if (NAME("linuxstart")) {

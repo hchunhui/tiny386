@@ -348,3 +348,145 @@ uint8_t cmos_set(void *cmos, int addr, uint8_t val)
 		s->data[addr] = val;
 	return val;
 }
+
+struct EMULINK {
+	uint32_t status;
+	uint32_t cmd;
+	uint32_t args[4];
+	int argi;
+	int dataleft;
+
+	// fake floppy drive
+	FILE *fdd[2];
+};
+
+EMULINK *emulink_init()
+{
+	EMULINK *e = malloc(sizeof(EMULINK));
+	memset(e, 0, sizeof(EMULINK));
+	e->cmd = -1;
+	return e;
+}
+
+int emulink_attach_floppy(EMULINK *e, int i, const char *filename)
+{
+	if (i >= 0 && i < 2) {
+		e->fdd[i] = fopen(filename, "r+b");
+		if (!e->fdd[i])
+			return -1;
+	}
+	return 0;
+}
+
+uint32_t emulink_status_read(void *s)
+{
+	EMULINK *e = s;
+	return e->status;
+}
+
+static void exec_cmd(EMULINK *e)
+{
+	switch (e->cmd) {
+	case 0:
+		e->status = 0xaa55ff00;
+		e->cmd = -1;
+		break;
+	case 0x100:
+		e->status = 0;
+		if (e->fdd[0])
+			e->status |= 0x40;
+		if (e->fdd[1])
+			e->status |= 0x04;
+		e->cmd = -1;
+		break;
+	case 0x101:
+	case 0x102:
+		if (e->argi == 3) {
+			int ret;
+			if (e->args[0] < 2 && e->fdd[e->args[0]]) {
+				ret = fseek(e->fdd[e->args[0]], 512 * e->args[1], SEEK_SET);
+				if (ret < 0) {
+					e->status = -errno;
+					e->cmd = -1;
+				} else {
+					e->status = 0;
+					e->dataleft = 512 * e->args[2];
+				}
+			}
+		}
+		break;
+	case -1:
+		break;
+	}
+}
+
+void emulink_cmd_write(void *s, uint32_t val)
+{
+	EMULINK *e = s;
+	e->cmd = val;
+	e->argi = 0;
+	exec_cmd(e);
+}
+
+void emulink_data_write(void *s, uint32_t val)
+{
+	EMULINK *e = s;
+	if (e->argi < 4) {
+		e->args[e->argi++] = val;
+	}
+	exec_cmd(e);
+}
+
+int emulink_data_write_string(void *s, uint8_t *buf, int size, int count)
+{
+	EMULINK *e = s;
+	switch (e->cmd) {
+	case 0x102: // floppy write
+		if (e->argi == 3) {
+			int len = size * count;
+			if (len > e->dataleft)
+				break;
+			int ret = fwrite(buf, 1, len, e->fdd[e->args[0]]);
+			if (ret != len)
+				break;
+			e->dataleft -= len;
+			if (e->dataleft == 0) {
+				e->cmd = -1;
+				e->status = 0;
+				return count;
+			}
+			return count;
+		}
+		break;
+	}
+	e->cmd = -1;
+	e->status = -1;
+	return count;
+}
+
+int emulink_data_read_string(void *s, uint8_t *buf, int size, int count)
+{
+	EMULINK *e = s;
+	switch (e->cmd) {
+	case 0x101: // floppy read
+		if (e->argi == 3) {
+			int len = size * count;
+			if (len > e->dataleft)
+				break;
+			int ret = fread(buf, 1, len, e->fdd[e->args[0]]);
+			if (ret != len)
+				break;
+			e->dataleft -= len;
+			if (e->dataleft == 0) {
+				e->cmd = -1;
+				e->status = 0;
+				return count;
+			}
+			return count;
+		}
+		break;
+	}
+	e->cmd = -1;
+	e->status = -1;
+	return count;
+}

@@ -57,6 +57,78 @@ index 8930616e..1ad6c482 100644
      // QEMU doesn't map 0xc0000-0xfffff back to the original rom on a
      // reset, so do that manually before invoking a hard reset.
      void *flash = (void*)BIOS_SRC_OFFSET;
+diff --git a/src/hw/floppy.c b/src/hw/floppy.c
+index 9e6647d4..a1c913b9 100644
+--- a/src/hw/floppy.c
++++ b/src/hw/floppy.c
+@@ -143,6 +143,8 @@ addFloppy(int floppyid, int ftype)
+     boot_add_floppy(drive, desc, prio);
+ }
+ 
++u8 use_emulink VARLOW;
++
+ void
+ floppy_setup(void)
+ {
+@@ -155,6 +157,20 @@ floppy_setup(void)
+         return;
+     dprintf(3, "init floppy drives\n");
+ 
++    outl(0, 0xf1f0);
++    u32 magic = inl(0xf1f0);
++    if (magic == 0xaa55ff00) {
++        outl(0x100, 0xf1f0);
++        u8 type = inl(0xf1f0);
++        if (type & 0xf0)
++            addFloppy(0, type >> 4);
++        if (type & 0x0f)
++            addFloppy(1, type & 0x0f);
++        SET_LOW(use_emulink, 1);
++        return;
++    }
++    SET_LOW(use_emulink, 0);
++
+     if (CONFIG_QEMU) {
+         u8 type = rtc_read(CMOS_FLOPPY_DRIVE_TYPE);
+         if (type & 0xf0)
+@@ -686,6 +702,37 @@ floppy_process_op(struct disk_op_s *op)
+     if (!CONFIG_FLOPPY)
+         return 0;
+ 
++    if (GET_LOW(use_emulink)) {
++        switch (op->command) {
++        case CMD_RESET:
++            return 0;
++        case CMD_READ: {
++            u8 floppyid = GET_GLOBALFLAT(op->drive_fl->cntl_id);
++            outl(0x101, 0xf1f0);
++            outl(floppyid, 0xf1f4);
++            outl(op->lba, 0xf1f4);
++            outl(op->count, 0xf1f4);
++            insb_fl(0xf1f4, op->buf_fl, op->count * 512);
++            return 0;
++        }
++        case CMD_WRITE: {
++            u8 floppyid = GET_GLOBALFLAT(op->drive_fl->cntl_id);
++            outl(0x102, 0xf1f0);
++            outl(floppyid, 0xf1f4);
++            outl(op->lba, 0xf1f4);
++            outl(op->count, 0xf1f4);
++            outsb_fl(0xf1f4, op->buf_fl, op->count * 512);
++            return 0;
++        }
++        case CMD_VERIFY:
++            return 0;
++        case CMD_FORMAT:
++            return 0;
++        default:
++            return DISK_RET_EPARAM;
++        }
++    }
++
+     switch (op->command) {
+     case CMD_RESET:
+         return floppy_reset(op);
 diff --git a/src/hw/serialio.c b/src/hw/serialio.c
 index fa663b99..48efda12 100644
 --- a/src/hw/serialio.c

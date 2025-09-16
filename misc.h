@@ -18,4 +18,14 @@ void cmos_ioport_write(CMOS *cmos, int addr, uint8_t val);
 
 uint8_t cmos_set(void *cmos, int addr, uint8_t val);
 
+typedef struct EMULINK EMULINK;
+EMULINK *emulink_init();
+
+int emulink_attach_floppy(EMULINK *e, int i, const char *filename);
+uint32_t emulink_status_read(void *s);
+void emulink_cmd_write(void *s, uint32_t val);
+void emulink_data_write(void *s, uint32_t val);
+int emulink_data_write_string(void *s, uint8_t *buf, int size, int count);
+int emulink_data_read_string(void *s, uint8_t *buf, int size, int count);
+
 #endif /* MISC_H */
