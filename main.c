@@ -261,6 +261,10 @@ static u8 pc_io_read(void *o, int addr)
 	case 0x226: case 0x22a: case 0x22c: case 0x22d: case 0x22e: case 0x22f:
 		val = sb16_dsp_read(pc->sb16, addr);
 		return val;
+	case 0xf1f4:
+		val = 0;
+		emulink_data_read_string(pc->emulink, &val, 1, 1);
+		return val;
 	default:
 		//fprintf(stderr, "in 0x%x <= 0x%x\n", addr, 0xff);
 		return 0xff;
@@ -479,6 +483,9 @@ static void pc_io_write(void *o, int addr, u8 val)
 		return;
 	case 0x226: case 0x22c:
 		sb16_dsp_write(pc->sb16, addr, val);
+		return;
+	case 0xf1f4:
+		emulink_data_write_string(pc->emulink, &val, 1, 1);
 		return;
 	default:
 		fprintf(stderr, "out 0x%x => 0x%x\n", val, addr);

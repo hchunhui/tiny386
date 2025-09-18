@@ -43,6 +43,41 @@ index f7c2306c..1778c003 100644
          break;
      case 3:
          apm_shutdown();
+diff --git a/src/block.h b/src/block.h
+index 3af2d716..46cb96ae 100644
+--- a/src/block.h
++++ b/src/block.h
+@@ -22,6 +22,7 @@ struct disk_op_s {
+             void *cdbcmd;
+         };
+     };
++    u32 chs; // used by floppy driver
+ };
+ 
+ #define CMD_RESET   0x00
+diff --git a/src/disk.c b/src/disk.c
+index 0328fbd1..f2773bd0 100644
+--- a/src/disk.c
++++ b/src/disk.c
+@@ -139,15 +139,18 @@ basic_access(struct bregs *regs, struct drive_s *drive_fl, u16 command)
+     u16 nlc=chs.cylinder, nlh=chs.head, nls=chs.sector;
+ 
+     // sanity check on cyl heads, sec
++    if (GET_FLATPTR(drive_fl->type) != DTYPE_FLOPPY) {
+     if (cylinder >= nlc || head >= nlh || sector > nls) {
+         warn_invalid(regs);
+         disk_ret(regs, DISK_RET_EPARAM);
+         return;
+     }
++    }
+ 
+     // translate lchs to lba
+     dop.lba = (((((u32)cylinder * (u32)nlh) + (u32)head) * (u32)nls)
+                + (u32)sector - 1);
++    dop.chs = (cylinder << 16) | (head << 8) | sector;
+ 
+     dop.buf_fl = MAKE_FLATPTR(regs->es, regs->bx);
+ 
 diff --git a/src/fw/shadow.c b/src/fw/shadow.c
 index 8930616e..1ad6c482 100644
 --- a/src/fw/shadow.c
@@ -58,7 +93,7 @@ index 8930616e..1ad6c482 100644
      // reset, so do that manually before invoking a hard reset.
      void *flash = (void*)BIOS_SRC_OFFSET;
 diff --git a/src/hw/floppy.c b/src/hw/floppy.c
-index 9e6647d4..a1c913b9 100644
+index 9e6647d4..f2c074b2 100644
 --- a/src/hw/floppy.c
 +++ b/src/hw/floppy.c
 @@ -143,6 +143,8 @@ addFloppy(int floppyid, int ftype)
@@ -103,7 +138,7 @@ index 9e6647d4..a1c913b9 100644
 +            u8 floppyid = GET_GLOBALFLAT(op->drive_fl->cntl_id);
 +            outl(0x101, 0xf1f0);
 +            outl(floppyid, 0xf1f4);
-+            outl(op->lba, 0xf1f4);
++            outl(op->chs, 0xf1f4);
 +            outl(op->count, 0xf1f4);
 +            insb_fl(0xf1f4, op->buf_fl, op->count * 512);
 +            return 0;
@@ -112,7 +147,7 @@ index 9e6647d4..a1c913b9 100644
 +            u8 floppyid = GET_GLOBALFLAT(op->drive_fl->cntl_id);
 +            outl(0x102, 0xf1f0);
 +            outl(floppyid, 0xf1f4);
-+            outl(op->lba, 0xf1f4);
++            outl(op->chs, 0xf1f4);
 +            outl(op->count, 0xf1f4);
 +            outsb_fl(0xf1f4, op->buf_fl, op->count * 512);
 +            return 0;

@@ -349,6 +349,55 @@ uint8_t cmos_set(void *cmos, int addr, uint8_t val)
 	return val;
 }
 
+struct fdfmt {
+	uint8_t sectors;
+	uint8_t tracks;
+	uint8_t heads;
+};
+
+static const struct fdfmt fmt[] = {
+	/* 1.44 MB 3.5 */
+	{ 18, 80, 2 }, /* 3.5 2880 */
+	{ 20, 80, 2 }, /* 3.5 3200 */
+	{ 21, 80, 2 },
+	{ 21, 82, 2 },
+	{ 21, 83, 2 },
+	{ 22, 80, 2 },
+	{ 23, 80, 2 },
+	{ 24, 80, 2 },
+	/* 2.88 MB 3.5 */
+	{ 36, 80, 2 },
+	{ 39, 80, 2 },
+	{ 40, 80, 2 },
+	{ 44, 80, 2 },
+	{ 48, 80, 2 },
+	/* 720 KB 3.5 */
+	{  9, 80, 2 }, /* 3.5 1440 */
+	{ 10, 80, 2 },
+	{ 10, 82, 2 },
+	{ 10, 83, 2 },
+	{ 13, 80, 2 },
+	{ 14, 80, 2 },
+	/* 1.2 MB 5.25 */
+	{ 15, 80, 2 },
+	{ 18, 80, 2 }, /* 5.25 2880 */
+	{ 18, 82, 2 },
+	{ 18, 83, 2 },
+	{ 20, 80, 2 }, /* 5.25 3200 */
+	/* 720 KB 5.25 */
+	{  9, 80, 2 }, /* 5.25 1440 */
+	{ 11, 80, 2 },
+	/* 360 KB 5.25 */
+	{  9, 40, 2 },
+	{  9, 40, 1 },
+	{ 10, 41, 2 },
+	{ 10, 42, 2 },
+	/* 320 KB 5.25 */
+	{  8, 40, 2 },
+	{  8, 40, 1 },
+	{  0,  0, 0 },
+};
+
 struct EMULINK {
 	uint32_t status;
 	uint32_t cmd;
@@ -358,6 +407,7 @@ struct EMULINK {
 
 	// fake floppy drive
 	FILE *fdd[2];
+	int fdfmti[2];
 };
 
 EMULINK *emulink_init()
@@ -374,6 +424,16 @@ int emulink_attach_floppy(EMULINK *e, int i, const char *filename)
 		e->fdd[i] = fopen(filename, "r+b");
 		if (!e->fdd[i])
 			return -1;
+		fseek(e->fdd[i], 0, SEEK_END);
+		int size = ftell(e->fdd[i]);
+		for (int j = 0; fmt[j].sectors; j++) {
+			if (size ==
+			    fmt[j].sectors * fmt[j].tracks * fmt[j].heads * 512) {
+				e->fdfmti[i] = j;
+				return 0;
+			}
+		}
+		return -1;
 	}
 	return 0;
 }
@@ -404,7 +464,12 @@ static void exec_cmd(EMULINK *e)
 		if (e->argi == 3) {
 			int ret;
 			if (e->args[0] < 2 && e->fdd[e->args[0]]) {
-				ret = fseek(e->fdd[e->args[0]], 512 * e->args[1], SEEK_SET);
+				int c = e->args[1] >> 16;
+				int h = (e->args[1] >> 8) & 0xff;
+				int s = e->args[1] & 0xff;
+				const struct fdfmt *f = &(fmt[e->fdfmti[e->args[0]]]);
+				int lba = (c * f->heads + h) * f->sectors + (s - 1);
+				ret = fseek(e->fdd[e->args[0]], 512 * lba, SEEK_SET);
 				if (ret < 0) {
 					e->status = -errno;
 					e->cmd = -1;
