@@ -24,6 +24,7 @@ typedef u32 uword;
 typedef s32 sword;
 
 #include "kvm.h"
+#define PAGE_SIZE 4096
 
 struct CPUKVM {
 	int kvm_fd;
@@ -31,6 +32,7 @@ struct CPUKVM {
 	int vcpu_fd;
 	struct kvm_run *kvm_run;
 	int kvm_run_size;
+	struct kvm_coalesced_mmio_ring *coalesced_mmio_ring;
 
 	char *phys_mem;
 	long phys_mem_size;
@@ -111,6 +113,23 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 		abort();
 	}
 
+	struct kvm_coalesced_mmio_zone zone;
+	zone.addr = 0xa0000;
+	zone.size = 0x20000;
+	zone.pio = 0;
+	if (ioctl(cpu->vm_fd, KVM_REGISTER_COALESCED_MMIO, &zone) < 0) {
+		perror("KVM_REGISTER_COALESCED_MMIO");
+		abort();
+	}
+
+	zone.addr = 0xe0000000;
+	zone.size = 0x20000000;
+	zone.pio = 0;
+	if (ioctl(cpu->vm_fd, KVM_REGISTER_COALESCED_MMIO, &zone) < 0) {
+		perror("KVM_REGISTER_COALESCED_MMIO");
+		abort();
+	}
+
 	cpu->vcpu_fd = ioctl(cpu->vm_fd, KVM_CREATE_VCPU, 0);
 	if (cpu->vcpu_fd < 0) {
 		perror("KVM_CREATE_VCPU");
@@ -130,6 +149,14 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 		perror("mmap kvm_run");
 		abort();
 	}
+
+	int off;
+	off = ioctl(cpu->kvm_fd, KVM_CHECK_EXTENSION, (void *) KVM_CAP_COALESCED_MMIO);
+	if (off < 0) {
+		perror("coalesced_mmio");
+		abort();
+	}
+	cpu->coalesced_mmio_ring = (void *)cpu->kvm_run + off * PAGE_SIZE;
 
 	act.sa_handler = sigalrm_handler;
 	sigemptyset(&act.sa_mask);
@@ -164,6 +191,41 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	if (cb)
 		*cb = &(cpu->cb);
 	return cpu;
+}
+
+static void flush_coalesced_mmio_buffer(CPUKVM *cpu)
+{
+	if (cpu->coalesced_mmio_ring) {
+		struct kvm_coalesced_mmio_ring *ring = cpu->coalesced_mmio_ring;
+		while (ring->first != ring->last) {
+			struct kvm_coalesced_mmio *ent;
+
+			ent = &ring->coalesced_mmio[ring->first];
+
+			if (ent->pio == 1) {
+			} else {
+				void *data = ent->data;
+				uint64_t addr = ent->phys_addr;
+				int len = ent->len;
+				if (!in_iomem(addr))
+					continue;
+				switch(len) {
+				case 1:
+					cpu->cb.iomem_write8(cpu->cb.iomem, addr, *(u8 *) data);
+					break;
+				case 2:
+					cpu->cb.iomem_write16(cpu->cb.iomem, addr, *(u16 *) data);
+					break;
+				case 4:
+					cpu->cb.iomem_write32(cpu->cb.iomem, addr, *(u32 *) data);
+					break;
+				default:
+					abort();
+				}
+			}
+			ring->first = (ring->first + 1) % KVM_COALESCED_MMIO_MAX;
+		}
+	}
 }
 
 void cpukvm_step(CPUKVM *cpu, int stepcount)
@@ -209,6 +271,7 @@ void cpukvm_step(CPUKVM *cpu, int stepcount)
 		abort();
 	}
 	//	printf("exit=%d\n", run->exit_reason);
+	flush_coalesced_mmio_buffer(cpu);
 	switch(run->exit_reason) {
 	case KVM_EXIT_IRQ_WINDOW_OPEN:
 		break;
