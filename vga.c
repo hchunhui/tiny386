@@ -907,6 +907,8 @@ static void vga_graphic_refresh(VGAState *s,
         update_palette16(s, palette);
         if (s->sr[0x01] & 8) {
             xdiv = 2;
+            if (shift_control == 1) // XXX
+                w *= 2;
         }
     } else {
         if (!vbe_enabled(s)) {
@@ -969,11 +971,15 @@ static void vga_graphic_refresh(VGAState *s,
         for (int x = 0; x < w; x++) {
             int x1 = x / xdiv;
             uint32_t color;
-            if (shift_control == 0 || shift_control == 1) {
+            if (shift_control == 0) {
                 int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1) << 0;
                 k |= ((vram[addr + 4 * (x1 >> 3) + 1] >> (7 - (x1 & 7))) & 1) << 1;
                 k |= ((vram[addr + 4 * (x1 >> 3) + 2] >> (7 - (x1 & 7))) & 1) << 2;
                 k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x1 & 7))) & 1) << 3;
+                color = palette[k];
+            } else if (shift_control == 1) {
+                int k = ((vram[addr + 4 * (x1 >> 3) + ((x1 & 4) >> 2)] >>
+                          (6 - 2 * (x1 & 3))) & 3);
                 color = palette[k];
             } else
 #if BPP == 32
