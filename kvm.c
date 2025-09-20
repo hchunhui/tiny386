@@ -52,6 +52,21 @@ static bool in_iomem(uword addr)
 //	return addr >= 0xa0000 && addr < 0xc0000;
 }
 
+void cpukvm_register_mem(CPUKVM *cpu, int slot, uint32_t addr, uint32_t len,
+			 void *ptr)
+{
+	struct kvm_userspace_memory_region memreg;
+	memreg.slot = slot;
+	memreg.flags = 0;
+	memreg.guest_phys_addr = addr;
+	memreg.memory_size = len;
+	memreg.userspace_addr = (unsigned long) ptr;
+        if (ioctl(cpu->vm_fd, KVM_SET_USER_MEMORY_REGION, &memreg) < 0) {
+		perror("KVM_SET_USERn_MEMORY_REGION");
+		abort();
+	}
+}
+
 CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 {
 	CPUKVM *cpu = malloc(sizeof(CPUKVM));
@@ -116,14 +131,6 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	struct kvm_coalesced_mmio_zone zone;
 	zone.addr = 0xa0000;
 	zone.size = 0x20000;
-	zone.pio = 0;
-	if (ioctl(cpu->vm_fd, KVM_REGISTER_COALESCED_MMIO, &zone) < 0) {
-		perror("KVM_REGISTER_COALESCED_MMIO");
-		abort();
-	}
-
-	zone.addr = 0xe0000000;
-	zone.size = 0x20000000;
 	zone.pio = 0;
 	if (ioctl(cpu->vm_fd, KVM_REGISTER_COALESCED_MMIO, &zone) < 0) {
 		perror("KVM_REGISTER_COALESCED_MMIO");

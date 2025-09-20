@@ -641,6 +641,14 @@ static void set_pci_vga_bar(void *opaque, int bar_num, uint32_t addr, bool enabl
 		pc->pci_vga_ram_addr = addr;
 	else
 		pc->pci_vga_ram_addr = -1;
+#ifdef USEKVM
+	if (enabled)
+		cpukvm_register_mem(pc->cpu, 2, addr, pc->vga_mem_size,
+				    pc->vga_mem);
+	else
+		cpukvm_register_mem(pc->cpu, 2, addr, 0,
+				    NULL);
+#endif
 }
 
 static u8 iomem_read8(void *iomem, uword addr)
