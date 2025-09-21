@@ -374,14 +374,14 @@ static bool fpstorebcd(void *cpu, int seg, uword addr, double val)
 	for (int i = 0; i < 9; i++) {
 		int res = (v % 10) | ((v / 10) % 10) << 4;
 		v /= 100;
-		if (cpu_store8(cpu, seg, addr + i, res))
+		if (!cpu_store8(cpu, seg, addr + i, res))
 			return false;
         }
 
         int res = (v % 10) | ((v / 10) % 10) << 4;
 	if (sign)
 		res |= 0x80;
-	if (cpu_store8(cpu, seg, addr + 9, res))
+	if (!cpu_store8(cpu, seg, addr + 9, res))
 		return false;
 	return true;
 }
