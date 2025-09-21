@@ -99,7 +99,11 @@ struct CPUI386 {
 #define wordmask ((uword) ((sword) -1))
 #define TRY(f) if(!(f)) { return false; }
 #define TRYL(f) if(unlikely(!(f))) { return false; }
-#define TRY1(f) if(!(f)) { dolog("@ %s %s %d\n", __FILE__, __FUNCTION__, __LINE__); cpu_abort(cpu, -1); }
+#define TRY1(f) if(unlikely(!(f))) { dolog("@ %s %s %d\n", __FILE__, __FUNCTION__, __LINE__); cpu_abort(cpu, -1); }
+// the second branchless version works better on gcc
+//#define SET_BIT(w, f, m) ((w) ^= ((-(uword)(f)) ^ (w)) & (m))
+#define SET_BIT(w, f, m) ((w) = ((w) & ~((uword)(m))) | ((-(uword)(f)) & (m)))
+//#define SET_BIT(w, f, m) do { if (f) (w) |= (m); else (w) &= ~(m); } while (0)
 
 enum {
 	EX_DE,
@@ -448,37 +452,12 @@ static int get_OF(CPUI386 *cpu)
 
 static void refresh_flags(CPUI386 *cpu)
 {
-	if (cpu->cc.mask == 0)
-		return;
-	if (get_CF(cpu))
-		cpu->flags |= CF;
-	else
-		cpu->flags &= ~CF;
-
-	if (get_PF(cpu))
-		cpu->flags |= PF;
-	else
-		cpu->flags &= ~PF;
-
-	if (get_AF(cpu))
-		cpu->flags |= AF;
-	else
-		cpu->flags &= ~AF;
-
-	if (get_ZF(cpu))
-		cpu->flags |= ZF;
-	else
-		cpu->flags &= ~ZF;
-
-	if (get_SF(cpu))
-		cpu->flags |= SF;
-	else
-		cpu->flags &= ~SF;
-
-	if (get_OF(cpu))
-		cpu->flags |= OF;
-	else
-		cpu->flags &= ~OF;
+	SET_BIT(cpu->flags, get_CF(cpu), CF);
+	SET_BIT(cpu->flags, get_PF(cpu), PF);
+	SET_BIT(cpu->flags, get_AF(cpu), AF);
+	SET_BIT(cpu->flags, get_ZF(cpu), ZF);
+	SET_BIT(cpu->flags, get_SF(cpu), SF);
+	SET_BIT(cpu->flags, get_OF(cpu), OF);
 }
 
 static inline int get_IOPL(CPUI386 *cpu)
@@ -593,8 +572,7 @@ static bool IRAM_ATTR segcheck(CPUI386 *cpu, int rwm, int seg, uword addr, int s
 {
 	if (cpu->cr0 & 1) {
 		/* null selector check */
-		if ((cpu->seg[seg].sel & ~0x3) == 0 && cpu->seg[seg].limit == 0 &&
-		    !(cpu->flags & VM)) {
+		if (cpu->seg[seg].limit == 0 && (cpu->seg[seg].sel & ~0x3) == 0) {
 //			dolog("segcheck: seg %d is null %x\n", seg, cpu->seg[seg].sel);
 			cpu->excno = EX_GP;
 			cpu->excerr = 0;
@@ -1637,11 +1615,7 @@ static inline void clear_segs(CPUI386 *cpu)
 	int cf = get_CF(cpu); \
 	cpu->cc.dst = sext ## BIT(sext ## BIT(la(a)) OP 1); \
 	cpu->cc.op = CC_ ## NAME ## BIT; \
-	if (cf) { \
-		cpu->flags |= CF; \
-	} else { \
-		cpu->flags &= ~CF; \
-	} \
+	SET_BIT(cpu->flags, cf, CF); \
 	cpu->cc.mask = PF | AF | ZF | SF | OF; \
 	sa(a, cpu->cc.dst);
 
@@ -1719,8 +1693,8 @@ static inline void clear_segs(CPUI386 *cpu)
 	if (y0) { \
 		int cf1 = res & 1; \
 		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
-		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
-		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
+		SET_BIT(cpu->flags, cf1, CF); \
+		SET_BIT(cpu->flags, of1, OF); \
 		cpu->cc.mask &= ~(CF | OF); \
 	}
 
@@ -1736,8 +1710,8 @@ static inline void clear_segs(CPUI386 *cpu)
 		uword res = sext ## BIT((x << y) | (cf << (y - 1)) | (y != 1 ? (x >> (BIT + 1 - y)) : 0)); \
 		int cf1 = (x >> (BIT - y)) & 1; \
 		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
-		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
-		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
+		SET_BIT(cpu->flags, cf1, CF); \
+		SET_BIT(cpu->flags, of1, OF); \
 		cpu->cc.mask &= ~(CF | OF); \
 		sa(a, res); \
 	}
@@ -1754,8 +1728,8 @@ static inline void clear_segs(CPUI386 *cpu)
 		uword res = sext ## BIT((x >> y) | (cf << (BIT - y)) | (y != 1 ? (x << (BIT + 1 - y)) : 0)); \
 		int cf1 = (sext ## BIT(x << (BIT - y)) >> (BIT - 1)) & 1; \
 		int of1 = ((res ^ (res << 1)) >> (BIT - 1)) & 1; \
-		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
-		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
+		SET_BIT(cpu->flags, cf1, CF); \
+		SET_BIT(cpu->flags, of1, OF); \
 		cpu->cc.mask &= ~(CF | OF); \
 		sa(a, res); \
 	}
@@ -1776,8 +1750,8 @@ static inline void clear_segs(CPUI386 *cpu)
 	if (y0) { \
 		int cf1 = (res >> (BIT - 1)) & 1; \
 		int of1 = ((res ^ (res << 1)) >> (BIT - 1)) & 1; \
-		if (cf1) cpu->flags |= CF; else cpu->flags &= ~CF; \
-		if (of1) cpu->flags |= OF; else cpu->flags &= ~OF; \
+		SET_BIT(cpu->flags, cf1, CF); \
+		SET_BIT(cpu->flags, of1, OF); \
 		cpu->cc.mask &= ~(CF | OF); \
 	}
 
@@ -2020,11 +1994,7 @@ static inline void clear_segs(CPUI386 *cpu)
 	int bb = lb(b) % BIT; \
 	bool bit = (la(a) >> bb) & 1; \
 	cpu->cc.mask &= ~CF; \
-	if (bit) { \
-		cpu->flags |= CF; \
-	} else { \
-		cpu->flags &= ~CF; \
-	}
+	SET_BIT(cpu->flags, bit, CF);
 
 #define BTw(...) BT_helper(16, __VA_ARGS__)
 #define BTd(...) BT_helper(32, __VA_ARGS__)
@@ -2034,11 +2004,7 @@ static inline void clear_segs(CPUI386 *cpu)
 	bool bit = (la(a) >> bb) & 1; \
 	sa(a, la(a) OP (1 << bb)); \
 	cpu->cc.mask &= ~CF; \
-	if (bit) { \
-		cpu->flags |= CF; \
-	} else { \
-		cpu->flags &= ~CF; \
-	}
+	SET_BIT(cpu->flags, bit, CF);
 
 #define BTSw(...) BTX_helper(16, |, __VA_ARGS__)
 #define BTSd(...) BTX_helper(32, |, __VA_ARGS__)
@@ -2293,10 +2259,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 #define CMC() \
 	int cf = get_CF(cpu); \
 	cpu->cc.mask &= ~CF; \
-	if (cf) \
-		cpu->flags &= ~CF; \
-	else \
-		cpu->flags |= CF;
+	SET_BIT(cpu->flags, !cf, CF);
 
 #define CLC() \
 	cpu->cc.mask &= ~CF; \
@@ -3659,13 +3622,13 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 	int zf; \
 	TRY(verrw_helper(cpu, la(a), 0, &zf)); \
 	cpu->cc.mask &= ~ZF; \
-	if (zf) cpu->flags |= ZF; else cpu->flags &= ~ZF;
+	SET_BIT(cpu->flags, zf, ZF);
 
 #define VERW(a, la, sa) \
 	int zf; \
 	TRY(verrw_helper(cpu, la(a), 1, &zf)); \
 	cpu->cc.mask &= ~ZF; \
-	if (zf) cpu->flags |= ZF; else cpu->flags &= ~ZF;
+	SET_BIT(cpu->flags, zf, ZF);
 
 #define ARPL(a, b, la, sa, lb, sb) \
 	if (!(cpu->cr0 & 1) || (cpu->flags & VM)) { \
@@ -4466,7 +4429,7 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	if (gt != 6 && gt != 7 && gt != 0xe && gt != 0xf && gt != 5) {
 		cpu->excno = EX_GP;
 		cpu->excerr = off | 2 | ext;
-		dolog("call_isr error1 gt=%d\n", gt);
+//		dolog("call_isr error1 gt=%d\n", gt);
 		return false;
 	}
 

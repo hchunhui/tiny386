@@ -612,7 +612,7 @@ void pc_step(PC *pc)
 #ifdef BUILD_ESP32
 	cpui386_step(pc->cpu, 384);
 #else
-	cpui386_step(pc->cpu, 1024);
+	cpui386_step(pc->cpu, 10240);
 #endif
 #endif
 }
