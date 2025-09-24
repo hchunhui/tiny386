@@ -14,7 +14,7 @@ VGAState *vga_init(char *vga_ram, int vga_ram_size,
 
 int vga_step(VGAState *vga);
 void vga_refresh(VGAState *s,
-                 SimpleFBDrawFunc *redraw_func, void *opaque);
+                 SimpleFBDrawFunc *redraw_func, void *opaque, int full_update);
 
 void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val);
 uint32_t vga_ioport_read(VGAState *s, uint32_t addr);

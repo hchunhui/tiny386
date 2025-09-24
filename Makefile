@@ -26,6 +26,9 @@ slirp/tcp_timer.c \
 slirp/cutils.c \
 slirp/udp.c
 
+# OSD
+SRCS += osd/microui.c osd/osd.c
+
 OBJS = ${SRCS:.c=.o}
 
 PROGS = tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet

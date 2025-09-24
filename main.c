@@ -138,6 +138,7 @@ typedef struct {
 	const char *initrd;
 	const char *cmdline;
 	int enable_serial;
+	int full_update;
 } PC;
 
 static u8 pc_io_read(void *o, int addr)
@@ -577,7 +578,7 @@ void pc_vga_step(void *o)
 	PC *pc = o;
 	int refresh = vga_step(pc->vga);
 	if (refresh) {
-		vga_refresh(pc->vga, pc->redraw, pc->redraw_data);
+		vga_refresh(pc->vga, pc->redraw, pc->redraw_data, 0);
 	}
 }
 
@@ -603,7 +604,10 @@ void pc_step(PC *pc)
 #ifndef BUILD_ESP32
 	pc->poll(pc->redraw_data);
 	if (refresh) {
-		vga_refresh(pc->vga, pc->redraw, pc->redraw_data);
+		vga_refresh(pc->vga, pc->redraw, pc->redraw_data,
+			    pc->full_update != 0);
+		if (pc->full_update == 2)
+			pc->full_update = 0;
 	}
 #endif
 #ifdef USEKVM
@@ -792,6 +796,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->enable_serial = conf->enable_serial;
 	if (pc->enable_serial)
 		CaptureKeyboardInput();
+	pc->full_update = 0;
 
 	pc->pic = i8259_init(raise_irq, pc->cpu);
 	cb->pic = pc->pic;
@@ -978,15 +983,20 @@ static int load(PC *pc, const char *file, uword addr)
 
 #ifndef NOSDL
 #include "SDL.h"
+#include "osd/osd.h"
 typedef struct {
 	int width, height;
 	SDL_Surface *screen;
 	PC *pc;
+	OSD *osd;
+	bool osd_enabled;
 } Console;
 
 Console *console_init(int width, int height)
 {
 	Console *s = malloc(sizeof(Console));
+	s->osd = osd_init();
+	s->osd_enabled = false;
 #ifdef SWAPXY
 	s->width = height;
 	s->height = width;
@@ -1006,6 +1016,9 @@ static void redraw(void *opaque,
 		   int x, int y, int w, int h)
 {
 	Console *s = opaque;
+	if (s->osd_enabled)
+		osd_render(s->osd, s->screen->pixels,
+			   s->screen->w, s->screen->h, s->screen->pitch);
 	SDL_Flip(s->screen);
 	SDL_PumpEvents();
 }
@@ -1169,15 +1182,37 @@ static void poll(void *opaque)
 	while (SDL_PollEvent(&ev)) {
 		switch (ev.type) {
 		case SDL_KEYDOWN:
+			if (sdl_get_keycode(&(ev.key)) == 0x1a &&
+			    key_pressed[0x1d]) {
+				s->osd_enabled = !s->osd_enabled;
+				s->pc->full_update = s->osd_enabled ? 1 : 2;
+				break;
+			}
+			/* fall through */
 		case SDL_KEYUP:
-			sdl_handle_key_event(&(ev.key), s->pc);
+			if (s->osd_enabled)
+				osd_handle_key(s->osd, sdl_get_keycode(&(ev.key)),
+					       ev.type == SDL_KEYDOWN);
+			else
+				sdl_handle_key_event(&(ev.key), s->pc);
 			break;
 		case SDL_MOUSEMOTION:
-			sdl_handle_mouse_motion_event(&ev, s->pc);
+			if (s->osd_enabled)
+				osd_handle_mouse_motion(s->osd,
+							ev.motion.x, ev.motion.y);
+			else
+				sdl_handle_mouse_motion_event(&ev, s->pc);
 			break;
 		case SDL_MOUSEBUTTONDOWN:
 		case SDL_MOUSEBUTTONUP:
-			sdl_handle_mouse_button_event(&ev, s->pc);
+			if (s->osd_enabled)
+				osd_handle_mouse_button(
+					s->osd,
+					ev.button.x, ev.button.y,
+					ev.type == SDL_MOUSEBUTTONDOWN,
+					1 /* XXX */);
+			else
+				sdl_handle_mouse_button_event(&ev, s->pc);
 			break;
 		case SDL_QUIT:
 			exit(0);

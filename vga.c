@@ -1135,11 +1135,10 @@ int vga_step(VGAState *s)
 }
 
 void vga_refresh(VGAState *s,
-                 SimpleFBDrawFunc *redraw_func, void *opaque)
+                 SimpleFBDrawFunc *redraw_func, void *opaque, int full_update)
 {
     FBDevice *fb_dev = s->fb_dev;
     int graphic_mode;
-    int full_update = 0;
     if (!(s->ar_index & 0x20)) {
         /* blank */
         graphic_mode = 0;
