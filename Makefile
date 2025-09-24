@@ -55,7 +55,8 @@ initnet: initnet.c
 	${CC} -o $@ initnet.c
 
 .depends: ${SRCS}
-	${CC} ${CFLAGS} -MM $^$> 2> /dev/null > $@ || exit 0
+	rm -f $@
+	for i in $^$>; do ${CC} ${CFLAGS} -MT $$(dirname $$i)/$$(basename -s .c $$i).o -MM $$i 2> /dev/null >> $@ || exit 0; done
 
 dep: .depends
 -include .depends
