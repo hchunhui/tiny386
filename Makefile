@@ -1,4 +1,5 @@
-CC = gcc
+Q ?= @
+CC ?= gcc
 CFLAGS = -O3 -g `sdl-config --cflags`
 #CFLAGS = -g `sdl-config --cflags`
 LIBS = `sdl-config --libs` -lm
@@ -32,7 +33,8 @@ PROGS = tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet
 .PHONY: all clean dep
 .SUFFIXES: .c
 .c.o:
-	${CC} ${CFLAGS} -c $< -o $@
+	@/bin/echo -e " \e[1;32mCC\e[0m\t\e[1;37m$<\e[0m \e[1;32m->\e[0m \e[1;37m$@\e[0m"
+	${Q}${CC} ${CFLAGS} -c $< -o $@
 
 all: ${PROGS}
 
@@ -40,23 +42,28 @@ clean:
 	rm -f ${OBJS} .depends ${PROGS}
 
 tiny386: main.c ${OBJS}
-	${CC} ${CFLAGS} -o $@ $< ${OBJS} ${LIBS}
+	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
+	${Q}${CC} ${CFLAGS} -o $@ $< ${OBJS} ${LIBS}
 
 tiny386_nosdl: main.c ${OBJS}
-	${CC} -DNOSDL ${CFLAGS} -o $@ $< ${OBJS} ${LIBS}
+	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
+	${Q}${CC} -DNOSDL ${CFLAGS} -o $@ $< ${OBJS} ${LIBS}
 
 tiny386_kvm: main.c kvm.c ${OBJS}
-	${CC} -DUSEKVM ${CFLAGS} -o $@ $< kvm.c ${OBJS} ${LIBS}
+	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
+	${Q}${CC} -DUSEKVM ${CFLAGS} -o $@ $< kvm.c ${OBJS} ${LIBS}
 
 wifikbd: wifikbd.c
-	${CC} ${CFLAGS} -o $@ wifikbd.c ${LIBS}
+	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
+	${Q}${CC} ${CFLAGS} -o $@ wifikbd.c ${LIBS}
 
 initnet: initnet.c
-	${CC} -o $@ initnet.c
+	${Q}${CC} -o $@ initnet.c
 
 .depends: ${SRCS}
-	rm -f $@
-	for i in $^$>; do ${CC} ${CFLAGS} -MT $$(dirname $$i)/$$(basename -s .c $$i).o -MM $$i 2> /dev/null >> $@ || exit 0; done
+	@/bin/echo -e " \e[1;32mDEP\e[0m\t\e[1;37m$^$>\e[0m \e[1;32m->\e[0m \e[1;37m$@\e[0m"
+	${Q}rm -f $@
+	${Q}for i in $^$>; do ${CC} ${CFLAGS} -MT $$(dirname $$i)/$$(basename -s .c $$i).o -MM $$i 2> /dev/null >> $@ || exit 0; done
 
 dep: .depends
 -include .depends
