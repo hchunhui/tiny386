@@ -200,6 +200,37 @@ static void render(mu_Context *ctx,
 		}
 		}
 	}
+
+	// draw cursor
+	if (ctx->mouse_pos.x || ctx->mouse_pos.y || ctx->last_mouse_pos.x || ctx->last_mouse_pos.y) {
+#if BPP == 32
+		uint32_t cc = 255 | (255 << 8) |
+			(255 << 16) | (255 << 24);
+#elif BPP == 16
+		uint16_t cc = (255 >> 3) | ((255 >> 2) << 5) |
+			((255 >> 3) << 11);
+#else
+#error "bad bpp"
+#endif
+		for (int y = ctx->mouse_pos.y; y < ctx->mouse_pos.y + 8; y++) {
+			if (y < 0 || y + 8 >= h)
+				continue;
+			for (int x = ctx->mouse_pos.x; x < ctx->mouse_pos.x + 8; x++) {
+				if (x < 0 || x + 8 >= w)
+					continue;
+				if (x - ctx->mouse_pos.x > 5 - (y - ctx->mouse_pos.y) &&
+				    x - ctx->mouse_pos.x != y - ctx->mouse_pos.y)
+					continue;
+#if BPP == 32
+				*(uint32_t *)&(pixels[y * pitch + 4 * x]) = cc;
+#elif BPP == 16
+				*(uint16_t *)&(pixels[y * pitch + 2 * x]) = cc;
+#else
+#error "bad bpp"
+#endif
+			}
+		}
+	}
 }
 
 struct OSD {

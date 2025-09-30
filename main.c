@@ -1090,14 +1090,6 @@ static void sdl_handle_key_event(const SDL_KeyboardEvent *ev, PC *pc)
 #endif
 		{
 			keypress = (ev->type == SDL_KEYDOWN);
-			if (keycode == 0x1b && keypress &&
-			    (key_pressed[0x1d])) {
-				static int en;
-				en ^= 1;
-				SDL_ShowCursor(en ? SDL_DISABLE : SDL_ENABLE);
-				SDL_WM_GrabInput(en ? SDL_GRAB_ON : SDL_GRAB_OFF);
-				return;
-			}
 			if (keycode <= KEYCODE_MAX)
 				key_pressed[keycode] = keypress;
 			ps2_put_keycode(pc->kbd, keypress, keycode);
@@ -1178,14 +1170,22 @@ static void poll(void *opaque)
 {
 	Console *s = opaque;
 	SDL_Event ev;
+	int keycode;
 
 	while (SDL_PollEvent(&ev)) {
 		switch (ev.type) {
 		case SDL_KEYDOWN:
-			if (sdl_get_keycode(&(ev.key)) == 0x1a &&
-			    key_pressed[0x1d]) {
+			keycode = sdl_get_keycode(&(ev.key));
+			if (keycode == 0x1a && key_pressed[0x1d]) {
 				s->osd_enabled = !s->osd_enabled;
 				s->pc->full_update = s->osd_enabled ? 1 : 2;
+				break;
+			}
+			if (keycode == 0x1b && key_pressed[0x1d]) {
+				static int en;
+				en ^= 1;
+				SDL_ShowCursor(en ? SDL_DISABLE : SDL_ENABLE);
+				SDL_WM_GrabInput(en ? SDL_GRAB_ON : SDL_GRAB_OFF);
 				break;
 			}
 			/* fall through */
