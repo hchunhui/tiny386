@@ -93,7 +93,7 @@ index 8930616e..1ad6c482 100644
      // reset, so do that manually before invoking a hard reset.
      void *flash = (void*)BIOS_SRC_OFFSET;
 diff --git a/src/hw/floppy.c b/src/hw/floppy.c
-index 9e6647d4..f2c074b2 100644
+index 9e6647d4..f5b5e741 100644
 --- a/src/hw/floppy.c
 +++ b/src/hw/floppy.c
 @@ -143,6 +143,8 @@ addFloppy(int floppyid, int ftype)
@@ -126,7 +126,7 @@ index 9e6647d4..f2c074b2 100644
      if (CONFIG_QEMU) {
          u8 type = rtc_read(CMOS_FLOPPY_DRIVE_TYPE);
          if (type & 0xf0)
-@@ -686,6 +702,37 @@ floppy_process_op(struct disk_op_s *op)
+@@ -686,6 +702,45 @@ floppy_process_op(struct disk_op_s *op)
      if (!CONFIG_FLOPPY)
          return 0;
  
@@ -140,7 +140,11 @@ index 9e6647d4..f2c074b2 100644
 +            outl(floppyid, 0xf1f4);
 +            outl(op->chs, 0xf1f4);
 +            outl(op->count, 0xf1f4);
++            if (inl(0xf1f0) != 0)
++                return DISK_RET_EMEDIA;
 +            insb_fl(0xf1f4, op->buf_fl, op->count * 512);
++            if (inl(0xf1f0) != 0)
++                return DISK_RET_EMEDIA;
 +            return 0;
 +        }
 +        case CMD_WRITE: {
@@ -149,7 +153,11 @@ index 9e6647d4..f2c074b2 100644
 +            outl(floppyid, 0xf1f4);
 +            outl(op->chs, 0xf1f4);
 +            outl(op->count, 0xf1f4);
++            if (inl(0xf1f0) != 0)
++                return DISK_RET_EMEDIA;
 +            outsb_fl(0xf1f4, op->buf_fl, op->count * 512);
++            if (inl(0xf1f0) != 0)
++                return DISK_RET_EMEDIA;
 +            return 0;
 +        }
 +        case CMD_VERIFY:

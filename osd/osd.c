@@ -7,41 +7,49 @@
 
 #include "../vga.h" // XXX: for BPP definition
 
-static void do_window(mu_Context *ctx)
+#include "../misc.h"
+
+
+struct OSD {
+	mu_Context ctx;
+	EMULINK *emulink;
+};
+
+static void do_window(mu_Context *ctx, struct OSD *osd)
 {
 	if (mu_begin_window_ex(ctx, "Tiny386 Control Panel",
 			       mu_rect(40, 40, 320, 240),
 			       MU_OPT_NOCLOSE)) {
 		mu_Container *win = mu_get_current_container(ctx);
-		char tmpbuf[64];
-		mu_layout_row(ctx, 2, (int[]) { 54, -1 }, 0);
-		mu_label(ctx,"Position:");
-		sprintf(tmpbuf, "%d, %d", win->rect.x, win->rect.y);
-		mu_label(ctx, tmpbuf);
-		mu_label(ctx, "Size:");
-		sprintf(tmpbuf, "%d, %d", win->rect.w, win->rect.h);
-		mu_label(ctx, tmpbuf);
 
-		static char buf[128];
-		int submitted = 0;
-		mu_layout_row(ctx, 2, (int[]) { -70, -1 }, 0);
-		if (mu_textbox(ctx, buf, sizeof(buf)) & MU_RES_SUBMIT) {
-			mu_set_focus(ctx, ctx->last_id);
-			submitted = 1;
+		static char buf[2][128];
+		mu_layout_row(ctx, 3, (int[]) { 54, -70, -1 }, 0);
+		for (int i = 0; i < 2; i++) {
+			mu_push_id(ctx, &i, sizeof(i));
+			char label[4] = "fd ";
+			label[2] = 'a' + i;
+			mu_label(ctx, label);
+			if (mu_textbox(ctx, buf[i], sizeof(buf[0])) & MU_RES_SUBMIT) {
+//				mu_set_focus(ctx, ctx->last_id);
+			}
+			if (mu_button(ctx, "Submit")) {
+				if (osd->emulink) {
+					if (buf[i][0] == 0)
+						emulink_attach_floppy(osd->emulink, i, NULL);
+					else
+						emulink_attach_floppy(osd->emulink, i, buf[i]);
+				}
+			}
+			mu_pop_id(ctx);
 		}
-		if (mu_button(ctx, "Submit")) { submitted = 1; }
-		if (submitted) {
-			buf[0] = '\0';
-		}
-
 		mu_end_window(ctx);
 	}
 }
 
-static void process_frame(mu_Context *ctx)
+static void process_frame(mu_Context *ctx, struct OSD *osd)
 {
 	mu_begin(ctx);
-	do_window(ctx);
+	do_window(ctx, osd);
 	mu_end(ctx);
 }
 
@@ -233,17 +241,19 @@ static void render(mu_Context *ctx,
 	}
 }
 
-struct OSD {
-	mu_Context ctx;
-};
-
 OSD *osd_init()
 {
 	OSD *osd = malloc(sizeof(OSD));
+	osd->emulink = NULL;
 	mu_init(&(osd->ctx));
 	osd->ctx.text_height = text_height;
 	osd->ctx.text_width = text_width;
 	return osd;
+}
+
+void *osd_attach_emulink(OSD *osd, void *emulink)
+{
+	osd->emulink = emulink;
 }
 
 void osd_handle_mouse_motion(OSD *osd, int x, int y)
@@ -293,6 +303,6 @@ void osd_handle_key(OSD *osd, int keycode, int down)
 
 void osd_render(OSD *osd, uint8_t *pixels, int w, int h, int pitch)
 {
-	process_frame(&(osd->ctx));
+	process_frame(&(osd->ctx), osd);
 	render(&(osd->ctx), pixels, w, h, pitch);
 }

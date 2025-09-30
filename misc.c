@@ -421,7 +421,12 @@ EMULINK *emulink_init()
 int emulink_attach_floppy(EMULINK *e, int i, const char *filename)
 {
 	if (i >= 0 && i < 2) {
-		e->fdd[i] = fopen(filename, "r+b");
+		if (e->fdd[i]) {
+			fclose(e->fdd[i]);
+			e->fdd[i] = NULL;
+		}
+		if (filename)
+			e->fdd[i] = fopen(filename, "r+b");
 		if (!e->fdd[i])
 			return -1;
 		fseek(e->fdd[i], 0, SEEK_END);
@@ -463,7 +468,12 @@ static void exec_cmd(EMULINK *e)
 	case 0x102:
 		if (e->argi == 3) {
 			int ret;
-			if (e->args[0] < 2 && e->fdd[e->args[0]]) {
+			if (!e->fdd[e->args[0]]) {
+				e->status = -EIO;
+				e->cmd = -1;
+				break;
+			}
+			if (e->args[0] < 2) {
 				int c = e->args[1] >> 16;
 				int h = (e->args[1] >> 8) & 0xff;
 				int s = e->args[1] & 0xff;
@@ -507,6 +517,8 @@ int emulink_data_write_string(void *s, uint8_t *buf, int size, int count)
 	EMULINK *e = s;
 	switch (e->cmd) {
 	case 0x102: // floppy write
+		if (!e->fdd[e->args[0]])
+			break;
 		if (e->argi == 3) {
 			int len = size * count;
 			if (len > e->dataleft)
@@ -534,6 +546,8 @@ int emulink_data_read_string(void *s, uint8_t *buf, int size, int count)
 	EMULINK *e = s;
 	switch (e->cmd) {
 	case 0x101: // floppy read
+		if (!e->fdd[e->args[0]])
+			break;
 		if (e->argi == 3) {
 			int len = size * count;
 			if (len > e->dataleft)
