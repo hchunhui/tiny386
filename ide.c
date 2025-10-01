@@ -355,6 +355,7 @@ struct IDEState {
     /* ATAPI specific */
     uint8_t sense_key;
     uint8_t asc;
+    uint8_t cdrom_changed;
     int packet_transfer_size;
     int elementary_transfer_size;
     int io_buffer_index;
@@ -1169,7 +1170,13 @@ static void ide_atapi_cmd(IDEState *s)
     }
     switch(s->io_buffer[0]) {
     case GPCMD_TEST_UNIT_READY:
-        ide_atapi_cmd_ok(s);
+        if (!s->cdrom_changed) {
+            ide_atapi_cmd_ok(s);
+        } else {
+            s->cdrom_changed = 0;
+            ide_atapi_cmd_error(s, SENSE_NOT_READY,
+                                ASC_MEDIUM_NOT_PRESENT);
+        }
         break;
     case GPCMD_MODE_SENSE_6:
     case GPCMD_MODE_SENSE_10:
@@ -2177,6 +2184,52 @@ int ide_attach_cd(IDEIFState *s, int drive, const char *filename)
     BlockDevice *bs = block_device_init(filename, BF_MODE_RO);
     s->drives[drive] = ide_cddrive_init(s, bs);
     return 0;
+}
+
+static void block_device_reinit(BlockDevice *bs, const char *filename)
+{
+    if (bs->get_sector_count != bf_get_sector_count) {
+        fprintf(stderr, "block_device_reinit: not supported device\n");
+        return;
+    }
+    BlockDeviceFile *bf = bs->opaque;
+
+    if (bf->mode != BF_MODE_RO || bs->get_chs) {
+        fprintf(stderr, "block_device_reinit: not supported device mode\n");
+        return;
+    }
+
+    int64_t file_size;
+    FILE *f;
+    const char *mode_str = "rb";
+
+    f = fopen(filename, mode_str);
+    if (!f) {
+        fprintf(stderr, "block_device_reinit: open failed: %s\n", filename);
+        return;
+    }
+
+    char buf[8];
+    fseek(f, 0, SEEK_END);
+    file_size = ftello(f);
+
+    bf->nb_sectors = file_size / 512;
+    if (bf->f)
+        fclose(bf->f);
+    bf->f = f;
+    bf->start_offset = 0;
+}
+
+void ide_change_cd(IDEIFState *sif, int drive, const char *filename)
+{
+    IDEState *s = sif->drives[drive];
+    if (s && s->drive_kind == IDE_CD) {
+        block_device_reinit(s->bs, filename);
+        s->sense_key = SENSE_UNIT_ATTENTION;
+        s->asc = ASC_MEDIUM_MAY_HAVE_CHANGED;
+        s->cdrom_changed = 1;
+        ide_set_irq(s);
+    }
 }
 
 PCIDevice *piix3_ide_init(PCIBus *pci_bus, int devfn)

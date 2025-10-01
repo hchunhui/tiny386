@@ -6,6 +6,7 @@
 typedef struct OSD OSD;
 OSD *osd_init();
 void *osd_attach_emulink(OSD *osd, void *emulink);
+void *osd_attach_ide(OSD *osd, void *ide, void *ide2);
 void osd_handle_mouse_motion(OSD *osd, int x, int y);
 void osd_handle_mouse_button(OSD *osd, int x, int y, int down, int btn);
 void osd_handle_key(OSD *osd, int keycode, int down);

@@ -8,11 +8,12 @@
 #include "../vga.h" // XXX: for BPP definition
 
 #include "../misc.h"
-
+#include "../ide.h"
 
 struct OSD {
 	mu_Context ctx;
 	EMULINK *emulink;
+	IDEIFState *ide, *ide2;
 };
 
 static void do_window(mu_Context *ctx, struct OSD *osd)
@@ -39,6 +40,29 @@ static void do_window(mu_Context *ctx, struct OSD *osd)
 					else
 						emulink_attach_floppy(osd->emulink, i, buf[i]);
 				}
+			}
+			mu_pop_id(ctx);
+		}
+
+		static char buf2[4][128];
+		for (int i = 0; i < 4; i++) {
+			int iid = 2 + i;
+			mu_push_id(ctx, &iid, sizeof(iid));
+			char label[4] = "cd ";
+			label[2] = 'a' + i;
+			mu_label(ctx, label);
+			if (mu_textbox(ctx, buf2[i], sizeof(buf2[0])) & MU_RES_SUBMIT) {
+//				mu_set_focus(ctx, ctx->last_id);
+			}
+			if (mu_button(ctx, "Submit")) {
+				IDEIFState *ide;
+				if (i < 2) {
+					ide = osd->ide;
+				} else {
+					ide = osd->ide2;
+				}
+				if (ide)
+					ide_change_cd(ide, i % 2, buf2[i]);
 			}
 			mu_pop_id(ctx);
 		}
@@ -245,6 +269,7 @@ OSD *osd_init()
 {
 	OSD *osd = malloc(sizeof(OSD));
 	osd->emulink = NULL;
+	osd->ide = osd->ide2 = NULL;
 	mu_init(&(osd->ctx));
 	osd->ctx.text_height = text_height;
 	osd->ctx.text_width = text_width;
@@ -254,6 +279,12 @@ OSD *osd_init()
 void *osd_attach_emulink(OSD *osd, void *emulink)
 {
 	osd->emulink = emulink;
+}
+
+void *osd_attach_ide(OSD *osd, void *ide, void *ide2)
+{
+	osd->ide = ide;
+	osd->ide2 = ide2;
 }
 
 void osd_handle_mouse_motion(OSD *osd, int x, int y)

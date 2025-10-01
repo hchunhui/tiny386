@@ -10,7 +10,7 @@
 
 #define MU_VERSION "2.02"
 
-#define MU_COMMANDLIST_SIZE     (2 * 1024)
+#define MU_COMMANDLIST_SIZE     (4 * 1024)
 #define MU_ROOTLIST_SIZE        8
 #define MU_CONTAINERSTACK_SIZE  8
 #define MU_CLIPSTACK_SIZE       8
