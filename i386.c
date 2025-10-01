@@ -4628,6 +4628,7 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	TRY1(set_seg(cpu, SEG_CS, newcs));
 	cpu->next_ip = newip;
 	cpu->ip = newip;
+	cpu->flags &= ~(TF | RF | NT);
 	if (gt == 0x6 || gt == 0xe)
 		cpu->flags &= ~IF;
 	return true;
@@ -4737,7 +4738,18 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 			return false;
 		}
 		if ((cpu->flags & NT)) {
-			dolog("IRET NT\n");
+			OptAddr meml;
+			TRY(translate(cpu, &meml, 1, SEG_TR, 0, 2, 0));
+			int tssback = laddr16(&meml);
+			dolog("IRET NT: tss curr: %04x back: %04x\n",
+			      cpu->seg[SEG_TR].sel, tssback);
+			// win2000 needs it...
+			if (tssback == 0) {
+				cpu->excno = EX_TS;
+				cpu->excerr = 0;
+				return false;
+			}
+			// task switching is not implemented
 			cpu_abort(cpu, -210);
 		}
 		if (opsz16)
