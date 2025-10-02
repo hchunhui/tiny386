@@ -93,7 +93,7 @@ index 8930616e..1ad6c482 100644
      // reset, so do that manually before invoking a hard reset.
      void *flash = (void*)BIOS_SRC_OFFSET;
 diff --git a/src/hw/floppy.c b/src/hw/floppy.c
-index 9e6647d4..f5b5e741 100644
+index 9e6647d4..1745c3a7 100644
 --- a/src/hw/floppy.c
 +++ b/src/hw/floppy.c
 @@ -143,6 +143,8 @@ addFloppy(int floppyid, int ftype)
@@ -126,7 +126,29 @@ index 9e6647d4..f5b5e741 100644
      if (CONFIG_QEMU) {
          u8 type = rtc_read(CMOS_FLOPPY_DRIVE_TYPE);
          if (type & 0xf0)
-@@ -686,6 +702,45 @@ floppy_process_op(struct disk_op_s *op)
+@@ -572,7 +588,11 @@ static struct chs_s
+ lba2chs(struct disk_op_s *op)
+ {
+     struct chs_s res = { };
+-
++    u32 tmp = op->chs;
++    res.cylinder = tmp >> 16;
++    res.head = (tmp >> 8) & 0xff;
++    res.sector = tmp & 0xff;
++#if 0
+     u32 tmp = op->lba;
+     u16 nls = GET_GLOBALFLAT(op->drive_fl->lchs.sector);
+     res.sector = (tmp % nls) + 1;
+@@ -583,7 +603,7 @@ lba2chs(struct disk_op_s *op)
+ 
+     tmp /= nlh;
+     res.cylinder = tmp;
+-
++#endif
+     return res;
+ }
+ 
+@@ -686,6 +706,45 @@ floppy_process_op(struct disk_op_s *op)
      if (!CONFIG_FLOPPY)
          return 0;
  
@@ -202,76 +224,22 @@ index b5117304..9cdc6d08 100644
  }
  
 diff --git a/src/optionroms.c b/src/optionroms.c
-index e906ab97..e7bae7ab 100644
+index e906ab97..1a0dd129 100644
 --- a/src/optionroms.c
 +++ b/src/optionroms.c
-@@ -450,7 +450,7 @@ static void try_setup_display_other(void)
- void
- vgarom_setup(void)
- {
--    int have_vga = 0;
-+//    int have_vga = 0;
+@@ -463,6 +463,12 @@ vgarom_setup(void)
+     RunPCIroms = romfile_loadint("etc/pci-optionrom-exec", 2);
+     ScreenAndDebug = romfile_loadint("etc/screen-and-debug", 1);
  
-     if (! CONFIG_OPTIONROMS)
-         return;
-@@ -458,34 +458,36 @@ vgarom_setup(void)
-     dprintf(1, "Scan for VGA option rom\n");
- 
-     // Load some config settings that impact VGA.
--    EnforceChecksum = romfile_loadint("etc/optionroms-checksum", 1);
--    S3ResumeVga = romfile_loadint("etc/s3-resume-vga-init", CONFIG_QEMU);
--    RunPCIroms = romfile_loadint("etc/pci-optionrom-exec", 2);
--    ScreenAndDebug = romfile_loadint("etc/screen-and-debug", 1);
-+//    EnforceChecksum = romfile_loadint("etc/optionroms-checksum", 1);
-+//    S3ResumeVga = romfile_loadint("etc/s3-resume-vga-init", CONFIG_QEMU);
-+//    RunPCIroms = romfile_loadint("etc/pci-optionrom-exec", 2);
-+//    ScreenAndDebug = romfile_loadint("etc/screen-and-debug", 1);
- 
-     // Clear option rom memory
--    memset((void*)BUILD_ROM_START, 0, rom_get_max() - BUILD_ROM_START);
-+//    memset((void*)BUILD_ROM_START, 0, rom_get_max() - BUILD_ROM_START);
- 
-     // Find and deploy PCI VGA rom.
--    struct pci_device *pci;
--    foreachpci(pci) {
--        if (!is_pci_vga(pci))
--            continue;
--        vgahook_setup(pci);
--        init_pcirom(pci, 1, NULL);
--        have_vga = 1;
--        break;
--    }
--    if (!have_vga)
--        try_setup_display_other();
--
-+//    struct pci_device *pci;
-+//    foreachpci(pci) {
-+//        if (!is_pci_vga(pci))
-+//            continue;
-+//        vgahook_setup(pci);
-+//        init_pcirom(pci, 1, NULL);
-+//        have_vga = 1;
-+//        break;
-+//    }
-+//    if (!have_vga)
-+//        try_setup_display_other();
++    if (is_valid_rom((void*)BUILD_ROM_START)) {
++        init_optionrom((void*)BUILD_ROM_START, 0, 1);
++        VgaROM = (void*)BUILD_ROM_START;
++        return;
++    }
 +
-+    init_optionrom((void*)BUILD_ROM_START, 0, 1);
-+    VgaROM = (void*)BUILD_ROM_START;
-     // Find and deploy CBFS vga-style roms not associated with a device.
--    run_file_roms("vgaroms/", 1, NULL);
--    rom_reserve(0);
-+//    run_file_roms("vgaroms/", 1, NULL);
-+//    rom_reserve(0);
+     // Clear option rom memory
+     memset((void*)BUILD_ROM_START, 0, rom_get_max() - BUILD_ROM_START);
  
--    if (rom_get_last() != BUILD_ROM_START)
-+//    if (rom_get_last() != BUILD_ROM_START)
-         // VGA rom found
--        VgaROM = (void*)BUILD_ROM_START;
-+//        VgaROM = (void*)BUILD_ROM_START;
- }
- 
- void
 diff --git a/src/post.c b/src/post.c
 index f93106a1..8594e502 100644
 --- a/src/post.c
