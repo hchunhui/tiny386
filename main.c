@@ -937,7 +937,7 @@ void mixer_callback (void *opaque, uint8_t *stream, int free)
 
 #ifdef BUILD_ESP32
 #include "esp_partition.h"
-static int load(PC *pc, const char *file, uword addr)
+static int load(PC *pc, const char *file, uword addr, int backward)
 {
 	char *xfile;
 	int len;
@@ -964,18 +964,24 @@ static int load(PC *pc, const char *file, uword addr)
 					 ESP_PARTITION_SUBTYPE_ANY,
 					 xfile);
 	fprintf(stderr, "%s len %d\n", file, len);
-	esp_partition_read(part, 0, pc->phys_mem + addr, len);
+	if (backward)
+		esp_partition_read(part, 0, pc->phys_mem + addr - len, len);
+	else
+		esp_partition_read(part, 0, pc->phys_mem + addr, len);
 	return len;
 }
 #else
-static int load(PC *pc, const char *file, uword addr)
+static int load(PC *pc, const char *file, uword addr, int backward)
 {
-	FILE *fp = fopen(file, "r");
+	FILE *fp = fopen(file, "rb");
 	fseek(fp, 0, SEEK_END);
 	int len = ftell(fp);
 	fprintf(stderr, "%s len %d\n", file, len);
 	rewind(fp);
-	fread(pc->phys_mem + addr, 1, len, fp);
+	if (backward)
+		fread(pc->phys_mem + addr - len, 1, len, fp);
+	else
+		fread(pc->phys_mem + addr, 1, len, fp);
 	fclose(fp);
 	return len;
 }
@@ -1308,23 +1314,23 @@ u8 *console_get_fb(Console *console)
 static void load_bios_and_reset(PC *pc)
 {
 	if (pc->bios && pc->bios[0])
-		load(pc, pc->bios, 0xe0000);
+		load(pc, pc->bios, 0x100000, 1);
 	if (pc->vga_bios && pc->vga_bios[0])
-		load(pc, pc->vga_bios, 0xc0000);
+		load(pc, pc->vga_bios, 0xc0000, 0);
 #ifndef USEKVM
 	if (pc->kernel && pc->kernel[0]) {
 		int start_addr = 0x10000;
 		int cmdline_addr = 0xf800;
-		int kernel_size = load(pc, pc->kernel, 0x00100000);
+		int kernel_size = load(pc, pc->kernel, 0x00100000, 0);
 		int initrd_size = 0;
 		if (pc->initrd && pc->initrd[0])
-			initrd_size = load(pc, pc->initrd, 0x00400000);
+			initrd_size = load(pc, pc->initrd, 0x00400000, 0);
 		if (pc->cmdline && pc->cmdline[0])
 			strcpy(pc->phys_mem + cmdline_addr, pc->cmdline);
 		else
 			strcpy(pc->phys_mem + cmdline_addr, "");
 
-		load(pc, pc->linuxstart, start_addr);
+		load(pc, pc->linuxstart, start_addr, 0);
 		cpui386_reset_pm(pc->cpu, 0x10000);
 		cpui386_set_gpr(pc->cpu, 0, pc->phys_mem_size);
 		cpui386_set_gpr(pc->cpu, 3, initrd_size);

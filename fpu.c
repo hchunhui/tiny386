@@ -956,7 +956,12 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 				break;
 			case 3: { // FSINCOS
 				double s, c;
+#ifdef _GNU_SOURCE
 				sincos(temp, &s, &c);
+#else
+				s = sin(temp);
+				c = cos(temp);
+#endif
 				fpset(fpu, 0, s);
 				fppush(fpu, c);
 				fpu->sw &= ~C2;

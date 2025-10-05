@@ -1,8 +1,9 @@
 Q ?= @
 CC ?= gcc
-CFLAGS = -O3 -g `sdl-config --cflags`
+SDL_CONFIG = sdl-config
+CFLAGS = -O3 -g `${SDL_CONFIG} --cflags`
 #CFLAGS = -g `sdl-config --cflags`
-LIBS = `sdl-config --libs` -lm
+LIBS = `${SDL_CONFIG} --libs` -lm
 SRCS = ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c fmopl.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
 SRCS += pci.c
 

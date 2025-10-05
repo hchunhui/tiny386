@@ -40,6 +40,8 @@ struct CPUI386 {
 	uword sp_mask;
 	bool halt;
 
+	FPU *fpu;
+
 	struct {
 		uword sel;
 		uword base;
@@ -89,8 +91,6 @@ struct CPUI386 {
 
 	bool intr;
 	CPU_CB cb;
-
-	FPU *fpu;
 };
 
 #define dolog(...) fprintf(stderr, __VA_ARGS__)
@@ -2072,9 +2072,9 @@ static inline void clear_segs(CPUI386 *cpu)
 	uword tmp = lb(b); \
 	sb(b, la(a)); \
 	sa(a, tmp);
-#define XCHGb XCHG
-#define XCHGw XCHG
-#define XCHGd XCHG
+#define XCHGb(...) XCHG(__VA_ARGS__)
+#define XCHGw(...) XCHG(__VA_ARGS__)
+#define XCHGd(...) XCHG(__VA_ARGS__)
 
 #define XCHGAX() \
 	if (opsz16) { \
