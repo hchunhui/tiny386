@@ -7,13 +7,16 @@
 #include <errno.h>
 
 #include <stdio.h>
+#ifndef _WIN32
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <signal.h>
+#endif
 #ifdef BUILD_ESP32
 #include "driver/uart.h"
 #endif
 
+#ifndef _WIN32
 static void CtrlC()
 {
 	exit( 0 );
@@ -76,6 +79,7 @@ static int IsKBHit()
 	return !!byteswaiting;
 #endif
 }
+#endif
 
 /* sysprog21/semu */
 struct U8250 {
@@ -131,7 +135,11 @@ CMOS *cmos_init(long mem_size, int irq, void *pic, void (*set_irq)(void *pic, in
 	time_t ti;
 
 	ti = time(NULL);
+#ifndef _WIN32
 	gmtime_r(&ti, &tm);
+#else
+	gmtime_s(&tm, &ti);
+#endif
 	c->data[0] = bin2bcd(tm.tm_sec);
 	c->data[2] = bin2bcd(tm.tm_min);
 	c->data[4] = bin2bcd(tm.tm_hour);
@@ -249,6 +257,7 @@ void u8250_reg_write(U8250 *uart, int off, uint8_t val)
 
 void u8250_update(U8250 *uart)
 {
+#ifndef _WIN32
 	if (IsKBHit()) {
 		if (!(uart->ioready & 1)) {
 			uart->in = ReadKBByte();
@@ -256,6 +265,7 @@ void u8250_update(U8250 *uart)
 			u8250_update_interrupts(uart);
 		}
 	}
+#endif
 }
 
 #define CMOS_FREQ 32768

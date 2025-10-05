@@ -794,8 +794,10 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->initrd = conf->initrd;
 	pc->cmdline = conf->cmdline;
 	pc->enable_serial = conf->enable_serial;
+#ifndef _WIN32
 	if (pc->enable_serial)
 		CaptureKeyboardInput();
+#endif
 	pc->full_update = 0;
 
 	pc->pic = i8259_init(raise_irq, pc->cpu);
@@ -1059,7 +1061,9 @@ static int sdl_get_keycode(const SDL_KeyboardEvent *ev)
 	if (keycode < 9) {
 		keycode = 0;
 	} else if (keycode < 127 + 8) {
+#ifndef _WIN32
 		keycode -= 8;
+#endif
 	} else {
 		keycode = 0;
 	}

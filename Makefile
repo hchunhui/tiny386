@@ -1,14 +1,15 @@
 Q ?= @
 CC ?= gcc
-SDL_CONFIG = sdl-config
+SDL_CONFIG ?= sdl-config
 CFLAGS = -O3 -g `${SDL_CONFIG} --cflags`
 #CFLAGS = -g `sdl-config --cflags`
 LIBS = `${SDL_CONFIG} --libs` -lm
 SRCS = ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c fmopl.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
 SRCS += pci.c
+SRCS += win32.c
 
 # slirp
-SRCS += \
+SRCS${NOSLIRP} += \
 slirp/bootp.c \
 slirp/cksum.c \
 slirp/if.c \
@@ -41,6 +42,10 @@ PROGS = tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet
 	${Q}${CC} ${CFLAGS} -c $< -o $@
 
 all: ${PROGS}
+
+win32:
+	make -C . clean
+	make -C . NOSLIRP=1 CC?=i686-w64-mingw32-gcc tiny386
 
 clean:
 	rm -f ${OBJS} .depends ${PROGS}

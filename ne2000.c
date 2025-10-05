@@ -33,8 +33,10 @@
 //#include "net.h"
 
 #ifndef BUILD_ESP32
+#ifndef _WIN32
 //#define USE_TUNTAP
 #define USE_SLIRP
+#endif
 #else
 #include "esp_mac.h"
 #include "esp_private/wifi.h"
