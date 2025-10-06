@@ -619,7 +619,12 @@ void pc_step(PC *pc)
 		kbd_step(pc->i8042);
 	}
 #else
+#ifdef __wasm__
+	for (int i = 0; i < 500; i++)
+		cpui386_step(pc->cpu, 1024);
+#else
 	cpui386_step(pc->cpu, 10240);
+#endif
 #endif
 #endif
 }
@@ -794,7 +799,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->initrd = conf->initrd;
 	pc->cmdline = conf->cmdline;
 	pc->enable_serial = conf->enable_serial;
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasm__)
 	if (pc->enable_serial)
 		CaptureKeyboardInput();
 #endif

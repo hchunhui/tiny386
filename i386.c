@@ -11,8 +11,10 @@
 #define DRAM_ATTR
 #endif
 
+#ifndef __wasm__
 #define I386_OPT
 #define I386_ENABLE_FPU
+#endif
 
 #ifdef I386_ENABLE_FPU
 #include "fpu.h"
@@ -5025,12 +5027,14 @@ void cpui386_enable_fpu(CPUI386 *cpu)
 	cpu->fpu = fpu_new();
 }
 
+#if !defined(_WIN32) && !defined(__wasm__)
 void cpui386_set_verbose() // for debugging
 {
 	verbose = true;
 	freopen("/tmp/xlog", "w", stderr);
 	setlinebuf(stderr);
 }
+#endif
 
 static void cpu_debug(CPUI386 *cpu)
 {

@@ -7,7 +7,7 @@
 #include <errno.h>
 
 #include <stdio.h>
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasm__)
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <signal.h>
@@ -16,7 +16,7 @@
 #include "driver/uart.h"
 #endif
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasm__)
 static void CtrlC()
 {
 	exit( 0 );
@@ -227,10 +227,14 @@ void u8250_reg_write(U8250 *uart, int off, uint8_t val)
 			uart->dll = val;
 			break;
 		} else {
+#ifndef __wasm__
 			ssize_t r;
 			do {
 				r = write(uart->out_fd, &val, 1);
 			} while (r == -1 && errno == EINTR);
+#else
+			putchar(val);
+#endif
 		}
 		break;
 	case 1:
@@ -257,7 +261,7 @@ void u8250_reg_write(U8250 *uart, int off, uint8_t val)
 
 void u8250_update(U8250 *uart)
 {
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__wasm__)
 	if (IsKBHit()) {
 		if (!(uart->ioready & 1)) {
 			uart->in = ReadKBByte();
