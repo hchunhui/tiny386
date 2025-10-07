@@ -521,13 +521,15 @@ static const uint8_t linux_input_to_keycode_set1[INPUT_MAKE_KEY_MAX - INPUT_MAKE
    keycode set 1 */
 void ps2_put_keycode(PS2KbdState *s, int is_down, int keycode)
 {
-    if (s->delay)
-        return;
+    if (s->delay) {
+        s->delay = false;
+        ps2_queue(&s->common, s->delay_keycode);
+    }
 
     if (keycode >= 0xe000) {
         ps2_queue(&s->common, keycode >> 8);
         s->delay = true;
-        s->delay_time = get_uticks() + 1000;
+        s->delay_time = get_uticks() + 10000;
         s->delay_keycode = (keycode & 0xff) | ((!is_down) << 7);
     } else if (keycode >= INPUT_MAKE_KEY_MIN) {
         if (keycode > INPUT_MAKE_KEY_MAX)
