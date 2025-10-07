@@ -282,6 +282,23 @@ var codemap = {
     "ContextMenu": 0xe05d,
 };
 
+function request_pointer_lock()
+{
+    const screen = document.getElementById('screen');
+    screen.tabIndex = 1;
+    screen.focus();
+    screen.requestPointerLock();
+}
+
+function request_fullscreen()
+{
+    const screen = document.getElementById('screen');
+    screen.tabIndex = 1;
+    screen.focus();
+    screen.requestFullscreen();
+    screen.style.cursor = 'none';
+}
+
 function register_kbdmouse(h, exports)
 {
     const screen = document.getElementById('screen');
@@ -297,6 +314,7 @@ function register_kbdmouse(h, exports)
     screen.addEventListener('mouseup', mousehandler);
 
     function kbdhandler(ev, keypress) {
+        ev.preventDefault();
         const code = ev.code;
         if (code in codemap) {
             exports.wasm_send_kbd(h, keypress, codemap[code]);
@@ -311,6 +329,12 @@ function register_kbdmouse(h, exports)
 
     screen.addEventListener('keydown', (event) => kbdhandler(event, 1));
     screen.addEventListener('keyup', (event) => kbdhandler(event, 0));
+
+    screen.addEventListener('fullscreenchange', (event) => {
+        if (!document.fullscreenElement) {
+            screen.style.cursor = 'default';
+        }
+    });
 }
 
 const imports = {
@@ -361,6 +385,8 @@ function start() {
                     const fbptr = instance.exports.wasm_getfb(h2);
                     if (h2 != 0) {
                         register_kbdmouse(h2, instance.exports);
+                        const screen = document.getElementById('screen');
+                        screen.focus();
 
                         // web audio
                         const audctx = new window.AudioContext;
