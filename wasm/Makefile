@@ -2,6 +2,7 @@ SRCS = \
 main.c \
 ../ini.c \
 ../i386.c \
+../fpu.c \
 ../i8259.c \
 ../i8254.c \
 ../ide.c \

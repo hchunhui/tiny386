@@ -350,6 +350,10 @@ const imports = {
         cos: Math.cos,
         pow: Math.pow,
         log10: Math.log10,
+        log2: Math.log2,
+        tan: Math.tan,
+        atan2: Math.atan2,
+        round: Math.round,
     }
 };
 

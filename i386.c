@@ -13,8 +13,8 @@
 
 #ifndef __wasm__
 #define I386_OPT
-#define I386_ENABLE_FPU
 #endif
+#define I386_ENABLE_FPU
 
 #ifdef I386_ENABLE_FPU
 #include "fpu.h"
