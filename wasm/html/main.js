@@ -346,6 +346,7 @@ function loads(files, i, cont) {
 }
 
 function start() {
+    document.getElementById('startkey').disabled = true;
     fetch('tiny386.wasm', fetchopt)
         .then(response => response.arrayBuffer())
         .then(bytes => WebAssembly.compile(bytes))
@@ -360,16 +361,45 @@ function start() {
                     const fbptr = instance.exports.wasm_getfb(h2);
                     if (h2 != 0) {
                         register_kbdmouse(h2, instance.exports);
+
+                        // web audio
+                        const audctx = new window.AudioContext;
+                        let playTime = audctx.currentTime;
+                        const audlen = instance.exports.wasm_getaudiolen(h2);
+                        const mf64 = new Float64Array(instance.exports.memory.buffer);
+                        function setup_audio() {
+                            const audbuf = audctx.createBuffer(1, audlen, 44100);
+                            const audptr = instance.exports.wasm_getaudio(h2) / 8;
+
+                            const buf = audbuf.getChannelData(0);
+                            for (let i = 0; i < audlen; i++) {
+                                buf[i] = mf64[audptr + i];
+                            }
+                            const bsn = audctx.createBufferSource();
+                            bsn.buffer = audbuf;
+                            bsn.connect(audctx.destination);
+                            //bsn.onended = setup_audio;
+                            bsn.start(audctx.currentTime);
+                            playTime += audlen / 44100;
+                        }
+                        setup_audio();
+
+                        // main loop
                         setInterval(() => {
                             instance.exports.wasm_loop(h2);
                         }, 1);
+
+                        // redraw loop
                         setInterval(() => {
                             drawfb(fbptr);
                         }, 20);
+
+                        // audio loop
+                        setInterval(() => {
+                            setup_audio();
+                        }, audlen / 44100);
                     }
                 });
             });
         });
 }
-
-start();
