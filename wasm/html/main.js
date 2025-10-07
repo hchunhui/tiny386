@@ -297,10 +297,9 @@ function register_kbdmouse(h, exports)
     screen.addEventListener('mouseup', mousehandler);
 
     function kbdhandler(ev, keypress) {
-        if (typeof(ev.code) != "undefined") {
-            const code = ev.code;
-            if (code in codemap)
-                exports.wasm_send_kbd(h, keypress, codemap[code]);
+        const code = ev.code;
+        if (code in codemap) {
+            exports.wasm_send_kbd(h, keypress, codemap[code]);
         } else {
             const code = ev.keyCode;
             if (code < 256) {
@@ -308,7 +307,6 @@ function register_kbdmouse(h, exports)
                     exports.wasm_send_kbd(h, keypress, charmap[code]);
             }
         }
-        //console.log(event);
     }
 
     screen.addEventListener('keydown', (event) => kbdhandler(event, 1));
@@ -331,12 +329,14 @@ const imports = {
     }
 };
 
+const fetchopt = { cache: 'no-store' };
+
 function loads(files, i, cont) {
     if (i == files.length)
         cont();
     else {
         dolog('fetch ' + files[i] + ' ...\n');
-        fetch(files[i])
+        fetch(files[i], fetchopt)
             .then(response => response.arrayBuffer())
             .then(bytes => {
                 filestore[files[i]] = new Uint8Array(bytes);
@@ -346,12 +346,12 @@ function loads(files, i, cont) {
 }
 
 function start() {
-    fetch('tiny386.wasm')
+    fetch('tiny386.wasm', fetchopt)
         .then(response => response.arrayBuffer())
         .then(bytes => WebAssembly.compile(bytes))
         .then(module => new WebAssembly.Instance(module, imports))
         .then(instance => {
-            instance.exports.memory.grow(1024 * 5); // 64K * 5K
+            instance.exports.memory.grow(1024 * 10); // 64K * 10K
             mem8 = new Uint8Array(instance.exports.memory.buffer);
             loads(["config.ini"], 0, () => {
                 const h1 = instance.exports.wasm_prepare();

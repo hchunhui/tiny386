@@ -53,10 +53,11 @@ Console *wasm_init(struct pcconfig *conf)
 int wasm_loop(Console *console)
 {
 	PC *pc = console->pc;
-	if (pc->shutdown_state != 8) {
+	for (int i = 0; i < 64 && pc->shutdown_state != 8; i++) {
 		pc_step(pc);
-		return 1;
 	}
+	if (pc->shutdown_state != 8)
+		return 1;
 	return 0;
 }
 

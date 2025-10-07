@@ -619,12 +619,7 @@ void pc_step(PC *pc)
 		kbd_step(pc->i8042);
 	}
 #else
-#ifdef __wasm__
-	for (int i = 0; i < 500; i++)
-		cpui386_step(pc->cpu, 1024);
-#else
 	cpui386_step(pc->cpu, 10240);
-#endif
 #endif
 #endif
 }
