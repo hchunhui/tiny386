@@ -394,23 +394,25 @@ function start() {
 
                         // web audio
                         const audctx = new window.AudioContext;
-                        let playTime = audctx.currentTime;
                         const audlen = instance.exports.wasm_getaudiolen(h2);
                         const mf64 = new Float64Array(instance.exports.memory.buffer);
+                        let audstate = 0;
+                        let audbuf = audctx.createBuffer(1, audlen * 4, 44100);
+                        let bsn = audctx.createBufferSource();
                         function setup_audio() {
-                            const audbuf = audctx.createBuffer(1, audlen, 44100);
+                            if (audstate == 0) {
+                                bsn.start();
+                                bsn = audctx.createBufferSource();
+                                bsn.buffer = audbuf;
+                                bsn.connect(audctx.destination);
+                            }
                             const audptr = instance.exports.wasm_getaudio(h2) / 8;
-
+                            const off = audstate * audlen;
                             const buf = audbuf.getChannelData(0);
                             for (let i = 0; i < audlen; i++) {
-                                buf[i] = mf64[audptr + i];
+                                buf[off + i] = mf64[audptr + i];
                             }
-                            const bsn = audctx.createBufferSource();
-                            bsn.buffer = audbuf;
-                            bsn.connect(audctx.destination);
-                            //bsn.onended = setup_audio;
-                            bsn.start(audctx.currentTime);
-                            playTime += audlen / 44100;
+                            audstate = (audstate + 1) % 4;
                         }
                         setup_audio();
 
