@@ -396,25 +396,30 @@ function start() {
                         const audctx = new window.AudioContext;
                         const audlen = instance.exports.wasm_getaudiolen(h2);
                         const mf64 = new Float64Array(instance.exports.memory.buffer);
-                        let audstate = 0;
-                        let audbuf = audctx.createBuffer(1, audlen * 4, 44100);
-                        let bsn = audctx.createBufferSource();
-                        function setup_audio() {
-                            if (audstate == 0) {
-                                bsn.start();
-                                bsn = audctx.createBufferSource();
-                                bsn.buffer = audbuf;
-                                bsn.connect(audctx.destination);
-                            }
-                            const audptr = instance.exports.wasm_getaudio(h2) / 8;
-                            const off = audstate * audlen;
-                            const buf = audbuf.getChannelData(0);
-                            for (let i = 0; i < audlen; i++) {
-                                buf[off + i] = mf64[audptr + i];
-                            }
-                            audstate = (audstate + 1) % 4;
-                        }
-                        setup_audio();
+
+                        const dummybuf = audctx.createBuffer(1, audlen, 44100);
+                        const dummysrc = audctx.createBufferSource();
+
+                        const audcb = audctx.createScriptProcessor(audlen, 1, 2);
+                        audcb.addEventListener(
+                            "audioprocess",
+                            (ev) => {
+                                const out = ev.outputBuffer;
+                                const audptr = instance.exports.wasm_getaudio(h2) / 8;
+                                for (let ch = 0; ch < 2; ch++) {
+                                    const buf = out.getChannelData(ch);
+                                    const off = audlen * ch;
+                                    for (let i = 0; i < audlen; i++) {
+                                        buf[i] = mf64[audptr + off + i];
+                                    }
+                                }
+                            });
+                        audcb.connect(audctx.destination);
+
+                        dummysrc.buffer = dummybuf;
+                        dummysrc.loop = true;
+                        dummysrc.connect(audcb);
+                        dummysrc.start();
 
                         // main loop
                         setInterval(() => {
@@ -425,11 +430,6 @@ function start() {
                         setInterval(() => {
                             drawfb(fbptr);
                         }, 20);
-
-                        // audio loop
-                        setInterval(() => {
-                            setup_audio();
-                        }, audlen / 44100);
                     }
                 });
             });

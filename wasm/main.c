@@ -76,19 +76,26 @@ void wasm_send_kbd(Console *console, int keypress, int keycode)
 	ps2_put_keycode(console->pc->kbd, keypress, keycode);
 }
 
-static double audiobuf[MIXER_BUF_LEN / 2];
-static int16_t buf[MIXER_BUF_LEN];
+#define SAMPLE_NUM 256
+static double audiobuf[SAMPLE_NUM * 2];
+static int16_t buf[SAMPLE_NUM * 2];
 int wasm_getaudiolen(Console *console) // sample num
 {
-	return MIXER_BUF_LEN / 2;
+	return SAMPLE_NUM;
 }
 
 double *wasm_getaudio(Console *console)
 {
-	memset(buf, 0, MIXER_BUF_LEN * 2);
-	mixer_callback(console->pc, (void *) buf, MIXER_BUF_LEN * 2);
-	for (int i = 0; i < MIXER_BUF_LEN / 2; i++) {
-		audiobuf[i] = (buf[i * 2] + buf[i * 2 + 1]) / 65536.0f;
+	memset(buf, 0, SAMPLE_NUM * 2 * 2);
+	mixer_callback(console->pc, (void *) buf, SAMPLE_NUM * 2 * 2);
+	for (int i = 0; i < SAMPLE_NUM; i++) {
+		// left
+		audiobuf[i] = buf[i * 2] / 32768.0f;
+	}
+	int off = SAMPLE_NUM;
+	for (int i = 0; i < SAMPLE_NUM; i++) {
+		// right
+		audiobuf[off + i] = buf[i * 2 + 1] / 32768.0f;
 	}
 	return audiobuf;
 }
