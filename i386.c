@@ -11,8 +11,9 @@
 #define DRAM_ATTR
 #endif
 
+#define I386_OPT1
 #ifndef __wasm__
-#define I386_OPT
+#define I386_OPT2
 #endif
 #define I386_ENABLE_FPU
 
@@ -188,7 +189,7 @@ static uword sext32(u32 a)
 	return (sword) (s32) a;
 }
 
-#ifdef I386_OPT
+#ifdef I386_OPT1
 /* only works on hosts that are little-endian and support unaligned access */
 static inline u8 pload8(CPUI386 *cpu, uword addr)
 {
@@ -1555,7 +1556,7 @@ static inline void clear_segs(CPUI386 *cpu)
 	}
 
 #define limm(i) i
-#ifdef I386_OPT
+#ifdef I386_OPT1
 #define lreg8(i) ((i) > 3 ? cpu->gprx[i - 4].r8[1] : cpu->gprx[i].r8[0])
 #define sreg8(i, v) ((i) > 3 ? (cpu->gprx[i - 4].r8[1] = (v)) : (cpu->gprx[i].r8[0] = (v)))
 #define lreg16(i) (cpu->gprx[i].r16)
@@ -3763,7 +3764,7 @@ static bool verbose;
 
 static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
 {
-#ifndef I386_OPT
+#ifndef I386_OPT2
 #define eswitch(b) switch(b)
 #define ecase(a)   case a
 #define ebreak     break
@@ -3794,7 +3795,7 @@ static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
 	TRY(fetch8(cpu, &b1));
 	cpu->cycle++;
 
-#ifndef I386_OPT
+#ifndef I386_OPT1
 	if (verbose) {
 		cpu_debug(cpu);
 	}
@@ -3805,7 +3806,7 @@ static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
 	int rep = 0;
 	bool lock = false;
 	int curr_seg = -1;
-#ifndef I386_OPT
+#ifndef I386_OPT2
 	for (;;) {
 #define HANDLE_PREFIX(C, STMT) \
 		if (b1 == C) { \
