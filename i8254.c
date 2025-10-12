@@ -49,6 +49,7 @@ typedef struct PITChannelState {
 	uint8_t gate; /* timer start */
 
 	uint32_t count_load_time;
+	uint32_t last_irq_count;
 	int irq;
 } PITChannelState;
 
@@ -141,6 +142,7 @@ static inline void pit_load_count(PITState *pit, PITChannelState *s, int val)
 	if (val == 0)
 		val = 0x10000;
 	s->count_load_time = get_uticks();
+	s->last_irq_count = 0;
 	s->count = val;
 }
 
@@ -293,9 +295,12 @@ void i8254_update_irq(PITState *pit)
 	switch(s->mode) {
 	case 2:
 	case 3:
-		out = (d % s->count) < ((s->count + 1) >> 1);
-		if (s->irq != -1) {
-			pit->set_irq(pit->pic, s->irq, out);
+		if (s->last_irq_count + s->count - d >= 0x80000000) {
+			if (s->irq != -1) {
+				pit->set_irq(pit->pic, s->irq, 1);
+				pit->set_irq(pit->pic, s->irq, 0);
+				s->last_irq_count += s->count;
+			}
 		}
 		break;
 	default:
