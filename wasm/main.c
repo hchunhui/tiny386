@@ -1,8 +1,7 @@
 #include "../main.c"
 
-struct pcconfig *wasm_prepare(void)
+struct pcconfig *wasm_prepare(const char *inifile)
 {
-	const char *inifile = "config.ini";
 	struct pcconfig *conf = malloc(sizeof(struct pcconfig));
 	memset(conf, 0, sizeof(struct pcconfig));
 	conf->linuxstart = "linuxstart.bin";
@@ -50,14 +49,18 @@ Console *wasm_init(struct pcconfig *conf)
 	return console;
 }
 
+extern int fake_nsecs;
 int wasm_loop(Console *console)
 {
 	PC *pc = console->pc;
+
 	for (int i = 0; i < 64 && pc->shutdown_state != 8; i++) {
 		pc_step(pc);
 	}
-	if (pc->shutdown_state != 8)
+
+	if (pc->shutdown_state != 8) {
 		return 1;
+	}
 	return 0;
 }
 

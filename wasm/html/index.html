@@ -1,17 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
     <head>
         <title>Tiny386</title>
     </head>
     <body>
         <canvas id="screen" width="720" height="480"
-                style="border:1px solid #000000;"></canvas>
-        <br>
+                style="background-color: #000000;"></canvas>
+        <p>
+        <input id="configname"></input>
         <button id="startkey" onclick="start()">Start</button>
         <button onclick="request_pointer_lock()">Grab</button>
         <button onclick="request_fullscreen()">Fullscreen</button>
-        <br>
-        <textarea id="logarea" rows="20" cols="120"></textarea>
+        <button onclick="sendCAD()">CtrlAltDel</button>
+        </p>
+        <textarea id="logarea" rows="20" cols="88" readonly></textarea>
         <script src="main.js"></script>
     </body>
 </html>

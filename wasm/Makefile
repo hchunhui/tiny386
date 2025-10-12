@@ -18,5 +18,7 @@ main.c \
 ../pci.c \
 libc/libc.c
 
-html/tiny386.wasm:
+.PHONY: all
+
+all:
 	clang --target=wasm32 -O3 -nostdlib -fno-builtin -Wl,--no-entry -Wl,--export-all -DNOSDL -I libc -Wl,--allow-undefined -o html/tiny386.wasm ${SRCS}

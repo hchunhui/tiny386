@@ -4,10 +4,12 @@
 #include <stddef.h>
 #include <stdarg.h>
 
+typedef int64_t off_t;
+
 typedef struct {
-	unsigned char *buf;
-	unsigned long size;
-	unsigned long i;
+	int fd;
+	int64_t size;
+	int64_t i;
 } FILE;
 
 extern FILE *stdout, *stderr;
@@ -28,9 +30,10 @@ enum {
 
 FILE *fopen(const char *path, const char *mode);
 void rewind(FILE *fp);
-long ftell(FILE *fp);
+off_t ftell(FILE *fp);
 #define ftello ftell
-int fseek(FILE *fp, long offset, int whence);
+int fseek(FILE *fp, off_t offset, int whence);
+#define fseeko fseek
 int fclose(FILE *fp);
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp);
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *fp);

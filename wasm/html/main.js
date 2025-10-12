@@ -9,6 +9,16 @@ function get_string(ptr)
     return new TextDecoder("utf-8").decode(mem8.slice(ptr, ptr + len));
 }
 
+function copy_string(str, malloc)
+{
+    const buf = new TextEncoder().encode(str);
+    const ptr = malloc(buf.length + 1);
+    for (let i = 0; i < buf.length; i++)
+        mem8[ptr + i] = buf[i];
+    mem8[ptr + buf.length] = 0;
+    return ptr;
+}
+
 function __abort(strptr)
 {
     throw new Error('wasm abort: ' + get_string(strptr));
@@ -40,8 +50,8 @@ function __console_print(ptr)
     dolog(get_string(ptr));
 }
 
-let filestore = {}
-let filestore_list = []
+const filestore = {}
+const filestore_list = []
 function __filestore_fetch(pathptr)
 {
     const path = get_string(pathptr);
@@ -57,18 +67,49 @@ function __open_get_size(pathptr)
     return -1;
 }
 
-function __open_get_content(pathptr, bufptr)
+const fdtable = {}
+let next_fd = 3;
+function __open(pathptr)
 {
     const path = get_string(pathptr);
     if (path in filestore) {
-        let i;
-        const src = filestore[path];
-        for (i = 0; i < src.length; i++)
-            mem8[bufptr + i] = src[i];
-        filestore[path] = null;
-        return;
+        const fd = next_fd;
+        next_fd++;
+        fdtable[fd] = filestore[path];
+        return fd;
     }
-    throw new Error('__open_get_content ' + path);
+    return -1;
+}
+
+function __read(fd, bufptr, off, len)
+{
+    if (fd in fdtable) {
+        const src = fdtable[fd];
+        if (off >= src.length || off + len > src.length)
+            return -1;
+        for (let i = 0; i < len; i++)
+            mem8[bufptr + i] = src[off + i];
+        return 0;
+    }
+    return -1;
+}
+
+function __write(fd, bufptr, off, len)
+{
+    if (fd in fdtable) {
+        const dst = fdtable[fd];
+        if (off >= dst.length || off + len > dst.length)
+            return -1;
+        for (let i = 0; i < len; i++)
+            dst[off + i] = mem8[bufptr + i];
+        return 0;
+    }
+    return -1;
+}
+
+function __close(fd)
+{
+    delete fdtable[fd];
 }
 
 function drawfb(fbptr)
@@ -81,9 +122,8 @@ function drawfb(fbptr)
 
     const data = ctx.createImageData(screen.width, screen.height);
 
-    let i;
     const len = screen.width * screen.height;
-    for (i = 0; i < len; i++) {
+    for (let i = 0; i < len; i++) {
         data.data[4 * i + 0] = mem8[fbptr + 4 * i + 2];
         data.data[4 * i + 1] = mem8[fbptr + 4 * i + 1];
         data.data[4 * i + 2] = mem8[fbptr + 4 * i + 0];
@@ -333,6 +373,8 @@ function register_kbdmouse(h, exports)
     screen.addEventListener('fullscreenchange', (event) => {
         if (!document.fullscreenElement) {
             screen.style.cursor = 'default';
+        } else {
+            screen.requestPointerLock();
         }
     });
 }
@@ -345,7 +387,10 @@ const imports = {
         __console_print,
         __filestore_fetch,
         __open_get_size,
-        __open_get_content,
+        __open,
+        __read,
+        __write,
+        __close,
         sin: Math.sin,
         cos: Math.cos,
         pow: Math.pow,
@@ -373,7 +418,10 @@ function loads(files, i, cont) {
     }
 }
 
-function start() {
+let sendCAD;
+
+function start()
+{
     document.getElementById('startkey').disabled = true;
     fetch('tiny386.wasm', fetchopt)
         .then(response => response.arrayBuffer())
@@ -382,8 +430,11 @@ function start() {
         .then(instance => {
             instance.exports.memory.grow(1024 * 10); // 64K * 10K
             mem8 = new Uint8Array(instance.exports.memory.buffer);
-            loads(["config.ini"], 0, () => {
-                const h1 = instance.exports.wasm_prepare();
+            const inifile = document.getElementById('configname').value;
+            dolog('ini file ' + inifile + '\n');
+            loads([inifile], 0, () => {
+                const iniptr = copy_string(inifile, instance.exports.malloc);
+                const h1 = instance.exports.wasm_prepare(iniptr);
                 loads(filestore_list, 0, () => {
                     const h2 = instance.exports.wasm_init(h1);
                     const fbptr = instance.exports.wasm_getfb(h2);
@@ -397,20 +448,23 @@ function start() {
                         const audlen = instance.exports.wasm_getaudiolen(h2);
                         const mf64 = new Float64Array(instance.exports.memory.buffer);
 
-                        const dummybuf = audctx.createBuffer(1, audlen, 44100);
+                        const n = 8;
+                        const dummybuf = audctx.createBuffer(1, audlen * n, 44100);
                         const dummysrc = audctx.createBufferSource();
 
-                        const audcb = audctx.createScriptProcessor(audlen, 1, 2);
+                        const audcb = audctx.createScriptProcessor(audlen * n, 1, 2);
                         audcb.addEventListener(
                             "audioprocess",
                             (ev) => {
                                 const out = ev.outputBuffer;
-                                const audptr = instance.exports.wasm_getaudio(h2) / 8;
-                                for (let ch = 0; ch < 2; ch++) {
-                                    const buf = out.getChannelData(ch);
-                                    const off = audlen * ch;
-                                    for (let i = 0; i < audlen; i++) {
-                                        buf[i] = mf64[audptr + off + i];
+                                for (let j = 0; j < n; j++) {
+                                    const ap = instance.exports.wasm_getaudio(h2) / 8;
+                                    for (let ch = 0; ch < 2; ch++) {
+                                        const buf = out.getChannelData(ch);
+                                        const off = audlen * ch;
+                                        for (let i = 0; i < audlen; i++) {
+                                            buf[audlen * j + i] = mf64[ap + off + i];
+                                        }
                                     }
                                 }
                             });
@@ -421,15 +475,26 @@ function start() {
                         dummysrc.connect(audcb);
                         dummysrc.start();
 
-                        // main loop
-                        setInterval(() => {
-                            instance.exports.wasm_loop(h2);
-                        }, 1);
+                        sendCAD = function () {
+                            instance.exports.wasm_send_kbd(h2, 1, 0x1d);
+                            instance.exports.wasm_send_kbd(h2, 1, 0x38);
+                            instance.exports.wasm_send_kbd(h2, 1, 0x53);
+                            instance.exports.wasm_send_kbd(h2, 0, 0x53);
+                            instance.exports.wasm_send_kbd(h2, 0, 0x38);
+                            instance.exports.wasm_send_kbd(h2, 0, 0x1d);
+                        };
 
-                        // redraw loop
-                        setInterval(() => {
+                        function main_loop() {
+                            instance.exports.wasm_loop(h2);
+                            setTimeout(main_loop, 0);
+                        }
+                        main_loop();
+
+                        function redraw_loop() {
                             drawfb(fbptr);
-                        }, 20);
+                            setTimeout(redraw_loop, 20);
+                        }
+                        redraw_loop();
                     }
                 });
             });

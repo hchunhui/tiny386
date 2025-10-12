@@ -29,11 +29,6 @@ void *calloc(size_t nmemb, size_t size)
 	return p;
 }
 
-int usleep(int usec)
-{
-	return 0;
-}
-
 int isdigit(int x)
 {
 	return (x>='0' && x<='9');
@@ -129,10 +124,10 @@ char *strchr(const char *s, int c)
 {
 	for (; *s; s++) {
 		if (*s == c)
-			return s;
+			return (char *) s;
 	}
 	if (*s == c)
-		return s;
+		return (char *) s;
 	return NULL;
 }
 
@@ -145,6 +140,11 @@ char *strdup(const char *s)
 }
 
 extern double __get_mticks(void);
+int usleep(int usec)
+{
+	return 0;
+}
+
 int clock_gettime(int clockid, struct timespec *tp)
 {
 	long long v = __get_mticks();
@@ -225,18 +225,22 @@ int fflush(FILE *fp)
 	return 0;
 }
 
-size_t __open_get_size(const char *path);
-void __open_get_content(const char *path, unsigned char *buf);
+int __open(const char *path);
+int __read(int fd, void *ptr, double off, double len);
+int __write(int fd, const void *ptr, double off, double len);
+void __close(int fd);
+double __open_get_size(const char *path);
 
 FILE *fopen(const char *path, const char *mode)
 {
-	size_t res = __open_get_size(path);
+	int64_t res = __open_get_size(path);
 	if (res == -1)
 		return NULL;
 	FILE *fp = malloc(sizeof(FILE));
 	memset(fp, 0, sizeof(FILE));
-	fp->buf = malloc(res);
-	__open_get_content(path, fp->buf);
+	fp->fd = __open(path);
+	if (fp->fd < 0)
+		abort();
 	fp->size = res;
 	return fp;
 }
@@ -246,12 +250,12 @@ void rewind(FILE *fp)
 	fp->i = 0;
 }
 
-long ftell(FILE *fp)
+off_t ftell(FILE *fp)
 {
 	return fp->i;
 }
 
-int fseek(FILE *fp, long offset, int whence)
+int fseek(FILE *fp, off_t offset, int whence)
 {
 	switch (whence) {
 	case SEEK_SET:
@@ -271,7 +275,8 @@ int fclose(FILE *fp)
 {
 	if (fp == &__console)
 		return 0;
-	fp->buf = NULL;
+	__close(fp->fd);
+	fp->fd = -1;
 	free(fp);
 	return 0;
 }
@@ -283,7 +288,8 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp)
 	size_t len = size * nmemb;
 	if (fp->i >= fp->size || fp->i + len > fp->size)
 		abort();
-	memcpy(ptr, fp->buf + fp->i, len);
+	if (__read(fp->fd, ptr, fp->i, len) < 0)
+		abort();
 	fp->i += len;
 	return nmemb;
 }
@@ -295,7 +301,8 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *fp)
 	size_t len = size * nmemb;
 	if (fp->i >= fp->size || fp->i + len > fp->size)
 		abort();
-	memcpy(fp->buf + fp->i, ptr, len);
+	if (__write(fp->fd, ptr, fp->i, len) < 0)
+		abort();
 	fp->i += len;
 	return nmemb;
 }
@@ -311,7 +318,8 @@ char *fgets(char *s, int size, FILE *fp)
 				return NULL;
 			return s;
 		}
-		s[i] = fp->buf[fp->i];
+		if (__read(fp->fd, s + i, fp->i, 1) < 0)
+			abort();
 		if (s[i] == '\n') {
 			fp->i++;
 			return s;
