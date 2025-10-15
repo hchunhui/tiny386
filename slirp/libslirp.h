@@ -1,7 +1,9 @@
 #ifndef _LIBSLIRP_H
 #define _LIBSLIRP_H
 
+#ifndef _WIN32
 #include <netinet/in.h>
+#endif
 
 struct Slirp;
 typedef struct Slirp Slirp;

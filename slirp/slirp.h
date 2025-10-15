@@ -10,18 +10,33 @@
 
 typedef char *caddr_t;
 
-# include <windows.h>
 # include <winsock2.h>
+# include <windows.h>
 # include <ws2tcpip.h>
 # include <sys/timeb.h>
 # include <iphlpapi.h>
 
+# undef EWOULDBLOCK
+# undef EINPROGRESS
+# undef ENOTCONN
+# undef EHOSTUNREACH
+# undef ENETUNREACH
+# undef ECONNREFUSED
 # define EWOULDBLOCK WSAEWOULDBLOCK
 # define EINPROGRESS WSAEINPROGRESS
 # define ENOTCONN WSAENOTCONN
 # define EHOSTUNREACH WSAEHOSTUNREACH
 # define ENETUNREACH WSAENETUNREACH
 # define ECONNREFUSED WSAECONNREFUSED
+struct iovec {
+    void  *iov_base;
+    size_t iov_len;
+};
+static int inet_aton(const char *cp, struct in_addr *addr)
+{
+    addr->s_addr = inet_addr(cp);
+    return (addr->s_addr == INADDR_NONE) ? 0 : 1;
+}
 #else
 # define ioctlsocket ioctl
 # define closesocket(s) close(s)
