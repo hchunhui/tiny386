@@ -3681,7 +3681,9 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 		REGi(1) = 0x20555043; \
 		break; \
 	case 1: \
-		REGi(0) = 0 | (0 << 4) | (4 << 8); \
+		REGi(0) = 0 | (0 << 4); \
+		if (cpu->flags_mask == EFLAGS_MASK_586) REGi(0) |= 5 << 8; \
+		else REGi(0) |= 4 << 8; \
 		REGi(3) = 0; \
 		REGi(2) = 0x100; \
 		if (cpu->fpu) REGi(2) |= 1; \
