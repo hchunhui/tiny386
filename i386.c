@@ -62,8 +62,8 @@ struct CPUI386 {
 	uword dr[8];
 
 	struct {
-		uword lpgno;
-		uword paddr;
+		unsigned long laddr;
+		uword xaddr;
 	} ifetch;
 
 	struct {
@@ -79,7 +79,8 @@ struct CPUI386 {
 		int size;
 		struct tlb_entry {
 			uword lpgno;
-			uword pte;
+			uword xaddr;
+			int (*pte_lookup)[2];
 			u8 *ppte;
 		} *tab;
 	} tlb;
@@ -470,6 +471,7 @@ static inline int get_IOPL(CPUI386 *cpu)
 
 /* MMU */
 #define CR0_PG (1<<31)
+#define CR0_WP (0x10000)
 #define tlb_size 512
 typedef struct {
 	enum {
@@ -485,8 +487,23 @@ static void tlb_clear(CPUI386 *cpu)
 	for (int i = 0; i < tlb_size; i++) {
 		cpu->tlb.tab[i].lpgno = -1;
 	}
-	cpu->ifetch.lpgno = -1;
+	cpu->ifetch.laddr = -1;
 }
+
+static int pte_lookup[2][4][2][2] = { //[wp != 0][(pte >> 1) & 3][cpl > 0][rwm > 1]
+	{ // wp == 0
+		{ {0, 0}, {1, 1} }, // s,r
+		{ {0, 0}, {1, 1} }, // s,w
+		{ {0, 0}, {0, 1} }, // u,r
+		{ {0, 0}, {0, 0} }, // u,w
+	},
+	{ // wp == 1
+		{ {0, 1}, {1, 1} }, // s,r
+		{ {0, 0}, {1, 1} }, // s,w
+		{ {0, 1}, {0, 1} }, // u,r
+		{ {0, 0}, {0, 0} }, // u,w
+	}
+};
 
 static bool IRAM_ATTR tlb_refill(CPUI386 *cpu, struct tlb_entry *ent, uword lpgno)
 {
@@ -509,7 +526,9 @@ static bool IRAM_ATTR tlb_refill(CPUI386 *cpu, struct tlb_entry *ent, uword lpgn
 //	mem[base_addr2 + j * 4] |= 1 << 6; // dirty
 
 	ent->lpgno = lpgno;
-	ent->pte = pte & ((pde & 7) | 0xfffffff8);
+	ent->xaddr = (pte & ~0xfff) ^ (lpgno << 12);
+	pte = pte & ((pde & 7) | 0xfffffff8);
+	ent->pte_lookup = pte_lookup[!!(cpu->cr0 & CR0_WP)][(pte >> 1) & 3];
 	ent->ppte = &(mem[base_addr2 + j * 4]);
 	return true;
 }
@@ -529,8 +548,7 @@ static bool IRAM_ATTR translate_lpgno(CPUI386 *cpu, int rwm, uword lpgno, uword 
 			return false;
 		}
 	}
-	if ((rwm & 2) && !(ent->pte & 2) && (cpl || (cpu->cr0 & 0x10000)) ||
-	    cpl && !(ent->pte & 4)) {
+	if (ent->pte_lookup[cpl > 0][rwm > 1]) {
 		cpu->cr2 = laddr;
 		cpu->excno = EX_PF;
 		cpu->excerr = 1;
@@ -541,7 +559,7 @@ static bool IRAM_ATTR translate_lpgno(CPUI386 *cpu, int rwm, uword lpgno, uword 
 		ent->lpgno = -1;
 		return false;
 	}
-	*paddr = (ent->pte & ~0xfff) | (laddr & 0xfff);
+	*paddr = ent->xaddr ^ laddr;
 	if (rwm & 2) {
 		*(ent->ppte) |= 1 << 6; // dirty
 //		pstore8(cpu, ent->ppte,
@@ -629,7 +647,7 @@ static bool IRAM_ATTR translate8r(CPUI386 *cpu, OptAddr *res, int seg, uword add
 				return false;
 			}
 		}
-		if (cpu->cpl && !(ent->pte & 4)) {
+		if (ent->pte_lookup[cpu->cpl > 0][0]) {
 			cpu->cr2 = laddr;
 			cpu->excno = EX_PF;
 			cpu->excerr = 1;
@@ -639,7 +657,7 @@ static bool IRAM_ATTR translate8r(CPUI386 *cpu, OptAddr *res, int seg, uword add
 			return false;
 		}
 		res->res = ADDR_OK1;
-		res->addr1 = (ent->pte & ~0xfff) | (laddr & 0xfff);
+		res->addr1 = ent->xaddr ^ laddr;
 	} else {
 		res->res = ADDR_OK1;
 		res->addr1 = laddr;
@@ -801,17 +819,15 @@ LOADSTORE(32)
 static bool IRAM_ATTR peek8(CPUI386 *cpu, u8 *val)
 {
 	uword laddr = cpu->seg[SEG_CS].base + cpu->next_ip;
-	uword lpgno = laddr >> 12;
-	uword lpgoff = laddr & 4095;
-	if (likely(lpgno == cpu->ifetch.lpgno)) {
-		*val = pload8(cpu, cpu->ifetch.paddr | lpgoff);
+	if (likely((laddr ^ cpu->ifetch.laddr) < 4096)) {
+		*val = pload8(cpu, cpu->ifetch.xaddr ^ laddr);
 		return true;
 	}
 	OptAddr res;
 	TRY(translate8r(cpu, &res, SEG_CS, cpu->next_ip));
 	*val = load8(cpu, &res);
-	cpu->ifetch.lpgno = lpgno;
-	cpu->ifetch.paddr = res.addr1 >> 12 << 12;
+	cpu->ifetch.laddr = laddr & (~4095ul);
+	cpu->ifetch.xaddr = res.addr1 ^ laddr;
 	return true;
 }
 
@@ -825,10 +841,8 @@ static bool IRAM_ATTR fetch8(CPUI386 *cpu, u8 *val)
 static bool IRAM_ATTR fetch16(CPUI386 *cpu, u16 *val)
 {
 	uword laddr = cpu->seg[SEG_CS].base + cpu->next_ip;
-	uword lpgno = laddr >> 12;
-	uword lpgoff = laddr & 4095;
-	if (likely(lpgoff <= 4094 && lpgno == cpu->ifetch.lpgno)) {
-		*val = pload16(cpu, cpu->ifetch.paddr | lpgoff);
+	if (likely((laddr ^ cpu->ifetch.laddr) < 4095)) {
+		*val = pload16(cpu, cpu->ifetch.xaddr ^ laddr);
 	} else {
 		OptAddr res;
 		TRY(translate16(cpu, &res, 1, SEG_CS, cpu->next_ip));
@@ -841,10 +855,8 @@ static bool IRAM_ATTR fetch16(CPUI386 *cpu, u16 *val)
 static bool IRAM_ATTR fetch32(CPUI386 *cpu, u32 *val)
 {
 	uword laddr = cpu->seg[SEG_CS].base + cpu->next_ip;
-	uword lpgno = laddr >> 12;
-	uword lpgoff = laddr & 4095;
-	if (likely(lpgoff <= 4092 && lpgno == cpu->ifetch.lpgno)) {
-		*val = pload32(cpu, cpu->ifetch.paddr | lpgoff);
+	if (likely((laddr ^ cpu->ifetch.laddr) < 4093)) {
+		*val = pload32(cpu, cpu->ifetch.xaddr ^ laddr);
 	} else {
 		OptAddr res;
 		TRY(translate32(cpu, &res, 1, SEG_CS, cpu->next_ip));
@@ -2141,7 +2153,7 @@ static inline void clear_segs(CPUI386 *cpu)
 	int rm = modrm & 7; \
 	if (reg == 0) { \
 		u32 new_cr0 = lreg32(rm); \
-		if ((new_cr0 ^ cpu->cr0) & (CR0_PG | 1)) \
+		if ((new_cr0 ^ cpu->cr0) & (CR0_PG | CR0_WP | 1)) \
 			tlb_clear(cpu); \
 		if (cpu->fpu) new_cr0 |= 0x10; \
 		cpu->cr0 = new_cr0; \
