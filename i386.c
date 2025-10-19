@@ -4049,6 +4049,89 @@ GRPEND
 	return true;
 }
 
+// XXX: incomplete
+enum { TS_JMP, TS_CALL, TS_IRET };
+static bool task_switch(CPUI386 *cpu, int tss, int sw_type)
+{
+	OptAddr meml;
+	int oldtss = cpu->seg[SEG_TR].sel;
+	int tr_type = cpu->seg[SEG_TR].flags & 0xf;
+	assert (tr_type == 9 || tr_type == 11);
+
+	TRY1(translate(cpu, &meml, 2, SEG_TR, 0x20, 4, 0));
+	store32(cpu, &meml, cpu->next_ip);
+
+	refresh_flags(cpu);
+	TRY1(translate(cpu, &meml, 2, SEG_TR, 0x24, 4, 0));
+	if (sw_type == TS_IRET)
+		store32(cpu, &meml, cpu->flags & ~NT);
+	else
+		store32(cpu, &meml, cpu->flags);
+
+	for (int i = 0; i < 8; i++) {
+		TRY1(translate(cpu, &meml, 2, SEG_TR, 0x28 + 4 * i, 4, 0));
+		store32(cpu, &meml, cpu->gpr[i]);
+	}
+
+	for (int i = 0; i < 6; i++) {
+		TRY1(translate(cpu, &meml, 2, SEG_TR, 0x48 + 4 * i, 4, 0));
+		store32(cpu, &meml, cpu->seg[i].sel);
+	}
+
+	// clear busy bit
+	if (sw_type == TS_JMP || sw_type == TS_IRET) {
+		uword addr = cpu->gdt.base + (cpu->seg[SEG_TR].sel & ~0x7);
+		TRY1(translate_laddr(cpu, &meml, 3, addr + 4, 4, 0));
+		store32(cpu, &meml, load32(cpu, &meml) & ~(1 << 9));
+	}
+
+	TRY1(set_seg(cpu, SEG_TR, tss));
+	int new_tr_type = cpu->seg[SEG_TR].flags & 0xf;
+	assert(new_tr_type == 9 || new_tr_type == 11);
+
+	// set busy bit
+	if (sw_type == TS_JMP || sw_type == TS_CALL) {
+		uword addr = cpu->gdt.base + (tss & ~0x7);
+		TRY1(translate_laddr(cpu, &meml, 3, addr + 4, 4, 0));
+		store32(cpu, &meml, load32(cpu, &meml) | (1 << 9));
+		cpu->seg[SEG_TR].flags |= 2;
+	}
+
+	cpu->cr0 |= 1 << 3; // set TS bit
+
+	TRY1(translate(cpu, &meml, 1, SEG_TR, 0x60, 4, 0));
+	TRY1(set_seg(cpu, SEG_LDT, load32(cpu, &meml)));
+
+	for (int i = 0; i < 8; i++) {
+		TRY1(translate(cpu, &meml, 1, SEG_TR, 0x28 + 4 * i, 4, 0));
+		cpu->gpr[i] = load32(cpu, &meml);
+	}
+
+	for (int i = 0; i < 6; i++) {
+		TRY1(translate(cpu, &meml, 1, SEG_TR, 0x48 + 4 * i, 4, 0));
+		TRY1(set_seg(cpu, i, load32(cpu, &meml)));
+	}
+
+	TRY1(translate(cpu, &meml, 1, SEG_TR, 0x20, 4, 0));
+	cpu->next_ip = load32(cpu, &meml);
+
+	TRY1(translate(cpu, &meml, 1, SEG_TR, 0x24, 4, 0));
+	cpu->flags = load32(cpu, &meml);
+	cpu->flags &= EFLAGS_MASK;
+	cpu->flags |= 0x2;
+	if (sw_type == TS_CALL) {
+		TRY1(translate(cpu, &meml, 2, SEG_TR, 0, 4, 0));
+		store32(cpu, &meml, oldtss);
+		cpu->flags |= NT;
+	}
+
+	TRY1(translate(cpu, &meml, 1, SEG_TR, 0x1c, 4, 0));
+	cpu->cr3 = load32(cpu, &meml);
+	tlb_clear(cpu);
+
+	return true;
+}
+
 static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 {
 	sel = sel & 0xffff;
@@ -4121,13 +4204,10 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 		TRY1(set_seg(cpu, SEG_CS, sel));
 		cpu->next_ip = addr;
 	} else {
-		if (isjmp) cpu_abort(cpu, -202);
 		int newcs = w1 >> 16;
 		uword newip = (w1 & 0xffff) | (w2 & 0xffff0000);
 		int gt = (w2 >> 8) & 0xf;
 		int wc = w2 & 31;
-		// only call gates are supported now
-		if (gt != 4 && gt != 12) cpu_abort(cpu, -203);
 
 		if (dpl < cpu->cpl || dpl < (sel & 3)) {
 			cpu->excno = EX_GP;
@@ -4135,6 +4215,28 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 			return false;
 		}
 
+		// only 32bit TSS is supported now
+		int tr_type = cpu->seg[SEG_TR].flags & 0xf;
+		if (tr_type == 9 || tr_type == 11) {
+			if (gt == 9) {
+				// 32 bit TSS avail segs
+				return task_switch(cpu, sel,
+						   isjmp ? TS_JMP : TS_CALL);
+			}
+
+			if (gt == 5) {
+				// task gates
+				return task_switch(cpu, newcs,
+						   isjmp ? TS_JMP : TS_CALL);
+			}
+		}
+
+		if (gt != 4 && gt != 12) {
+			fprintf(stderr, "gate type = %d\n", gt);
+			cpu_abort(cpu, -203);
+		}
+
+		// call gates
 		// examine code segment selector in call gate descriptor
 		if ((newcs & ~0x3) == 0) {
 			cpu->excno = EX_GP;
@@ -4204,6 +4306,7 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 			}
 			sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
 
+			if (!isjmp) {
 			if (!gate16) {
 				OptAddr meml1, meml2, meml3, meml4;
 				uword sp = lreg32(4);
@@ -4243,9 +4346,11 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 				saddr16(&meml4, cpu->next_ip);
 				set_sp(sp - 2 * (4 + wc), sp_mask);
 			}
+			}
 			newcs = (newcs & 0xfffc) | newdpl;
 		} else {
 			// same privilege
+			if (!isjmp) {
 			OptAddr meml1, meml2;
 			uword sp = lreg32(4);
 			uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
@@ -4261,6 +4366,7 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 				saddr32(&meml1, cpu->seg[SEG_CS].sel);
 				saddr32(&meml2, cpu->next_ip);
 				set_sp(sp - 4 * 2, sp_mask);
+			}
 			}
 			newcs = (newcs & 0xfffc) | cpu->cpl;
 		}
@@ -4418,8 +4524,9 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 		return false;
 	}
 
-	/* task gate is not supported */
-	if (gt == 5) cpu_abort(cpu, -204);
+	/* task gate */
+	if (gt == 5)
+		return task_switch(cpu, w1 >> 16, TS_CALL);
 
 	/* TRAP-OR-INTERRUPT-GATE */
 	int newcs = w1 >> 16;
@@ -4754,8 +4861,8 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 				cpu->excerr = 0;
 				return false;
 			}
-			// task switching is not implemented
-			cpu_abort(cpu, -210);
+
+			return task_switch(cpu, tssback, TS_IRET);
 		}
 		if (opsz16)
 			off += 2;
