@@ -123,14 +123,8 @@ static int bin2bcd(int a)
 	return ((a / 10) << 4) | (a % 10);
 }
 
-CMOS *cmos_init(long mem_size, int irq, void *pic, void (*set_irq)(void *pic, int irq, int level))
+static void cmos_update_time(CMOS *s)
 {
-	CMOS *c = malloc(sizeof(CMOS));
-	memset(c, 0, sizeof(CMOS));
-	c->irq = irq;
-	c->pic = pic;
-	c->set_irq = set_irq;
-
 	struct tm tm;
 	time_t ti;
 
@@ -140,14 +134,25 @@ CMOS *cmos_init(long mem_size, int irq, void *pic, void (*set_irq)(void *pic, in
 #else
 	gmtime_s(&tm, &ti);
 #endif
-	c->data[0] = bin2bcd(tm.tm_sec);
-	c->data[2] = bin2bcd(tm.tm_min);
-	c->data[4] = bin2bcd(tm.tm_hour);
-	c->data[6] = bin2bcd(tm.tm_wday);
-	c->data[7] = bin2bcd(tm.tm_mday);
-	c->data[8] = bin2bcd(tm.tm_mon + 1);
-	c->data[9] = bin2bcd(tm.tm_year % 100);
-	c->data[0x32] = bin2bcd((tm.tm_year / 100) + 19);
+	s->data[0] = bin2bcd(tm.tm_sec);
+	s->data[2] = bin2bcd(tm.tm_min);
+	s->data[4] = bin2bcd(tm.tm_hour);
+	s->data[6] = bin2bcd(tm.tm_wday);
+	s->data[7] = bin2bcd(tm.tm_mday);
+	s->data[8] = bin2bcd(tm.tm_mon + 1);
+	s->data[9] = bin2bcd(tm.tm_year % 100);
+	s->data[0x32] = bin2bcd((tm.tm_year / 100) + 19);
+}
+
+CMOS *cmos_init(long mem_size, int irq, void *pic, void (*set_irq)(void *pic, int irq, int level))
+{
+	CMOS *c = malloc(sizeof(CMOS));
+	memset(c, 0, sizeof(CMOS));
+	c->irq = irq;
+	c->pic = pic;
+	c->set_irq = set_irq;
+
+	cmos_update_time(c);
 	c->data[10] = 0x26;
 	c->data[11] = 0x02;
 	c->data[12] = 0x00;
@@ -328,6 +333,7 @@ uint8_t cmos_ioport_read(CMOS *cmos, int addr)
 {
 	if (addr == 0x70)
 		return 0xff;
+	cmos_update_time(cmos);
 	uint8_t val = cmos->data[cmos->index];
 	return val;
 }
