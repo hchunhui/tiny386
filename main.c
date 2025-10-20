@@ -1034,39 +1034,36 @@ static void redraw(void *opaque,
 /* we assume Xorg is used with a PC keyboard. Return 0 if no keycode found. */
 static int sdl_get_keycode(const SDL_KeyboardEvent *ev)
 {
-	int keycode;
-	keycode = ev->keysym.scancode;
-	if (keycode == 0) {
-		int sym = ev->keysym.sym;
-		switch (sym) {
-		case SDLK_UP: return 0x67;
-		case SDLK_DOWN: return 0x6c;
-		case SDLK_LEFT: return 0x69;
-		case SDLK_RIGHT: return 0x6a;
-		case SDLK_HOME: return 0x66;
-		case SDLK_END: return 0x6b;
-		case SDLK_PAGEUP: return 0x68;
-		case SDLK_PAGEDOWN: return 0x6d;
-		case SDLK_INSERT: return 0x6e;
-		case SDLK_DELETE: return 0x6f;
-		case SDLK_KP_DIVIDE: return 0x62;
-		case SDLK_KP_ENTER: return 0x60;
-		case SDLK_RCTRL: return 0x61;
-		case SDLK_PAUSE: return 0x77;
-		case SDLK_PRINT: return 0x63;
-		case SDLK_RALT: return 0x64;
-		default: printf("unknown %x %d\n", sym, sym); return 0;
-		}
+	int keycode = ev->keysym.scancode;
+	int sym = ev->keysym.sym;
+	switch (sym) {
+	case SDLK_UP: return 0x67;
+	case SDLK_DOWN: return 0x6c;
+	case SDLK_LEFT: return 0x69;
+	case SDLK_RIGHT: return 0x6a;
+	case SDLK_HOME: return 0x66;
+	case SDLK_END: return 0x6b;
+	case SDLK_PAGEUP: return 0x68;
+	case SDLK_PAGEDOWN: return 0x6d;
+	case SDLK_INSERT: return 0x6e;
+	case SDLK_DELETE: return 0x6f;
+	case SDLK_KP_DIVIDE: return 0x62;
+	case SDLK_KP_ENTER: return 0x60;
+	case SDLK_RCTRL: return 0x61;
+	case SDLK_PAUSE: return 0x77;
+	case SDLK_PRINT: return 0x63;
+	case SDLK_RALT: return 0x64;
+	default: if (keycode == 0) return 0;
 	}
+#ifndef _WIN32
 	if (keycode < 9) {
 		keycode = 0;
 	} else if (keycode < 127 + 8) {
-#ifndef _WIN32
 		keycode -= 8;
-#endif
 	} else {
 		keycode = 0;
 	}
+#endif
 	return keycode;
 }
 
