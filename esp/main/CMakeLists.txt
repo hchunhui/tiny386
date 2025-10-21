@@ -24,7 +24,7 @@ set_source_files_properties("../../fmopl.c" PROPERTIES COMPILE_FLAGS "-Wno-all -
 set_source_files_properties("../../fpu.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../i386.c" PROPERTIES COMPILE_FLAGS "-Wno-all -O3")
 set_source_files_properties("../../i8042.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
-set_source_files_properties("../../vga.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
+set_source_files_properties("../../vga.c" PROPERTIES COMPILE_FLAGS "-Wno-all -O3")
 set_source_files_properties("../../main.c" PROPERTIES COMPILE_FLAGS "-Wno-all -O3")
 set_source_files_properties("../../ne2000.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../sb16.c" PROPERTIES COMPILE_FLAGS "-Wno-all")

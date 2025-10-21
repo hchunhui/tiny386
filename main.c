@@ -614,10 +614,7 @@ void pc_step(PC *pc)
 	cpukvm_step(pc->cpu, 4096);
 #else
 #ifdef BUILD_ESP32
-	for (int i = 0; i < 4; i++) {
-		cpui386_step(pc->cpu, 128);
-		kbd_step(pc->i8042);
-	}
+	cpui386_step(pc->cpu, 512);
 #else
 	cpui386_step(pc->cpu, 10240);
 #endif
