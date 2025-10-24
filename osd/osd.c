@@ -276,12 +276,12 @@ OSD *osd_init()
 	return osd;
 }
 
-void *osd_attach_emulink(OSD *osd, void *emulink)
+void osd_attach_emulink(OSD *osd, void *emulink)
 {
 	osd->emulink = emulink;
 }
 
-void *osd_attach_ide(OSD *osd, void *ide, void *ide2)
+void osd_attach_ide(OSD *osd, void *ide, void *ide2)
 {
 	osd->ide = ide;
 	osd->ide2 = ide2;
