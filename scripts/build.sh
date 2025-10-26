@@ -1,6 +1,6 @@
 #!/bin/bash
 build_seabios() {
-    git clone git@github.com:coreboot/seabios.git &&
+    git clone https://github.com/coreboot/seabios.git &&
 	cd seabios &&
 	patch -p1 < ../../seabios/patch &&
 	cp ../../seabios/config ./.config &&
@@ -11,7 +11,7 @@ build_seabios() {
 }
 
 build_sdl() {
-    git clone git@github.com:libsdl-org/SDL-1.2.git &&
+    git clone https://github.com/libsdl-org/SDL-1.2.git &&
 	cd SDL-1.2 &&
 	patch -p1 < ../../sdl.patch &&
 	mkdir -p build && cd build &&
