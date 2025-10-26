@@ -942,13 +942,10 @@ static int load(PC *pc, const char *file, uword addr, int backward)
 	int len;
 	if (strcmp(file, "vmlinux.bin") == 0) {
 		xfile = "vmlinux";
-		len = 2 * 1024 * 1024;
+		len = 2 * 1024 * 1024 * 2;
 	} else if (strcmp(file, "linuxstart.bin") == 0) {
 		xfile = "linuxstart";
 		len = 16 * 1024;
-	} else if (strcmp(file, "root.bin") == 0) {
-		xfile = "rootbin";
-		len = 2 * 1024 * 1024;
 	} else if (strcmp(file, "bios.bin") == 0) {
 		xfile = "bios";
 		len = 128 * 1024;
@@ -1427,47 +1424,6 @@ static int parse_conf_ini(void* user, const char* section,
 	return 1;
 }
 
-#ifdef BUILD_ESP32
-extern void *thepc;
-extern void *thekbd;
-extern void *themouse;
-int main(int argc, char *argv[])
-{
-	struct pcconfig conf;
-	memset(&conf, 0, sizeof(conf));
-	conf.linuxstart = "linuxstart.bin";
-	conf.enable_serial = 0;
-	conf.fill_cmos = 1;
-	conf.disks[0] = argv[1];
-	if (argc >= 3)
-		conf.disks[1] = argv[2];
-	conf.bios = "bios.bin";
-	conf.vga_bios = "vgabios.bin";
-	conf.mem_size = 7 * 1024 * 1024 + 460 * 1024 - 28 * 1024 - 52 * 1024;
-	conf.vga_mem_size = 256 * 1024;
-	conf.width = 480;
-	conf.height = 320;
-	conf.cpu_gen = 4;
-	conf.fpu = 0;
-
-	Console *console = console_init(conf.width, conf.height);
-	u8 *fb = console_get_fb(console);
-	PC *pc = pc_new(redraw, poll, console, fb, &conf);
-	console->pc = pc;
-	console_set_audio(console);
-	thepc = pc;
-	thekbd = pc->kbd;
-	themouse = pc->mouse;
-
-	load_bios_and_reset(pc);
-
-	pc->boot_start_time = get_uticks();
-	for (; pc->shutdown_state != 8;) {
-		pc_step(pc);
-	}
-	return 0;
-}
-#else
 int main(int argc, char *argv[])
 {
 	struct pcconfig conf;
@@ -1496,6 +1452,14 @@ int main(int argc, char *argv[])
 	PC *pc = pc_new(redraw, poll, console, fb, &conf);
 	console->pc = pc;
 	console_set_audio(console);
+#ifdef BUILD_ESP32
+	extern void *thepc;
+	extern void *thekbd;
+	extern void *themouse;
+	thepc = pc;
+	thekbd = pc->kbd;
+	themouse = pc->mouse;
+#endif
 
 	load_bios_and_reset(pc);
 
@@ -1505,4 +1469,3 @@ int main(int argc, char *argv[])
 	}
 	return 0;
 }
-#endif

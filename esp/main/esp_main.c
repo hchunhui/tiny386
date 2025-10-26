@@ -21,25 +21,28 @@
 #include "esp_system.h"
 
 #include "sdmmc_cmd.h"
+#include "../../ini.h"
 
 static const char *TAG = "esp_main";
 
 int main(int argc, char *argv[]);
 void *esp_psram_get(size_t *size);
 
+struct esp_ini_config {
+	const char *filename;
+	char ssid[16];
+	char pass[32];
+};
+
 static void i386_task(void *arg)
 {
+	struct esp_ini_config *config = arg;
 	int core_id = esp_cpu_get_core_id();
 	fprintf(stderr, "main runs on core %d\n", core_id);
-	char *argv[4];
+	char *argv[2];
 	argv[0] = "tiny386";
-//	argv[1] = "/sdcard/dos622.img";
-//	argv[1] = "/sdcard/winnt4c.img";
-//	argv[1] = "/sdcard/win95c.img";
-	argv[1] = "/sdcard/win98lite.img";
-	argv[2] = "/sdcard/disk128m.img";
-	argv[3] = NULL;
-	main(4, argv);
+	argv[1] = (char *) config->filename;
+	main(2, argv);
 	vTaskDelete(NULL);
 }
 
@@ -307,13 +310,33 @@ void i2s_main()
 
 void *rawsd;
 
-void wifi_main();
+void wifi_main(const char *, const char *);
+
+static int parse_ini(void* user, const char* section,
+		     const char* name, const char* value)
+{
+	struct esp_ini_config *conf = user;
+#define SEC(a) (strcmp(section, a) == 0)
+#define NAME(a) (strcmp(name, a) == 0)
+	if (SEC("esp")) {
+		if (NAME("ssid")) {
+			if (strlen(value) < 32)
+				strcpy(conf->ssid, value);
+		} else if (NAME("pass")) {
+			if (strlen(value) < 64)
+				strcpy(conf->pass, value);
+		}
+	}
+#undef SEC
+#undef NAME
+	return 1;
+}
+
 void app_main(void)
 {
-	wifi_main();
 	i2s_main();
 
-#if 0
+#ifdef ESPDEBUG
 	uart_config_t uart_config = {
 		.baud_rate = 115200,
 		.data_bits = UART_DATA_8_BITS,
@@ -410,8 +433,7 @@ void app_main(void)
 #endif
 	rawsd = card;
 
-
-#if 0
+#ifdef ESPDEBUG
 	const esp_vfs_fat_mount_config_t mount_config = {
 		.max_files = 4,
 		.format_if_mount_failed = true,
@@ -428,8 +450,25 @@ void app_main(void)
 	esp_psram_init();
 	psram = esp_psram_get(&len);
 	psram_len = len;
+
+	const static char *files[] = {
+		"/sdcard/tiny386.ini",
+		"/spiflash/tiny386.ini",
+		NULL,
+	};
+	static struct esp_ini_config config;
+	for (int i = 0; files[i]; i++) {
+		if (ini_parse(files[i], parse_ini, &config) == 0) {
+			config.filename = files[i];
+			break;
+		}
+	}
+	if (config.ssid[0]) {
+		wifi_main(config.ssid, config.pass);
+	}
+
 	if (psram) {
-		xTaskCreatePinnedToCore(i386_task, "i386_main", 4096, NULL, 3, NULL, 1);
+		xTaskCreatePinnedToCore(i386_task, "i386_main", 4096, &config, 3, NULL, 1);
 		xTaskCreatePinnedToCore(vga_task, "vga_task", 4096, NULL, 0, NULL, 0);
 	}
 }

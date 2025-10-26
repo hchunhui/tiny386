@@ -28,8 +28,6 @@
    If you'd rather not, just change the below entries to strings with
    the config you want - ie #define EXAMPLE_WIFI_SSID "mywifissid"
 */
-#define EXAMPLE_ESP_WIFI_SSID      ""
-#define EXAMPLE_ESP_WIFI_PASS      ""
 #define EXAMPLE_MAX_STA_CONN       CONFIG_MAX_STA_CONN
 
 /* FreeRTOS event group to signal when we are connected*/
@@ -61,7 +59,7 @@ static void event_handler(void* arg, esp_event_base_t event_base,
 	}
 }
 
-void wifi_init_sta(void)
+void wifi_init_sta(const char *ssid, const char *pass)
 {
 	s_wifi_event_group = xEventGroupCreate();
 
@@ -88,8 +86,6 @@ void wifi_init_sta(void)
 
 	wifi_config_t wifi_config = {
 		.sta = {
-			.ssid = EXAMPLE_ESP_WIFI_SSID,
-			.password = EXAMPLE_ESP_WIFI_PASS,
 			/* Authmode threshold resets to WPA2 as default if password matches WPA2 standards (pasword len => 8).
 			 * If you want to connect the device to deprecated WEP/WPA networks, Please set the threshold value
 			 * to WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK and set the password with length and format matching to
@@ -100,6 +96,13 @@ void wifi_init_sta(void)
 			.sae_h2e_identifier = EXAMPLE_H2E_IDENTIFIER,
 		},
 	};
+	if (strlen(ssid) < 32 && strlen(pass) < 64) {
+		strcpy((char *) wifi_config.sta.ssid, ssid);
+		strcpy((char *) wifi_config.sta.password, pass);
+	} else {
+		ESP_LOGE(TAG, "ssid or password is too long");
+		return;
+	}
 	ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
 	ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
 	ESP_ERROR_CHECK(esp_wifi_start() );
@@ -117,11 +120,9 @@ void wifi_init_sta(void)
 	/* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
 	 * happened. */
 	if (bits & WIFI_CONNECTED_BIT) {
-		ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
-			 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+		ESP_LOGI(TAG, "connected to ap SSID:%s", ssid);
 	} else if (bits & WIFI_FAIL_BIT) {
-		ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-			 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+		ESP_LOGI(TAG, "Failed to connect to SSID:%s", ssid);
 	} else {
 		ESP_LOGE(TAG, "UNEXPECTED EVENT");
 	}
@@ -208,7 +209,7 @@ static void server_thread(void *pvParameter)
 	}
 }
 
-void wifi_main()
+void wifi_main(const char *ssid, const char *pass)
 {
 	esp_err_t ret = nvs_flash_init();
 	if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -216,6 +217,6 @@ void wifi_main()
 		ret = nvs_flash_init();
 	}
 	ESP_ERROR_CHECK(ret);
-	wifi_init_sta();
+	wifi_init_sta(ssid, pass);
 	xTaskCreatePinnedToCore(server_thread, "wifi", 4096, NULL, 1, NULL, 0);
 }
