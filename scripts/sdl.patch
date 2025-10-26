@@ -1,0 +1,22 @@
+diff --git a/configure b/configure
+index a61f275f..253fd189 100755
+--- a/configure
++++ b/configure
+@@ -15613,7 +15613,7 @@ case "$host" in
+         LT_EXTRA="-os2dllname SDL12"
+         ;;
+     *)
+-        BASE_CFLAGS="-D_GNU_SOURCE=1"
++        BASE_CFLAGS=""
+         BASE_LDFLAGS=""
+         ;;
+ esac
+@@ -16191,7 +16191,7 @@ fi
+ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+ fi
+ 
+-    for ac_func in malloc calloc realloc free getenv putenv unsetenv qsort abs bcopy memset memcmp memcpy memmove strlen strlcpy strlcat strdup _strrev _strupr _strlwr strchr strrchr strstr itoa _ltoa _uitoa _ultoa strtod strtol strtoul _i64toa _ui64toa strtoll strtoull atoi atof strcmp strncmp _stricmp strcasecmp _strnicmp strncasecmp sscanf snprintf vsnprintf iconv sigaction setjmp nanosleep getauxval elf_aux_info
++    for ac_func in malloc calloc realloc free getenv putenv unsetenv qsort abs bcopy memset memcmp memcpy memmove strlen strlcat strdup _strrev _strupr _strlwr strchr strrchr strstr itoa _ltoa _uitoa _ultoa strtod strtol strtoul _i64toa _ui64toa strtoll strtoull atoi atof strcmp strncmp _stricmp strcasecmp _strnicmp strncasecmp sscanf snprintf vsnprintf iconv sigaction setjmp nanosleep getauxval elf_aux_info
+ do :
+   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
+ ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
