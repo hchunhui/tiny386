@@ -1,0 +1,29 @@
+name: build
+
+on:
+  push:
+    branches: [ "master" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: apt get
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -qq git build-essential clang mingw-w64 libasound2-dev libx11-dev --no-install-recommends
+
+    - name: prepare
+      run: scripts/build.sh thirdparty
+
+    - name: build
+      run: scripts/build.sh tiny386
+
+    - name: release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: wget -c https://github.com/probonopd/uploadtool/raw/master/upload.sh && bash && scripts/build.sh bundle && upload.sh tiny386.tar.xz
