@@ -13,7 +13,7 @@ build_seabios() {
 build_sdl() {
     git clone https://github.com/libsdl-org/SDL-1.2.git &&
 	cd SDL-1.2 &&
-	patch -p1 < ../../sdl.patch &&
+	patch -p1 < ../../scripts/sdl.patch &&
 	mkdir -p build && cd build &&
 	../configure --disable-shared --disable-joystick --disable-cdrom --enable-alsa --disable-oss --disable-esd --disable-sndio --disable-pulseaudio --prefix="$PWD" &&
 	make &&
