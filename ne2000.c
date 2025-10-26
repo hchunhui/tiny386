@@ -33,7 +33,10 @@
 //#include "net.h"
 
 #ifndef BUILD_ESP32
-#if !defined(_WIN32) && !defined(__wasm__)
+#if defined(_WIN32)
+#include <winsock2.h>
+#endif
+#if !defined(__wasm__)
 //#define USE_TUNTAP
 #define USE_SLIRP
 #endif
