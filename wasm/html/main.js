@@ -349,9 +349,44 @@ function register_kbdmouse(h, exports)
         exports.wasm_send_mouse(h, x, y, 0, event.buttons);
     }
 
+    let last_x;
+    let last_y;
+    let btn;
+    let touchend_time;
+    function touchstarthandler(event) {
+        last_x = event.changedTouches[0].clientX;
+        last_y = event.changedTouches[0].clientY;
+        if (Date.now() - touchend_time < 200) {
+            btn = 1;
+        } else {
+            btn = 0;
+        }
+    }
+
+    function touchmovehandler(event) {
+        event.preventDefault();
+        const touch = event.changedTouches[0];
+
+        const x = event.changedTouches[0].clientX;
+        const y = event.changedTouches[0].clientY;
+
+        exports.wasm_send_mouse(h, x - last_x, y - last_y, 0, btn);
+        last_x = x;
+        last_y = y;
+    }
+
+    function touchendhandler(event) {
+        btn = 0;
+        touchend_time = Date.now();
+        exports.wasm_send_mouse(h, 0, 0, 0, 0);
+    }
+
     screen.addEventListener('mousemove', mousehandler);
     screen.addEventListener('mousedown', mousehandler);
     screen.addEventListener('mouseup', mousehandler);
+    screen.addEventListener('touchstart', touchstarthandler);
+    screen.addEventListener('touchend', touchendhandler);
+    screen.addEventListener('touchmove', touchmovehandler);
 
     function kbdhandler(ev, keypress) {
         ev.preventDefault();
@@ -419,6 +454,7 @@ function loads(files, i, cont) {
 }
 
 let sendCAD;
+let sendMR;
 
 function start()
 {
@@ -482,6 +518,11 @@ function start()
                             instance.exports.wasm_send_kbd(h2, 0, 0x53);
                             instance.exports.wasm_send_kbd(h2, 0, 0x38);
                             instance.exports.wasm_send_kbd(h2, 0, 0x1d);
+                        };
+
+                        sendMR = function () {
+                            instance.exports.wasm_send_mouse(h2, 0, 0, 0, 2);
+                            instance.exports.wasm_send_mouse(h2, 0, 0, 0, 0);
                         };
 
                         function main_loop() {
