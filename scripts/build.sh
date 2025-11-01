@@ -37,6 +37,7 @@ build_thirdparty() {
 
 build_tiny386() {
     mkdir -p out &&
+	cd linuxstart && make && cd .. && cp linuxstart/linuxstart.bin out/ &&
 	make clean &&
 	make SDL_CONFIG="$PWD/build/SDL-1.2/build/bin/sdl-config" all &&
 	strip -s tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet &&
