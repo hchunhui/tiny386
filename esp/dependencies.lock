@@ -40,7 +40,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.2.5
+    version: 5.2.6
 direct_dependencies:
 - espressif/esp_lcd_axs15231b
 - idf
