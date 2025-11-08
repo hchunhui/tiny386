@@ -23,5 +23,76 @@ For firmwares, the BIOS/VGABIOS comes from seabios. Tiny386 also supports bootin
 ## Demo
 See [here](https://hchunhui.github.io/tiny386)
 
+## Build
+Linux: You need to install `SDL1.2` or `sdl12-compat` first, then type `make`.
+
+For other platforms, please refer to `.github/workflows/build.yml`.
+
+Pre-built binaries: [here](https://github.com/hchunhui/tiny386/releases)
+
+## Usage
+
+- Prepare an ini file
+```ini
+[pc]
+; set path to BIOS and VGA BIOS
+bios = bios.bin
+vga_bios = vgabios.bin
+
+; set memory size and VGA memory size
+mem_size = 32M
+vga_mem_size = 2M
+
+; fda/fdb for floppy disks (optional)
+fda = floppy.img
+
+; hda/hdb/hdc/hdd for hard disks (optional)
+; cda/cdb/cdc/cdd for CD-ROM disks (optional)
+hda = win95.img
+cdb = win95_cd.iso
+
+; "fill_cmos" fixes "MS-DOS compatibility mode" in win9x, but it breaks winNT...
+fill_cmos = 1
+
+[display]
+width = 720
+height = 480
+
+[cpu]
+; gen = 3/4/5, for 386/486/586
+gen = 3
+; fpu = 0/1, to disable/enable x87
+fpu = 0
+```
+- Run
+```sh
+./tiny386 config.ini
+```
+
+## ESP32 port
+Currently the only supported target is the JC3248W535 dev board. The supported ESP-IDF version is v5.2.x.
+
+### Build and Flash
+You can find the pre-built flash image `esp/flash_image_JC3248W535.bin` from [here](https://github.com/hchunhui/tiny386/releases).
+The pre-built image can be flashed directly at offset 0.
+
+To build and flash manually:
+```sh
+scripts/build.sh patch_idf  # apply patches to ESP-IDF
+cd esp
+idf.py build
+idf.py flash
+```
+
+### Configure
+All files should be put in a SD card with FAT/exFAT file system. The ini file should be `tiny386.ini` and put in the root directory.
+Please refer to `esp/tiny386.ini`.
+
+### Keyboard/Mouse Input
+There is no input device on the dev board, so currently `wifikbd` is used to forward keyboard/mouse events to the dev board over WIFI:
+```
+(EEP32-S3 board: listen on TCP port 9999) <--- WIFI ---> AP <--- WIFI/Wire ---> (PC: ./wifikbd esp_board_addr 9999)
+```
+
 ## License
 The cpu emulator and the project as a whole are both licensed under the BSD-3-Clause license.

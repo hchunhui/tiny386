@@ -74,6 +74,8 @@ build_esp() {
 }
 
 bundle() {
+    cp README.md LICENSE out
+    cp esp/tiny386.ini out/esp
     tar cJf tiny386.tar.xz out --transform 's/^out/tiny386/'
 }
 

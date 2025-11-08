@@ -24,7 +24,6 @@ jobs:
       run: scripts/build.sh tiny386
 
     - name: esp-idf build
-      continue-on-error: true
       uses: espressif/esp-idf-ci-action@v1
       with:
         esp_idf_version: v5.2.6
