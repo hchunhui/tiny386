@@ -1,11 +1,10 @@
-# Name,   Type, SubType, Offset,  Size, Flags
-# Note: if you have increased the bootloader size, make sure to update the offsets to avoid overlap
-nvs,      data, nvs,     ,        0x6000,
-phy_init, data, phy,     ,        0x1000,
-linuxstart, data, undefined, ,    16384,
-vmlinux,  data, undefined, ,      4M,
-bios,     data, undefined, ,      128K,
-vgabios,  data, undefined, ,      64K,
-factory,  app,  factory, ,        1600K,
-storage,  data, fat, ,       10240K,
-#storage,  data, fat, ,         9728K,
+# ESP-IDF Partition Table
+# Name, Type, SubType, Offset, Size, Flags
+nvs,data,nvs,0x9000,24K,
+phy_init,data,phy,0xf000,4K,
+factory,app,factory,0x10000,1792K,
+bios.bin,data,undefined,0x1d0000,128K,
+vgabios.bin,data,undefined,0x1f0000,60K,
+linuxstart.bin,data,undefined,0x1ff000,4K,
+vmlinux.bin,data,undefined,0x200000,4M,
+storage,data,fat,0x600000,10M,

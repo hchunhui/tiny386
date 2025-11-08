@@ -66,7 +66,10 @@ patch_idf() {
 build_esp() {
     mkdir -p out/esp &&
 	cd esp && idf.py build &&
-	cp build/bootloader/bootloader.bin build/partition_table/partition-table.bin build/tiny386.bin ../out/esp &&
+	cd build &&
+	esptool.py --chip esp32s3 merge_bin -o flash_image_JC3248W535.bin '@flash_args' &&
+	cd .. &&
+	cp build/flash_image*.bin ../out/esp &&
 	cd ..
 }
 

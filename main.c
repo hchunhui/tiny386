@@ -938,27 +938,26 @@ void mixer_callback (void *opaque, uint8_t *stream, int free)
 #include "esp_partition.h"
 static int load(PC *pc, const char *file, uword addr, int backward)
 {
-	char *xfile;
-	int len;
-	if (strcmp(file, "vmlinux.bin") == 0) {
-		xfile = "vmlinux";
-		len = 2 * 1024 * 1024 * 2;
-	} else if (strcmp(file, "linuxstart.bin") == 0) {
-		xfile = "linuxstart";
-		len = 16 * 1024;
-	} else if (strcmp(file, "bios.bin") == 0) {
-		xfile = "bios";
-		len = 128 * 1024;
-	} else if (strcmp(file, "vgabios.bin") == 0) {
-		xfile = "vgabios";
-		len = 64 * 1024;
-	} else {
-		assert(false);
+	if (file && file[0] == '/') {
+		FILE *fp = fopen(file, "rb");
+		assert(fp);
+		fseek(fp, 0, SEEK_END);
+		int len = ftell(fp);
+		fprintf(stderr, "%s len %d\n", file, len);
+		rewind(fp);
+		if (backward)
+			fread(pc->phys_mem + addr - len, 1, len, fp);
+		else
+			fread(pc->phys_mem + addr, 1, len, fp);
+		fclose(fp);
+		return len;
 	}
 	const esp_partition_t *part =
 		esp_partition_find_first(ESP_PARTITION_TYPE_ANY,
 					 ESP_PARTITION_SUBTYPE_ANY,
-					 xfile);
+					 file);
+	assert(part);
+	int len = part->size;
 	fprintf(stderr, "%s len %d\n", file, len);
 	if (backward)
 		esp_partition_read(part, 0, pc->phys_mem + addr - len, len);
