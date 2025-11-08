@@ -23,6 +23,14 @@ jobs:
     - name: build
       run: scripts/build.sh tiny386
 
+    - name: esp-idf build
+      continue-on-error: true
+      uses: espressif/esp-idf-ci-action@v1
+      with:
+        esp_idf_version: v5.2.6
+        target: esp32s3
+        command: scripts/build.sh patch_idf && scripts/build.sh esp
+
     - name: release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
