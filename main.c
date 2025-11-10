@@ -1262,26 +1262,20 @@ Console *console_init(int width, int height)
 }
 
 #ifdef BUILD_ESP32
-extern void *thepanel;
-#include "esp_lcd_axs15231b.h"
+void lcd_draw(int x_start, int y_start, int x_end, int y_end, void *src);
 static void redraw(void *opaque,
 		   int x, int y, int w, int h)
 {
 	Console *s = opaque;
-	if (thepanel) {
-		for (int i = 0; i < NN; i++) {
-			uint16_t *src = s->fb;
-			src += 480 * 320 / NN * i;
-			memcpy(s->fb1, src, 480 * 320 / NN * 2);
-			ESP_ERROR_CHECK(
-				esp_lcd_panel_draw_bitmap(
-					thepanel,
-					0, 480 / NN * i,
-					320, 480 / NN * (i + 1),
-					s->fb1));
-			vga_step(s->pc->vga);
-			usleep(900);
-		}
+	for (int i = 0; i < NN; i++) {
+		uint16_t *src = (uint16_t *) s->fb;
+		src += 480 * 320 / NN * i;
+		memcpy(s->fb1, src, 480 * 320 / NN * 2);
+		lcd_draw(0, 480 / NN * i,
+			 320, 480 / NN * (i + 1),
+			 s->fb1);
+		vga_step(s->pc->vga);
+		usleep(900);
 	}
 }
 #else

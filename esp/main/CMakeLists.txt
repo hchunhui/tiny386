@@ -17,6 +17,8 @@ idf_component_register(SRCS "esp_main.c"
 "../../sb16.c"
 "../../pcspk.c"
 "wifi.c"
+"lcd_axs15231b.c"
+"i2s.c"
 INCLUDE_DIRS "")
 
 set_source_files_properties("../../adlib.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
