@@ -115,9 +115,9 @@ int memcmp(const void *s1, const void *s2, size_t n)
 	const unsigned char *p2 = s2;
 	for (size_t i = 0; i != n; i++, p1++, p2++) {
 		if (*p1 != *p2)
-			break;
+			return *p1 - *p2;
 	}
-	return *p1 - *p2;
+	return 0;
 }
 
 char *strchr(const char *s, int c)
