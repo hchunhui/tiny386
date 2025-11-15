@@ -16,6 +16,7 @@ main.c \
 ../sb16.c \
 ../pcspk.c \
 ../pci.c \
+../pc.c \
 libc/libc.c
 
 .PHONY: all

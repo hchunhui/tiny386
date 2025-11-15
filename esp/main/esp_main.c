@@ -20,14 +20,154 @@
 
 #include "sdmmc_cmd.h"
 #include "../../ini.h"
+#include "../../pc.h"
 
+//
+#include "esp_private/system_internal.h"
+uint32_t get_uticks()
+{
+	return esp_system_get_time();
+}
+
+void *psmalloc(long size);
+void *fbmalloc(long size);
+void *bigmalloc(size_t size)
+{
+	return psmalloc(size);
+}
+
+char *pcram;
+long pcram_off;
+long pcram_len;
+void *pcmalloc(long size)
+{
+	void *ret = pcram + pcram_off;
+
+	size = (size + 31) / 32 * 32;
+	if (pcram_off + size > pcram_len) {
+		printf("pcram error %ld %ld %ld\n", size, pcram_off, pcram_len);
+		abort();
+	}
+	pcram_off += size;
+	return ret;
+}
+
+#include "esp_partition.h"
+int load_rom(void *phys_mem, const char *file, uword addr, int backward)
+{
+	if (file && file[0] == '/') {
+		FILE *fp = fopen(file, "rb");
+		assert(fp);
+		fseek(fp, 0, SEEK_END);
+		int len = ftell(fp);
+		fprintf(stderr, "%s len %d\n", file, len);
+		rewind(fp);
+		if (backward)
+			fread(phys_mem + addr - len, 1, len, fp);
+		else
+			fread(phys_mem + addr, 1, len, fp);
+		fclose(fp);
+		return len;
+	}
+	const esp_partition_t *part =
+		esp_partition_find_first(ESP_PARTITION_TYPE_ANY,
+					 ESP_PARTITION_SUBTYPE_ANY,
+					 file);
+	assert(part);
+	int len = part->size;
+	fprintf(stderr, "%s len %d\n", file, len);
+	if (backward)
+		esp_partition_read(part, 0, phys_mem + addr - len, len);
+	else
+		esp_partition_read(part, 0, phys_mem + addr, len);
+	return len;
+}
+
+//
+typedef struct {
+	PC *pc;
+	u8 *fb1;
+	u8 *fb;
+} Console;
+
+#define NN 32
+Console *console_init(int width, int height)
+{
+	Console *c = malloc(sizeof(Console));
+	c->fb1 = fbmalloc(480 * 320 / NN * 2);
+	c->fb = bigmalloc(480 * 320 * 2);
+	return c;
+}
+
+void lcd_draw(int x_start, int y_start, int x_end, int y_end, void *src);
+static void redraw(void *opaque,
+		   int x, int y, int w, int h)
+{
+	Console *s = opaque;
+	for (int i = 0; i < NN; i++) {
+		uint16_t *src = (uint16_t *) s->fb;
+		src += 480 * 320 / NN * i;
+		memcpy(s->fb1, src, 480 * 320 / NN * 2);
+		lcd_draw(0, 480 / NN * i,
+			 320, 480 / NN * (i + 1),
+			 s->fb1);
+		vga_step(s->pc->vga);
+		usleep(900);
+	}
+}
+
+static void stub(void *opaque)
+{
+}
+
+static int pc_main(const char *file)
+{
+	PCConfig conf;
+	memset(&conf, 0, sizeof(conf));
+	conf.linuxstart = "linuxstart.bin";
+	conf.bios = "bios.bin";
+	conf.vga_bios = "vgabios.bin";
+	conf.mem_size = 8 * 1024 * 1024;
+	conf.vga_mem_size = 256 * 1024;
+	conf.width = 720;
+	conf.height = 480;
+	conf.cpu_gen = 4;
+	conf.fpu = 0;
+
+	int err = ini_parse(file, parse_conf_ini, &conf);
+	if (err) {
+		printf("error %d\n", err);
+		return err;
+	}
+
+	Console *console = console_init(conf.width, conf.height);
+	PC *pc = pc_new(redraw, stub, console, console->fb, &conf);
+	console->pc = pc;
+
+	// XXX: global vars
+	extern void *thepc;
+	extern void *thekbd;
+	extern void *themouse;
+	thepc = pc;
+	thekbd = pc->kbd;
+	themouse = pc->mouse;
+
+	load_bios_and_reset(pc);
+
+	pc->boot_start_time = get_uticks();
+	for (; pc->shutdown_state != 8;) {
+		pc_step(pc);
+	}
+	return 0;
+}
+
+//
 static const char *TAG = "esp_main";
 
 void *thepc;
 void *rawsd;
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 
-int main(int argc, char *argv[]);
 void *esp_psram_get(size_t *size);
 void vga_task(void *arg);
 void i2s_main();
@@ -44,10 +184,7 @@ static void i386_task(void *arg)
 	struct esp_ini_config *config = arg;
 	int core_id = esp_cpu_get_core_id();
 	fprintf(stderr, "main runs on core %d\n", core_id);
-	char *argv[2];
-	argv[0] = "tiny386";
-	argv[1] = (char *) config->filename;
-	main(2, argv);
+	pc_main(config->filename);
 	vTaskDelete(NULL);
 }
 

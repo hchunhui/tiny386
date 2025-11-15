@@ -1,9 +1,61 @@
-#include "../main.c"
+#include <stdio.h>
+#include <string.h>
+#include "../pc.h"
 
-struct pcconfig *wasm_prepare(const char *inifile)
+#include <time.h>
+uint32_t get_uticks()
 {
-	struct pcconfig *conf = malloc(sizeof(struct pcconfig));
-	memset(conf, 0, sizeof(struct pcconfig));
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ((uint32_t) ts.tv_sec * 1000000 +
+		(uint32_t) ts.tv_nsec / 1000);
+}
+
+void *bigmalloc(size_t size)
+{
+	return malloc(size);
+}
+
+int load_rom(void *phys_mem, const char *file, uword addr, int backward)
+{
+	FILE *fp = fopen(file, "rb");
+	fseek(fp, 0, SEEK_END);
+	int len = ftell(fp);
+	fprintf(stderr, "%s len %d\n", file, len);
+	rewind(fp);
+	if (backward)
+		fread(phys_mem + addr - len, 1, len, fp);
+	else
+		fread(phys_mem + addr, 1, len, fp);
+	fclose(fp);
+	return len;
+}
+
+typedef struct {
+	PC *pc;
+	u8 *fb;
+} Console;
+
+Console *console_init(int width, int height)
+{
+	Console *c = malloc(sizeof(Console));
+	c->fb = bigmalloc(width * height * 4);
+	return c;
+}
+
+static void redraw(void *opaque,
+		   int x, int y, int w, int h)
+{
+}
+
+static void poll(void *opaque)
+{
+}
+
+PCConfig *wasm_prepare(const char *inifile)
+{
+	PCConfig *conf = malloc(sizeof(PCConfig));
+	memset(conf, 0, sizeof(PCConfig));
 	conf->linuxstart = "linuxstart.bin";
 	conf->bios = "bios.bin";
 	conf->vga_bios = "vgabios.bin";
@@ -36,13 +88,11 @@ struct pcconfig *wasm_prepare(const char *inifile)
 	return conf;
 }
 
-Console *wasm_init(struct pcconfig *conf)
+Console *wasm_init(PCConfig *conf)
 {
 	Console *console = console_init(conf->width, conf->height);
-	u8 *fb = console_get_fb(console);
-	PC *pc = pc_new(redraw, poll, console, fb, conf);
+	PC *pc = pc_new(redraw, poll, console, console->fb, conf);
 	console->pc = pc;
-	console_set_audio(console);
 
 	load_bios_and_reset(pc);
 	pc->boot_start_time = get_uticks();
