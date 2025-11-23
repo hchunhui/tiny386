@@ -3,8 +3,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2s_std.h"
+#include "common.h"
 
-extern void *thepc;
 static i2s_chan_handle_t                tx_chan;        // I2S tx channel handler
 void mixer_callback (void *opaque, uint8_t *stream, int free);
 
@@ -14,14 +14,17 @@ static void i2s_task(void *arg)
 	int core_id = esp_cpu_get_core_id();
 	fprintf(stderr, "i2s runs on core %d\n", core_id);
 
-	while (!thepc)
-		usleep(200000);
+	xEventGroupWaitBits(global_event_group,
+			    BIT0,
+			    pdFALSE,
+			    pdFALSE,
+			    portMAX_DELAY);
 
 	i2s_channel_enable(tx_chan);
 	for (;;) {
 		size_t bwritten;
 		memset(buf, 0, 128 * 2);
-		mixer_callback(thepc, (uint8_t *) buf, 128 * 2);
+		mixer_callback(globals.pc, (uint8_t *) buf, 128 * 2);
 		for (int i = 0; i < 128; i++) {
 			buf[i] = buf[i] / 16;
 		}

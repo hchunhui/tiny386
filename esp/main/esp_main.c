@@ -21,6 +21,7 @@
 #include "sdmmc_cmd.h"
 #include "../../ini.h"
 #include "../../pc.h"
+#include "common.h"
 
 //
 #include "esp_private/system_internal.h"
@@ -84,6 +85,9 @@ int load_rom(void *phys_mem, const char *file, uword addr, int backward)
 }
 
 //
+EventGroupHandle_t global_event_group;
+struct Globals globals;
+
 typedef struct {
 	PC *pc;
 	u8 *fb1;
@@ -143,14 +147,10 @@ static int pc_main(const char *file)
 	Console *console = console_init(conf.width, conf.height);
 	PC *pc = pc_new(redraw, stub, console, console->fb, &conf);
 	console->pc = pc;
-
-	// XXX: global vars
-	extern void *thepc;
-	extern void *thekbd;
-	extern void *themouse;
-	thepc = pc;
-	thekbd = pc->kbd;
-	themouse = pc->mouse;
+	globals.pc = pc;
+	globals.kbd = pc->kbd;
+	globals.mouse = pc->mouse;
+	xEventGroupSetBits(global_event_group, BIT0);
 
 	load_bios_and_reset(pc);
 
@@ -164,7 +164,6 @@ static int pc_main(const char *file)
 //
 static const char *TAG = "esp_main";
 
-void *thepc;
 void *rawsd;
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 
@@ -236,6 +235,7 @@ static int parse_ini(void* user, const char* section,
 
 void app_main(void)
 {
+	global_event_group = xEventGroupCreate();
 	i2s_main();
 
 #ifdef ESPDEBUG

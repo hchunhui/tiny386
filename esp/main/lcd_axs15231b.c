@@ -4,6 +4,7 @@
 #include "esp_lcd_axs15231b.h"
 #include "driver/ledc.h"
 #include "driver/spi_common.h"
+#include "common.h"
 
 static const char *TAG = "lcd";
 
@@ -107,16 +108,14 @@ static esp_err_t bsp_display_brightness_set(int brightness_percent)
 	return ESP_OK;
 }
 
-extern void *thepc;
-static void *thepanel;
 void pc_vga_step(void *o);
 
 void lcd_draw(int x_start, int y_start, int x_end, int y_end, void *src)
 {
-	if (thepanel) {
+	if (globals.panel) {
 		ESP_ERROR_CHECK(
 			esp_lcd_panel_draw_bitmap(
-				thepanel,
+				globals.panel,
 				x_start, y_start,
 				x_end, y_end,
 				src));
@@ -177,10 +176,15 @@ void vga_task(void *arg)
 	bsp_display_brightness_init();
 	bsp_display_brightness_set(30);
 
-	thepanel = panel_handle;
+	globals.panel = panel_handle;
+	xEventGroupWaitBits(global_event_group,
+			    BIT0,
+			    pdFALSE,
+			    pdFALSE,
+			    portMAX_DELAY);
+
 	while (1) {
-		if (thepc)
-			pc_vga_step(thepc);
+		pc_vga_step(globals.pc);
 		vTaskDelay(10 / portTICK_PERIOD_MS);
 	}
 

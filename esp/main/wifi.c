@@ -20,6 +20,7 @@
 #include "lwip/sys.h"
 #include <sys/socket.h>
 
+#include "common.h"
 #include "../../i8042.h"
 
 /* The examples use simple WiFi configuration that you can set via
@@ -138,8 +139,6 @@ static void __attribute__((noreturn)) task_fatal_error()
 	}
 }
 
-volatile void *thekbd;
-volatile void *themouse;
 static void server_thread(void *pvParameter)
 {
 	struct sockaddr_in sock_info;
@@ -167,7 +166,11 @@ static void server_thread(void *pvParameter)
 
 		int socket_id = accept(sfd, NULL, 0);
 		state = 0;
-		while (!(thekbd && themouse));
+		xEventGroupWaitBits(global_event_group,
+				    BIT0,
+				    pdFALSE,
+				    pdFALSE,
+				    portMAX_DELAY);
 
 		bool flag = true;
 		char text[16];
@@ -185,14 +188,14 @@ static void server_thread(void *pvParameter)
 						} else {
 							int is_down = !(text[i] >> 7);
 							int keycode = text[i] & 0x7f;
-							ps2_put_keycode(thekbd, is_down, keycode);
+							ps2_put_keycode(globals.kbd, is_down, keycode);
 							vTaskDelay(5 / portTICK_PERIOD_MS);
 						}
 					} else {
 						mouse[4 - state] = text[i];
 						if (state == 1) {
 							state = 0;
-							ps2_mouse_event(themouse,
+							ps2_mouse_event(globals.mouse,
 									mouse[0], mouse[1], mouse[2], mouse[3]);
 							vTaskDelay(5 / portTICK_PERIOD_MS);
 						} else {
