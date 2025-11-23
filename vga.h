@@ -33,17 +33,8 @@ typedef struct PCIBus PCIBus;
 PCIDevice *vga_pci_init(VGAState *s, PCIBus *bus,
                         void *o, void (*set_bar)(void *, int, uint32_t, bool));
 
-#ifdef BUILD_ESP32
-#define BPP 16
-#define SCALE_3_2
-#define FULL_UPDATE
-#define SWAPXY
-#else
+#ifndef BPP
 #define BPP 32
-//#define BPP 16
-//#define SCALE_3_2
-//#define FULL_UPDATE
-//#define SWAPXY  // depends on SCALE_3_2
 #endif
 
 #endif /* VGA_H */

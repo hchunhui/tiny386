@@ -94,8 +94,8 @@ typedef struct {
 Console *console_init(int width, int height)
 {
 	Console *c = malloc(sizeof(Console));
-	c->fb1 = fbmalloc(480 * 320 / NN * 2);
-	c->fb = bigmalloc(480 * 320 * 2);
+	c->fb1 = fbmalloc(LCD_WIDTH * LCD_HEIGHT / NN * 2);
+	c->fb = bigmalloc(LCD_WIDTH * LCD_HEIGHT * 2);
 	return c;
 }
 
@@ -106,10 +106,10 @@ static void redraw(void *opaque,
 	Console *s = opaque;
 	for (int i = 0; i < NN; i++) {
 		uint16_t *src = (uint16_t *) s->fb;
-		src += 480 * 320 / NN * i;
-		memcpy(s->fb1, src, 480 * 320 / NN * 2);
-		lcd_draw(0, 480 / NN * i,
-			 320, 480 / NN * (i + 1),
+		src += LCD_WIDTH * LCD_HEIGHT / NN * i;
+		memcpy(s->fb1, src, LCD_WIDTH * LCD_HEIGHT / NN * 2);
+		lcd_draw(0, LCD_WIDTH / NN * i,
+			 LCD_HEIGHT, LCD_WIDTH / NN * (i + 1),
 			 s->fb1);
 		vga_step(s->pc->vga);
 		usleep(900);
@@ -282,16 +282,9 @@ void app_main(void)
 
 	// Set bus width to use:
 	slot_config.width = 1;
-
-	// On chips where the GPIOs used for SD card can be configured, set them in
-	// the slot_config structure:
-	slot_config.clk = 12;
-	slot_config.cmd = 11;
-	slot_config.d0 = 13;
-
-	// Enable internal pullups on enabled pins. The internal pullups
-	// are insufficient however, please make sure 10k external pullups are
-	// connected on the bus. This is for debug / example purpose only.
+	slot_config.clk = SD_CLK;
+	slot_config.cmd = SD_CMD;
+	slot_config.d0 = SD_D0;
 	slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
 	ESP_LOGI(TAG, "Mounting filesystem");
@@ -306,6 +299,13 @@ void app_main(void)
 			ESP_LOGE(TAG, "Failed to initialize the card (%s). "
 				 "Make sure SD card lines have pull-up resistors in place.", esp_err_to_name(ret));
 		}
+		const esp_vfs_fat_mount_config_t mount_config = {
+			.max_files = 4,
+			.format_if_mount_failed = false,
+			.allocation_unit_size = CONFIG_WL_SECTOR_SIZE
+		};
+		esp_vfs_fat_spiflash_mount_rw_wl("/spiflash", "storage",
+						 &mount_config, &s_wl_handle);
 	} else {
 		ESP_LOGI(TAG, "Filesystem mounted");
 	}
@@ -319,9 +319,9 @@ void app_main(void)
 
 	sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
 	slot_config.width = 1;
-	slot_config.clk = 12;
-	slot_config.cmd = 11;
-	slot_config.d0 = 13;
+	slot_config.clk = SD_CLK;
+	slot_config.cmd = SD_CMD;
+	slot_config.d0 = SD_D0;
 	slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
 	esp_err_t ret;
@@ -334,19 +334,6 @@ void app_main(void)
 	sdmmc_card_print_info(stderr, card);
 #endif
 	rawsd = card;
-
-#ifdef ESPDEBUG
-	const esp_vfs_fat_mount_config_t mount_config = {
-		.max_files = 4,
-		.format_if_mount_failed = true,
-		.allocation_unit_size = CONFIG_WL_SECTOR_SIZE
-	};
-
-	if(esp_vfs_fat_spiflash_mount_rw_wl("/spiflash", "storage",
-					    &mount_config, &s_wl_handle) != ESP_OK) {
-		assert(false);
-	}
-#endif
 
 	size_t len;
 	esp_psram_init();

@@ -48,10 +48,10 @@ void i2s_main()
 		.clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(44100),
 		.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
 		.gpio_cfg = {
-			.mclk = I2S_GPIO_UNUSED,    // some codecs may require mclk signal, this example doesn't need it
-			.bclk = 42,
-			.ws   = 2,
-			.dout = 41,
+			.mclk = I2S_MCLK,
+			.bclk = I2S_BCLK,
+			.ws   = I2S_WS,
+			.dout = I2S_DOUT,
 			.din  = -1,
 			.invert_flags = {
 				.mclk_inv = false,

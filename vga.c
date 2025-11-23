@@ -152,23 +152,7 @@ struct VGAState {
 #endif
 };
 
-#ifdef BUILD_ESP32
-#include "esp_private/system_internal.h"
-static uint32_t get_uticks()
-{
-    return esp_system_get_time();
-}
-#else
-#include <time.h>
-static uint32_t get_uticks()
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ((uint32_t) ts.tv_sec * 1000000 +
-            (uint32_t) ts.tv_nsec / 1000);
-}
-#endif
-
+uint32_t get_uticks();
 static int after_eq(uint32_t a, uint32_t b)
 {
     return (a - b) < (1u << 31);
@@ -287,7 +271,7 @@ static inline uint16_t c96(uint32_t c)
     // 0000 0rrr rr00 0ggg ggg0 000b bbbb
     // 0000 0000 0000 rrrr rggg gggb bbbb
     uint16_t t = (c & 0x1f) | ((c & 0x7e00) >> 4) | ((c & 0x7c0000) >> 7);
-#ifdef BUILD_ESP32
+#ifdef SWAP_BYTEORDER_BPP16
     return (t << 8) | (t >> 8);
 #else
     return t;

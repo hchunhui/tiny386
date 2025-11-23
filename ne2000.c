@@ -418,14 +418,7 @@ void slirp_output(void *opaque, const uint8_t *pkt, int pkt_len)
     ne2000_receive(s->ne2000, pkt, pkt_len);
 }
 
-#include <time.h>
-static uint32_t get_uticks()
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ((uint32_t) ts.tv_sec * 1000000 +
-            (uint32_t) ts.tv_nsec / 1000);
-}
+uint32_t get_uticks();
 
 void ne2000_step(NE2000State *ne2000)
 {

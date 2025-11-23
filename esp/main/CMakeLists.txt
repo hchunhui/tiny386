@@ -21,6 +21,8 @@ idf_component_register(SRCS "esp_main.c"
 "i2s.c"
 INCLUDE_DIRS "")
 
+add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
+
 set_source_files_properties("../../adlib.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../fmopl.c" PROPERTIES COMPILE_FLAGS "-Wno-all -fsingle-precision-constant")
 set_source_files_properties("../../fpu.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
@@ -31,4 +33,3 @@ set_source_files_properties("../../pc.c" PROPERTIES COMPILE_FLAGS "-Wno-all -O3"
 set_source_files_properties("../../ne2000.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../sb16.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../i8257.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
-add_compile_definitions(BUILD_ESP32)
