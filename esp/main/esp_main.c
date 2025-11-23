@@ -250,10 +250,16 @@ void app_main(void)
 	i2s_main();
 	storage_init();
 
-	size_t len;
 	esp_psram_init();
+#ifndef PSRAM_ALLOC_LEN
+	// use the whole psram
+	size_t len;
 	psram = esp_psram_get(&len);
 	psram_len = len;
+#else
+	psram_len = PSRAM_ALLOC_LEN;
+	psram = heap_caps_calloc(1, psram_len, MALLOC_CAP_SPIRAM);
+#endif
 
 	const static char *files[] = {
 		"/sdcard/tiny386.ini",

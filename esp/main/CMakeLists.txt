@@ -18,11 +18,18 @@ idf_component_register(SRCS "esp_main.c"
 "../../pcspk.c"
 "wifi.c"
 "lcd_axs15231b.c"
+"lcd_st7701.c"
 "i2s.c"
 "storage.c"
 INCLUDE_DIRS "")
 
-add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
+# XXX
+if(CONFIG_IDF_TARGET_ESP32P4)
+    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc4880p433.h)
+else()
+    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
+endif()
+
 
 set_source_files_properties("../../adlib.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../fmopl.c" PROPERTIES COMPILE_FLAGS "-Wno-all -fsingle-precision-constant")

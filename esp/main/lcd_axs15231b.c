@@ -1,3 +1,4 @@
+#ifdef USE_LCD_AXS15231B
 #include "esp_log.h"
 #include "esp_lcd_panel_io_interface.h"
 #include "esp_lcd_panel_ops.h"
@@ -192,3 +193,4 @@ void vga_task(void *arg)
 	ESP_ERROR_CHECK(esp_lcd_panel_io_del(io_handle));
 	ESP_ERROR_CHECK(spi_bus_free(TEST_LCD_SPI_HOST));
 }
+#endif

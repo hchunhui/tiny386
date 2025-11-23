@@ -15,3 +15,4 @@ dependencies:
   #   # All dependencies of `main` are public by default.
   #   public: true
   espressif/esp_lcd_axs15231b: ==1.0.0
+  espressif/esp_lcd_st7701: '*'
