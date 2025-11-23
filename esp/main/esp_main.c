@@ -12,13 +12,10 @@
 #include "esp_psram.h"
 #include "esp_partition.h"
 #include "driver/uart.h"
-#include "driver/sdmmc_host.h"
-
 #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
 #include "esp_system.h"
 
-#include "sdmmc_cmd.h"
 #include "../../ini.h"
 #include "../../pc.h"
 #include "common.h"
@@ -53,7 +50,6 @@ void *pcmalloc(long size)
 	return ret;
 }
 
-#include "esp_partition.h"
 int load_rom(void *phys_mem, const char *file, uword addr, int backward)
 {
 	if (file && file[0] == '/') {
@@ -164,13 +160,11 @@ static int pc_main(const char *file)
 //
 static const char *TAG = "esp_main";
 
-void *rawsd;
-static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
-
 void *esp_psram_get(size_t *size);
 void vga_task(void *arg);
 void i2s_main();
 void wifi_main(const char *, const char *);
+void storage_init(void);
 
 struct esp_ini_config {
 	const char *filename;
@@ -236,7 +230,6 @@ static int parse_ini(void* user, const char* section,
 void app_main(void)
 {
 	global_event_group = xEventGroupCreate();
-	i2s_main();
 
 #ifdef ESPDEBUG
 	uart_config_t uart_config = {
@@ -254,86 +247,8 @@ void app_main(void)
 	}
 #endif
 
-#ifndef USE_RAWSD
-	// Options for mounting the filesystem.
-	esp_vfs_fat_sdmmc_mount_config_t sdmount_config = {
-		.format_if_mount_failed = false,
-		.max_files = 3,
-		.allocation_unit_size = 16 * 1024
-	};
-	sdmmc_card_t *card;
-	ESP_LOGI(TAG, "Initializing SD card");
-
-	// Use settings defined above to initialize SD card and mount FAT filesystem.
-	// Note: esp_vfs_fat_sdmmc/sdspi_mount is all-in-one convenience functions.
-	// Please check its source code and implement error recovery when developing
-	// production applications.
-	ESP_LOGI(TAG, "Using SDMMC peripheral");
-
-	// By default, SD card frequency is initialized to SDMMC_FREQ_DEFAULT (20MHz)
-	// For setting a specific frequency, use host.max_freq_khz (range 400kHz - 40MHz for SDMMC)
-	// Example: for fixed frequency of 10MHz, use host.max_freq_khz = 10000;
-	sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-	host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
-
-	// This initializes the slot without card detect (CD) and write protect (WP) signals.
-	// Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
-	sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-
-	// Set bus width to use:
-	slot_config.width = 1;
-	slot_config.clk = SD_CLK;
-	slot_config.cmd = SD_CMD;
-	slot_config.d0 = SD_D0;
-	slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
-
-	ESP_LOGI(TAG, "Mounting filesystem");
-	esp_err_t ret;
-	ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &sdmount_config, &card);
-
-	if (ret != ESP_OK) {
-		if (ret == ESP_FAIL) {
-			ESP_LOGE(TAG, "Failed to mount filesystem. "
-				 "If you want the card to be formatted, set the EXAMPLE_FORMAT_IF_MOUNT_FAILED menuconfig option.");
-		} else {
-			ESP_LOGE(TAG, "Failed to initialize the card (%s). "
-				 "Make sure SD card lines have pull-up resistors in place.", esp_err_to_name(ret));
-		}
-		const esp_vfs_fat_mount_config_t mount_config = {
-			.max_files = 4,
-			.format_if_mount_failed = false,
-			.allocation_unit_size = CONFIG_WL_SECTOR_SIZE
-		};
-		esp_vfs_fat_spiflash_mount_rw_wl("/spiflash", "storage",
-						 &mount_config, &s_wl_handle);
-	} else {
-		ESP_LOGI(TAG, "Filesystem mounted");
-	}
-#else
-	sdmmc_card_t *card = malloc(sizeof(sdmmc_card_t));
-	memset(card, 0, sizeof(sdmmc_card_t));
-	ESP_LOGI(TAG, "Initializing SD card");
-	ESP_LOGI(TAG, "Using SDMMC peripheral");
-	sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-	host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
-
-	sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-	slot_config.width = 1;
-	slot_config.clk = SD_CLK;
-	slot_config.cmd = SD_CMD;
-	slot_config.d0 = SD_D0;
-	slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
-
-	esp_err_t ret;
-	ret = host.init();
-	assert(ret == 0);
-	ret = sdmmc_host_init_slot(host.slot, &slot_config);
-	assert(ret == 0);
-	ret = sdmmc_card_init(&host, card);
-	assert(ret == 0);
-	sdmmc_card_print_info(stderr, card);
-#endif
-	rawsd = card;
+	i2s_main();
+	storage_init();
 
 	size_t len;
 	esp_psram_init();

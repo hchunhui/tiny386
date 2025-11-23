@@ -19,6 +19,7 @@ idf_component_register(SRCS "esp_main.c"
 "wifi.c"
 "lcd_axs15231b.c"
 "i2s.c"
+"storage.c"
 INCLUDE_DIRS "")
 
 add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
