@@ -147,8 +147,11 @@ struct VGAState {
     uint32_t vbe_start_addr;
     uint32_t vbe_line_offset;
 
-#ifdef SCALE_3_2
-    uint8_t tmpbuf[720 * 3 * 2];
+#if defined(SCALE_3_2) || defined(SWAPXY)
+#ifndef LCD_WIDTH
+#define LCD_WIDTH 2048
+#endif
+    uint8_t tmpbuf[(LCD_WIDTH > 720 ? LCD_WIDTH : 720) * 3 * 2];
 #endif
 };
 
@@ -309,6 +312,28 @@ static void scale_3_2(uint8_t *dst, int dst_stride, uint8_t *src, int w)
            int sh3 = shift[idx][3];
            *(uint16_t *)dst1 = c96(((c69(*p0) << sh0) + (c69(*p1) << sh1) +
                                     (c69(*p2) << sh2) + (c69(*p3) << sh3)) >> 3);
+#ifdef SWAPXY
+           dst1 += dst_stride;
+#else
+           dst1 += BPP / 8;
+#endif
+       }
+   }
+}
+
+static void scale_3_3(uint8_t *dst, int dst_stride, uint8_t *src, int w)
+{
+   for (int j = 0; j < 3; j++,
+#ifdef SWAPXY
+                dst += BPP / 8
+#else
+                dst += dst_stride
+#endif
+           ) {
+       uint8_t *dst1 = dst;
+       uint8_t *src1 = src + (j * w) * (BPP / 8);
+       for (int k = 0; k < w; k++) {
+           *(uint16_t *)dst1 = *(uint16_t *) (src1 + k * (BPP / 8));
 #ifdef SWAPXY
            dst1 += dst_stride;
 #else
@@ -648,7 +673,8 @@ static void vga_text_refresh(VGAState *s,
     int width, height, cwidth, cheight, cy, cx, x1, y1, width1, height1;
     int cx_min, cx_max, dup9;
     uint32_t ch_attr, line_offset, start_addr, ch_addr, ch_addr1, ch, cattr;
-    uint8_t *vga_ram, *font_ptr, *dst;
+    uint8_t *vga_ram, *dst;
+    const uint8_t *font_ptr;
     uint32_t fgcol, bgcol, cursor_offset, cursor_start, cursor_end;
     uint32_t now = get_uticks();
     if (after_eq(now, s->cursor_blink_time)) {
@@ -683,6 +709,7 @@ static void vga_text_refresh(VGAState *s,
     
     width1 = width * cwidth;
     height1 = height * cheight;
+#if defined(SCALE_3_2) || defined(SWAPXY)
 #ifdef SCALE_3_2
     if (fb_dev->width * 3 / 2 < width1 || fb_dev->height * 3 / 2 < height1 ||
         width > MAX_TEXT_WIDTH || height > MAX_TEXT_HEIGHT || cheight > 16)
@@ -690,6 +717,14 @@ static void vga_text_refresh(VGAState *s,
     x1 = (fb_dev->width * 3 / 2 - width1) / 3;
     y1 = (fb_dev->height * 3 / 2 - height1) / 3;
     full_update = 1;
+#else
+    if (fb_dev->width < width1 || fb_dev->height < height1 ||
+        width > MAX_TEXT_WIDTH || height > MAX_TEXT_HEIGHT || cheight > 16)
+        return; /* not enough space */
+    x1 = (fb_dev->width - width1) / 2;
+    y1 = (fb_dev->height - height1) / 2;
+    full_update = 1;
+#endif
 #else
     if (fb_dev->width < width1 || fb_dev->height < height1 ||
         width > MAX_TEXT_WIDTH || height > MAX_TEXT_HEIGHT)
@@ -735,7 +770,7 @@ static void vga_text_refresh(VGAState *s,
     printf("text refresh %dx%d font=%dx%d start_addr=0x%x line_offset=0x%x\n",
            width, height, cwidth, cheight, start_addr, line_offset);
 #endif
-#ifdef SCALE_3_2
+#if defined(SCALE_3_2) || defined(SWAPXY)
     int cb = 6;
     int nb = (width + cb - 1) / cb;
     int cxbegin = 0;
@@ -749,14 +784,14 @@ static void vga_text_refresh(VGAState *s,
 #endif
     for(cy = 0; cy < height; cy++) {
         ch_addr = ch_addr1;
-#ifdef SCALE_3_2
+#if defined(SCALE_3_2) || defined(SWAPXY)
         dst = s->tmpbuf + yt * stride;
 #else
         dst = fb_dev->fb_data + (y1 + cy * cheight) * stride + x1 * (BPP / 8);
 #endif
         cx_min = width;
         cx_max = -1;
-#ifdef SCALE_3_2
+#if defined(SCALE_3_2) || defined(SWAPXY)
         for(cx = 0; cx < cxend - cxbegin; cx++) {
 #else
         for(cx = 0; cx < width; cx++) {
@@ -813,9 +848,10 @@ static void vga_text_refresh(VGAState *s,
             ch_addr += 4;
             dst += (BPP / 8) * cwidth;
         }
-#ifdef SCALE_3_2
+#if defined(SCALE_3_2) || defined(SWAPXY)
         int k;
         for (k = 0; k < yt + cheight - 1; k += 3) {
+#ifdef SCALE_3_2
 #ifdef SWAPXY
                 int ii0 = (BPP / 8) * ((y1 + yy) + (x1 + cxbegin * cwidth * 2 / 3) * fb_dev->height);
 #else
@@ -824,6 +860,16 @@ static void vga_text_refresh(VGAState *s,
                 scale_3_2(fb_dev->fb_data + ii0, fb_dev->stride,
                           s->tmpbuf + k * stride, stride / (BPP / 8));
                 yy += 2;
+#else
+#ifdef SWAPXY
+                int ii0 = (BPP / 8) * ((y1 + yy) + (x1 + cxbegin * cwidth) * fb_dev->height);
+#else
+                int ii0 = (BPP / 8) * ((y1 + yy) * fb_dev->width + x1 + cxbegin * cwidth);
+#endif
+                scale_3_3(fb_dev->fb_data + ii0, fb_dev->stride,
+                          s->tmpbuf + k * stride, stride / (BPP / 8));
+                yy += 3;
+#endif
         }
         yt = k - (yt + cheight - 1);
         if (yt != 0) {
@@ -838,7 +884,7 @@ static void vga_text_refresh(VGAState *s,
 //        }
         ch_addr1 += line_offset;
     }
-#ifdef SCALE_3_2
+#if defined(SCALE_3_2) || defined(SWAPXY)
     cxbegin += cb;
     cxend += cb;
     if (cxend > width) cxend = width;
@@ -908,6 +954,7 @@ static void vga_graphic_refresh(VGAState *s,
 
     int y1 = 0;
     int i0 = 0;
+#if defined(SCALE_3_2) || defined(SWAPXY)
 #ifdef SCALE_3_2
     int hx = fb_dev->height * 3 / 2;
     int wx = fb_dev->width * 3 / 2;
@@ -927,6 +974,18 @@ static void vga_graphic_refresh(VGAState *s,
 #endif
     else
         w = wx;
+#else
+    int hx = fb_dev->height;
+    int wx = fb_dev->width;
+    if (h < hx)
+        i0 += (hx - h) / 2 * (BPP / 8);
+    else
+        h = hx;
+    if (w < wx)
+        i0 += (wx - w) / 2 * fb_dev->stride;
+    else
+        w = wx;
+#endif
     int yyt = 0;
     int yy = 0;
 #else
@@ -1046,7 +1105,7 @@ static void vga_graphic_refresh(VGAState *s,
                     abort();
                 }
             }
-#ifdef SCALE_3_2
+#if defined(SCALE_3_2) || defined(SWAPXY)
             int i = (BPP / 8) * (yyt * w + x);
             s->tmpbuf[i + 0] = color;
             s->tmpbuf[i + 1] = color >> 8;
@@ -1068,7 +1127,7 @@ static void vga_graphic_refresh(VGAState *s,
         } else {
             multi_run--;
         }
-#ifdef SCALE_3_2
+#if defined(SCALE_3_2) || defined(SWAPXY)
         yyt++;
         if (yyt == 3) {
 #ifdef SWAPXY
@@ -1076,9 +1135,15 @@ static void vga_graphic_refresh(VGAState *s,
 #else
             int ii0 = (BPP / 8) * (yy * fb_dev->width) + i0;
 #endif
+#ifdef SCALE_3_2
             scale_3_2(fb_dev->fb_data + ii0, fb_dev->stride, s->tmpbuf, w);
             yyt = 0;
             yy += 2;
+#else
+            scale_3_3(fb_dev->fb_data + ii0, fb_dev->stride, s->tmpbuf, w);
+            yyt = 0;
+            yy += 3;
+#endif
         }
 #endif
     }
