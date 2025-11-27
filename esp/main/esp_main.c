@@ -173,7 +173,7 @@ struct esp_ini_config {
 	char pass[32];
 };
 
-static void i386_task(void *arg)
+IRAM_ATTR static void i386_task(void *arg)
 {
 	struct esp_ini_config *config = arg;
 	int core_id = esp_cpu_get_core_id();
@@ -282,7 +282,7 @@ void app_main(void)
 	}
 
 	if (psram) {
-		xTaskCreatePinnedToCore(i386_task, "i386_main", 4096, &config, 3, NULL, 1);
-		xTaskCreatePinnedToCore(vga_task, "vga_task", 4096, NULL, 0, NULL, 0);
+		xTaskCreatePinnedToCore(i386_task, "i386_main", 4096, &config, 20, NULL, 1);
+		xTaskCreatePinnedToCore(vga_task, "vga_task", 4096, NULL, 5, NULL, 0);
 	}
 }

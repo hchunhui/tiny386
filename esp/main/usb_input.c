@@ -157,8 +157,7 @@ static void hid_host_keyboard_report_callback(const uint8_t *const data, const i
             key_event.modifier = mod;
             key_event.state = is_down ? KEY_STATE_PRESSED : KEY_STATE_RELEASED;
 
-            // key_event_callback(&key_event);
-            int ps2code = hid_usage_to_ps2input(hid_code);
+            //int ps2code = hid_usage_to_ps2input(hid_code);
             int linuxCode = hid_usage_to_linux_keycode(hid_code);
             ps2_put_keycode(globals.kbd, is_down, linuxCode);
 
@@ -182,8 +181,8 @@ static void hid_host_keyboard_report_callback(const uint8_t *const data, const i
             key_event.key_code = prev_keys[i];
             key_event.modifier = 0;
             key_event.state = KEY_STATE_RELEASED;
-            // key_event_callback(&key_event);
-            int ps2code = hid_usage_to_ps2input(prev_keys[i]);
+
+            //int ps2code = hid_usage_to_ps2input(prev_keys[i]);
             int linuxCode = hid_usage_to_linux_keycode(prev_keys[i]);
             ps2_put_keycode(globals.kbd, false, linuxCode);
             // ESP_LOGE("HID",
@@ -201,7 +200,7 @@ static void hid_host_keyboard_report_callback(const uint8_t *const data, const i
             key_event.modifier = kb_report->modifier.val;
             key_event.state = KEY_STATE_PRESSED;
 
-            int ps2code = hid_usage_to_ps2input(kb_report->key[i]);
+            //int ps2code = hid_usage_to_ps2input(kb_report->key[i]);
             int linuxCode = hid_usage_to_linux_keycode(kb_report->key[i]);
             ps2_put_keycode(globals.kbd, true, linuxCode);
             // ESP_LOGE("HID",
@@ -223,51 +222,33 @@ static void hid_host_keyboard_report_callback(const uint8_t *const data, const i
  */
 static void hid_host_mouse_report_callback(const uint8_t *const data, const int length)
 {
-    hid_mouse_input_report_boot_t *mouse_report = (hid_mouse_input_report_boot_t *)data;
-
-    if (length < sizeof(hid_mouse_input_report_boot_t))
-    {
+    if (length < 3)
         return;
-    }
 
-    static int x_pos = 0;
-    static int y_pos = 0;
+    uint8_t buttons_raw = data[0];
+    int8_t dx = (int8_t)data[1];
+    int8_t dy = (int8_t)data[2];
 
-    // Calculate absolute position from displacement
-    x_pos += mouse_report->x_displacement;
-    y_pos += mouse_report->y_displacement;
+    // kill corrupt packets
+    if (dx > 50 || dx < -50 || dy > 50 || dy < -50)
+        return;
 
-    int dx = mouse_report->x_displacement;
-    int dy = mouse_report->y_displacement;
-
-    /* Convert HID button bits → PS/2 button state */
     int buttons = 0;
+    if (buttons_raw & 0x01)
+        buttons |= 1;
+    if (buttons_raw & 0x02)
+        buttons |= 2;
+    if (buttons_raw & 0x04)
+        buttons |= 4;
 
-    if (mouse_report->buttons.button1)
-        buttons |= 1; // Left button bit
-    if (mouse_report->buttons.button2)
-        buttons |= 2; // Right button bit
-    if (mouse_report->buttons.button3)
-        buttons |= 4; // Middle button bit
-
-    /* No wheel for HID boot mouse */
-    int dz = 0;
-
-    /* Send to emulator */
-    ps2_mouse_event(globals.mouse, dx, dy, dz, buttons);
-
-    // ESP_LOGE("HID-MOUSE",
-    //          "Mouse HID:  dx=%4d  dy=%4d  | L=%d M=%d R=%d |\n"
-    //          "Mouse PS2:  dx=%4d  dy=%4d  dz=%2d  btn=0x%02X\n",
-    //          mouse_report->x_displacement,
-    //          mouse_report->y_displacement,
-    //          mouse_report->buttons.button1,
-    //          mouse_report->buttons.button3,
-    //          mouse_report->buttons.button2,
-    //          dx, dy, dz, buttons);
-
-   
-    fflush(stdout);
+    // DEBUG PRINT if movement noticeable
+    if (dx > 5 || dx < -5 || dy > 5 || dy < -5)
+    {
+        printf("HID MOUSE: raw=%02X dx=%d dy=%d buttons=%02X\n",
+               buttons_raw, dx, dy, buttons_raw);
+        fflush(stdout);
+    }
+    ps2_mouse_event(globals.mouse, dx, dy, 0, buttons);
 }
 
 /**
@@ -385,20 +366,7 @@ static void usb_lib_task(void *arg)
     {
         uint32_t event_flags;
         usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
-        // In this example, there is only one client registered
-        // So, once we deregister the client, this call must succeed with ESP_OK
-        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS)
-        {
-            ESP_ERROR_CHECK(usb_host_device_free_all());
-            break;
-        }
     }
-
-    ESP_LOGI(TAG, "USB shutdown");
-    // Clean up USB Host
-    vTaskDelay(10); // Short delay to allow clients clean-up
-    ESP_ERROR_CHECK(usb_host_uninstall());
-    vTaskDelete(NULL);
 }
 
 /**
