@@ -165,6 +165,7 @@ void vga_task(void *arg);
 void i2s_main();
 void wifi_main(const char *, const char *);
 void storage_init(void);
+void usb_setup(void);
 
 struct esp_ini_config {
 	const char *filename;
@@ -273,6 +274,9 @@ void app_main(void)
 			break;
 		}
 	}
+
+	usb_setup();
+
 	if (config.ssid[0]) {
 		wifi_main(config.ssid, config.pass);
 	}
