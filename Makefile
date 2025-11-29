@@ -35,7 +35,7 @@ OBJS = ${SRCS:.c=.o}
 
 PROGS = tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet
 
-.PHONY: all clean dep
+.PHONY: all clean dep prepare
 .SUFFIXES: .c
 .c.o:
 	@/bin/echo -e " \e[1;32mCC\e[0m\t\e[1;37m$<\e[0m \e[1;32m->\e[0m \e[1;37m$@\e[0m"
@@ -48,6 +48,11 @@ win32:
 
 clean:
 	rm -f ${OBJS} .depends ${PROGS}
+
+prepare: fmopl.inc
+
+fmopl.inc: fmopl.c
+	${CC} -DGENTABLE $< -o fmoplgen -lm && ./fmoplgen > $@ && rm -f ./fmoplgen
 
 tiny386: sdl/main.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"

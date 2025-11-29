@@ -45,7 +45,11 @@
 #include "esp_private/wifi.h"
 #endif
 
-void *bigmalloc(size_t size);
+#ifdef BUILD_ESP32
+void *pcmalloc(long size);
+#else
+#define pcmalloc malloc
+#endif
 
 static uint16_t le16_to_cpu(uint16_t x)
 {
@@ -893,7 +897,7 @@ NE2000State *isa_ne2000_init(int base, int irq,
 {
     NE2000State *s;
 
-    s = bigmalloc(sizeof(NE2000State));
+    s = pcmalloc(sizeof(NE2000State));
     memset(s, 0, sizeof(NE2000State));
     atomic_init(&(s->isr), 0);
     s->vc = net_open(s);

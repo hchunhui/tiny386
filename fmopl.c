@@ -48,6 +48,7 @@
 #ifdef BUILD_ESP32
 void *pcmalloc(long size);
 void *psmalloc(long size);
+#define FMOPL_USE_STATIC_TABLE
 #else
 #define pcmalloc malloc
 #define psmalloc malloc
@@ -187,13 +188,14 @@ static const int32_t SL_TABLE[16]={
 #undef SC
 
 #define TL_MAX (EG_ENT*2) /* limit(tl + ksr + envelope) + sinwave */
+#if defined(GENTABLE) || !defined(FMOPL_USE_STATIC_TABLE)
 /* TotalLevel : 48 24 12  6  3 1.5 0.75 (dB) */
 /* TL_TABLE[ 0      to TL_MAX          ] : plus  section */
 /* TL_TABLE[ TL_MAX to TL_MAX+TL_MAX-1 ] : minus section */
 static int32_t *TL_TABLE;
 
 /* pointers to TL_TABLE with sinwave output offset */
-static int32_t **SIN_TABLE;
+static const int32_t **SIN_TABLE;
 
 /* LFO table */
 static int32_t *AMS_TABLE;
@@ -202,6 +204,9 @@ static int32_t *VIB_TABLE;
 /* envelope output curve table */
 /* attack + decay + OFF */
 static int32_t *ENV_CURVE;
+#else
+const static int32_t ENV_CURVE[];
+#endif
 
 /* multiple table */
 #define ML 2
@@ -232,8 +237,8 @@ static OPL_SLOT *SLOT7_1, *SLOT7_2, *SLOT8_1, *SLOT8_2;
 static int32_t outd[1];
 static int32_t ams;
 static int32_t vib;
-static int32_t *ams_table;
-static int32_t *vib_table;
+const static int32_t *ams_table;
+const static int32_t *vib_table;
 static int32_t amsIncr;
 static int32_t vibIncr;
 static int32_t feedback2;		/* connect for SLOT 2 */
@@ -613,6 +618,7 @@ static void init_timetables( FM_OPL *OPL , int ARRATE , int DRRATE )
 #endif
 }
 
+#if defined(GENTABLE) || !defined(FMOPL_USE_STATIC_TABLE)
 /* ---------- generic table initialize ---------- */
 static int OPLOpenTable( void )
 {
@@ -716,6 +722,16 @@ static void OPLCloseTable( void )
 	free(AMS_TABLE);
 	free(VIB_TABLE);
 }
+#else
+#include "fmopl.inc"
+static int OPLOpenTable( void )
+{
+	return 1;
+}
+static void OPLCloseTable( void )
+{
+}
+#endif
 
 /* CSM Key Control */
 static inline void CSMKeyControll(OPL_CH *CH)
@@ -1224,3 +1240,25 @@ int OPLTimerOver(FM_OPL *OPL,int c)
     }
 	return OPL->status>>7;
 }
+
+#ifdef GENTABLE
+#include <stdio.h>
+int main(int argc, char *argv[])
+{
+	OPLOpenTable();
+#define P(TAB, LEN) \
+	printf("static const int32_t " #TAB "[] = {\n"); \
+	for (int i = 0; i < (LEN); i++)	printf(" %d,", TAB[i]); \
+	printf("\n};\n\n")
+#define PX(TAB, LEN) \
+	printf("static const int32_t * const " #TAB "[] = {\n"); \
+	for (int i = 0; i < (LEN); i++)	printf("&TL_TABLE[%d],", TAB[i] - TL_TABLE); \
+	printf("\n};\n\n")
+	P(TL_TABLE, 2 * TL_MAX);
+	PX(SIN_TABLE, 4 * SIN_ENT);
+	P(AMS_TABLE, 2 * AMS_ENT);
+	P(VIB_TABLE, 2 * VIB_ENT);
+	P(ENV_CURVE, (2 * EG_ENT) + 1);
+	return 0;
+}
+#endif

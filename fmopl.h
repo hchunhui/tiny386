@@ -38,7 +38,7 @@ typedef struct fm_opl_slot {
 	uint8_t ams;		/* ams flag                            */
 	uint8_t vib;		/* vibrate flag                        */
 	/* wave selector */
-	int32_t **wavetable;
+	const int32_t * const *wavetable;
 }OPL_SLOT;
 
 /* ---------- OPL one of channel  ---------- */
@@ -80,8 +80,8 @@ typedef struct fm_opl_f {
 	int32_t DR_TABLE[76];	/* decay rate tables   */
 	uint32_t FN_TABLE[1024];  /* fnumber -> increment counter */
 	/* LFO */
-	int32_t *ams_table;
-	int32_t *vib_table;
+	const int32_t *ams_table;
+	const int32_t *vib_table;
 	int32_t amsCnt;
 	int32_t amsIncr;
 	int32_t vibCnt;

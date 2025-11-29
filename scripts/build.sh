@@ -32,7 +32,8 @@ build_thirdparty() {
     mkdir -p build && cd build &&
 	build_seabios &&
 	build_sdl &&
-    cd ..
+    cd .. &&
+    make prepare
 }
 
 build_tiny386() {
@@ -70,12 +71,12 @@ build_esp() {
 	esptool.py --chip esp32s3 merge_bin -o flash_image_JC3248W535.bin '@flash_args' &&
 	cd .. &&
 	cp build/flash_image*.bin ../out/esp &&
+	cp tiny386.ini ../out/esp &&
 	cd ..
 }
 
 bundle() {
     cp README.md LICENSE out
-    cp esp/tiny386.ini out/esp
     tar cJf tiny386.tar.xz out --transform 's/^out/tiny386/'
 }
 

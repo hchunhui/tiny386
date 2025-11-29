@@ -302,11 +302,7 @@
 #define SENSE_ILLEGAL_REQUEST 5
 #define SENSE_UNIT_ATTENTION  6
 
-#ifdef BUILD_ESP32
-#define MAX_MULT_SECTORS 2
-#else
 #define MAX_MULT_SECTORS 4 /* 512 * 4 == 2048 */
-#endif
 
 #ifdef BUILD_ESP32
 void *pcmalloc(long size);

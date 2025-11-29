@@ -41,3 +41,7 @@ set_source_files_properties("../../pc.c" PROPERTIES COMPILE_FLAGS "-Wno-all -O3"
 set_source_files_properties("../../ne2000.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../sb16.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../i8257.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
+
+if(NOT EXISTS "../../fmopl.inc")
+    message(FATAL_ERROR "Please run `make prepare` first")
+endif()

@@ -82,6 +82,7 @@ The pre-built image can be flashed directly to offset 0.
 To build and flash manually:
 ```sh
 scripts/build.sh patch_idf  # apply patches to ESP-IDF
+make prepare
 cd esp
 idf.py build
 idf.py flash
@@ -91,7 +92,7 @@ idf.py flash
 All files should be put in a SD card with FAT/exFAT file system. The ini file should be `tiny386.ini` and put in the root directory.
 Please refer to `esp/tiny386.ini`.
 
-Alternative usage: `bios.bin` `vgabios.bin` `vmlinux.bin` and `linuxstart.bin` can be put in corresponding flash partition. Other files can be put in the `storage` flash partition. Please refer to `esp/partition.csv'.
+Alternative usage: `bios.bin` `vgabios.bin` `vmlinux.bin` and `linuxstart.bin` can be put in corresponding flash partition. Other files can be put in the `storage` flash partition. Please refer to `esp/partition.csv`.
 
 ### Keyboard/Mouse Input
 
