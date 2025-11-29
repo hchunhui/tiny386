@@ -8,6 +8,7 @@
 #include "esp_attr.h"
 #else
 #define IRAM_ATTR
+#define IRAM_ATTR_CPU_EXEC1
 #define DRAM_ATTR
 #endif
 
@@ -3776,7 +3777,7 @@ static bool verbose;
 #define C_16(_1, ...) CX(_1) C_15(__VA_ARGS__)
 #define C(...) PASTE(C_, ARGCOUNT(__VA_ARGS__))(__VA_ARGS__)
 
-static bool IRAM_ATTR cpu_exec1(CPUI386 *cpu, int stepcount)
+static bool IRAM_ATTR_CPU_EXEC1 cpu_exec1(CPUI386 *cpu, int stepcount)
 {
 #ifndef I386_OPT2
 #define eswitch(b) switch(b)
