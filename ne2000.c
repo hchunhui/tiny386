@@ -42,7 +42,6 @@
 #endif
 #else
 #include "esp_mac.h"
-#include "esp_private/wifi.h"
 #endif
 
 #ifdef BUILD_ESP32
@@ -470,12 +469,18 @@ static void *net_open(NE2000State *s)
 }
 
 #else
+
+#ifdef BUILD_ESP32
+extern void (*esp32_send_packet)(uint8_t *buf, int size);
+static void qemu_send_packet(void *vc, uint8_t *buf, int size)
+{
+    if (esp32_send_packet)
+        esp32_send_packet(buf, size);
+}
+#else
 #include <stdio.h>
 static void qemu_send_packet(void *vc, uint8_t *buf, int size)
 {
-#ifdef BUILD_ESP32
-    esp_wifi_internal_tx(ESP_IF_WIFI_STA, buf, size);
-#else
     fprintf(stderr, "recv packet %d bytes:\n", size);
     for (int i = 0; i < size; i++) {
         if (i % 16 == 0)
@@ -483,8 +488,8 @@ static void qemu_send_packet(void *vc, uint8_t *buf, int size)
         fprintf(stderr, "%02x ", buf[i]);
     }
     fprintf(stderr, "\n");
-#endif
 }
+#endif
 
 void ne2000_step(NE2000State *s)
 {

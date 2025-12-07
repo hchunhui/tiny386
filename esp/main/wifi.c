@@ -12,6 +12,7 @@
 #include "freertos/event_groups.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
+#include "esp_private/wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -45,6 +46,13 @@ static EventGroupHandle_t s_wifi_event_group;
 
 static const char *TAG = "simple wifi";
 
+void (*esp32_send_packet)(uint8_t *buf, int size);
+
+static void send_packet(uint8_t *buf, int size)
+{
+	esp_wifi_internal_tx(ESP_IF_WIFI_STA, buf, size);
+}
+
 static void event_handler(void* arg, esp_event_base_t event_base,
 			  int32_t event_id, void* event_data)
 {
@@ -57,6 +65,12 @@ static void event_handler(void* arg, esp_event_base_t event_base,
 		ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
 		ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
 		xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+	}
+
+	if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+		esp32_send_packet = NULL;
+	} else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
+		esp32_send_packet = send_packet;
 	}
 }
 
