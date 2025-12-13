@@ -11,6 +11,7 @@ typedef void SimpleFBDrawFunc(void *opaque,
 typedef struct VGAState VGAState;
 VGAState *vga_init(char *vga_ram, int vga_ram_size,
                    uint8_t *fb, int width, int height);
+void vga_set_force_8dm(VGAState *s, int v);
 
 int vga_step(VGAState *vga);
 void vga_refresh(VGAState *s,

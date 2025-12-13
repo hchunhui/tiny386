@@ -707,6 +707,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	memset(pc->vga_mem, 0, pc->vga_mem_size);
 	pc->vga = vga_init(pc->vga_mem, pc->vga_mem_size,
 			   fb, conf->width, conf->height);
+	vga_set_force_8dm(pc->vga, conf->vga_force_8dm);
 	pc->pci_vga = vga_pci_init(pc->vga, pc->pcibus, pc, set_pci_vga_bar);
 	pc->pci_vga_ram_addr = -1;
 
@@ -888,6 +889,8 @@ int parse_conf_ini(void* user, const char* section,
 			conf->cmdline = strdup(value);
 		} else if (NAME("enable_serial")) {
 			conf->enable_serial = atoi(value);
+		} else if (NAME("vga_force_8dm")) {
+			conf->vga_force_8dm = atoi(value);
 		}
 	} else if (SEC("display")) {
 		if (NAME("width")) {

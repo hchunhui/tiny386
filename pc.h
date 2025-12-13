@@ -102,6 +102,7 @@ typedef struct {
 	int cpu_gen;
 	int fpu;
 	int enable_serial;
+	int vga_force_8dm;
 } PCConfig;
 
 PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,

@@ -100,6 +100,7 @@ struct VGAState {
     int cursor_visible_phase;
     uint32_t retrace_time;
     int retrace_phase;
+    int force_8dm;
 
     uint8_t *vga_ram;
     int vga_ram_size;
@@ -698,7 +699,7 @@ static void vga_text_refresh(VGAState *s,
     
     cheight = (s->cr[9] & 0x1f) + 1;
     cwidth = 8;
-    if (!(s->sr[1] & 0x01))
+    if (!s->force_8dm && !(s->sr[1] & 0x01))
         cwidth++;
 
     width = (s->cr[0x01] + 1);
@@ -2018,6 +2019,11 @@ VGAState *vga_init(char *vga_ram, int vga_ram_size,
 
     vga_initmode(s);
     return s;
+}
+
+void vga_set_force_8dm(VGAState *s, int v)
+{
+    s->force_8dm = v;
 }
 
 PCIDevice *vga_pci_init(VGAState *s, PCIBus *bus,
