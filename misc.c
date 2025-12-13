@@ -17,7 +17,7 @@
 #endif
 
 #if !defined(_WIN32) && !defined(__wasm__)
-static void CtrlC()
+static void CtrlC(int _)
 {
 	exit( 0 );
 }
