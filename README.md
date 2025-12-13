@@ -100,7 +100,7 @@ Alternative usage: `bios.bin` `vgabios.bin` `vmlinux.bin` and `linuxstart.bin` c
 
 `wifikbd` is used to forward keyboard/mouse events to the dev board over WIFI:
 ```
-(EEP32-S3 board: listen on TCP port 9999) <--- WIFI ---> AP <--- WIFI/Wire ---> (PC: ./wifikbd esp_board_addr 9999)
+(ESP32-S3 board: listen on TCP port 9999) <--- WIFI ---> AP <--- WIFI/Wire ---> (PC: ./wifikbd esp_board_addr 9999)
 ```
 
 - USB hid (WIP)

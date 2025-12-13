@@ -9,7 +9,7 @@ SRCS += pci.c
 SRCS += win32.c
 
 # slirp
-SRCS$ += \
+SRCS += \
 slirp/bootp.c \
 slirp/cksum.c \
 slirp/if.c \
@@ -52,19 +52,19 @@ clean:
 prepare: fmopl.inc
 
 fmopl.inc: fmopl.c
-	${CC} -DGENTABLE $< -o fmoplgen -lm && ./fmoplgen > $@ && rm -f ./fmoplgen
+	${CC} -DGENTABLE $^$> -o fmoplgen -lm && ./fmoplgen > $@ && rm -f ./fmoplgen
 
 tiny386: sdl/main.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
-	${Q}${CC} ${CFLAGS} -o $@ $< pc.c ${OBJS} ${LIBS}
+	${Q}${CC} ${CFLAGS} -o $@ $^$> ${LIBS}
 
 tiny386_nosdl: main.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
-	${Q}${CC} -DNOSDL ${CFLAGS} -o $@ $< pc.c ${OBJS} ${LIBS}
+	${Q}${CC} -DNOSDL ${CFLAGS} -o $@ $^$> ${LIBS}
 
 tiny386_kvm: sdl/main.c kvm.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
-	${Q}${CC} -DUSEKVM ${CFLAGS} -o $@ $< kvm.c pc.c ${OBJS} ${LIBS}
+	${Q}${CC} -DUSEKVM ${CFLAGS} -o $@ $^$> ${LIBS}
 
 wifikbd: wifikbd.c
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
