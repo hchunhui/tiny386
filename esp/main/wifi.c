@@ -7,6 +7,7 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 #include <string.h>
+#include <stdatomic.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -46,7 +47,7 @@ static EventGroupHandle_t s_wifi_event_group;
 
 static const char *TAG = "simple wifi";
 
-void (*esp32_send_packet)(uint8_t *buf, int size);
+void (*_Atomic esp32_send_packet)(uint8_t *buf, int size);
 
 static void send_packet(uint8_t *buf, int size)
 {
@@ -68,9 +69,11 @@ static void event_handler(void* arg, esp_event_base_t event_base,
 	}
 
 	if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-		esp32_send_packet = NULL;
+		atomic_store_explicit(&esp32_send_packet, NULL,
+				      memory_order_relaxed);
 	} else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
-		esp32_send_packet = send_packet;
+		atomic_store_explicit(&esp32_send_packet, send_packet,
+				      memory_order_relaxed);
 	}
 }
 

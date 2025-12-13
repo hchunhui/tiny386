@@ -471,11 +471,14 @@ static void *net_open(NE2000State *s)
 #else
 
 #ifdef BUILD_ESP32
-extern void (*esp32_send_packet)(uint8_t *buf, int size);
+extern void (*_Atomic esp32_send_packet)(uint8_t *buf, int size);
 static void qemu_send_packet(void *vc, uint8_t *buf, int size)
 {
-    if (esp32_send_packet)
-        esp32_send_packet(buf, size);
+    void (*send_packet)(uint8_t *buf, int size);
+    send_packet = atomic_load_explicit(&esp32_send_packet,
+                                       memory_order_relaxed);
+    if (send_packet)
+        send_packet(buf, size);
 }
 #else
 #include <stdio.h>
