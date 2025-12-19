@@ -27,10 +27,21 @@ build_sdl() {
 	cd ..
 }
 
+build_slirp() {
+    cp -r ../scripts/slirp . &&
+	cd slirp &&
+	git clone -b v4.9.1 --depth=1 https://gitlab.freedesktop.org/slirp/libslirp.git slirp &&
+	cd slirp && patch -p1 < ../patch && cd .. &&
+	make && make install DESTDIR=build && make clean &&
+	make win32 && make install DESTDIR=build-mingw32 && make clean &&
+	cd ..
+}
+
 build_thirdparty() {
     mkdir -p out &&
     mkdir -p build && cd build &&
 	build_seabios &&
+	build_slirp &&
 	build_sdl &&
     cd .. &&
     make prepare
@@ -40,12 +51,16 @@ build_tiny386() {
     mkdir -p out &&
 	cd linuxstart && make && cd .. && cp linuxstart/linuxstart.bin out/ &&
 	make clean &&
-	make SDL_CONFIG="$PWD/build/SDL-1.2/build/bin/sdl-config" all &&
+	make SDL_CONFIG="$PWD/build/SDL-1.2/build/bin/sdl-config" \
+	     SLIRP_INC="-I$PWD/build/slirp/build" \
+	     SLIRP_LIB="-L$PWD/build/slirp/build -lslirp" all &&
 	strip -s tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet &&
 	cp tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet out &&
 	mkdir -p out/win32 &&
 	make clean &&
-	make SDL_CONFIG="$PWD/build/SDL-1.2/build-mingw32/bin/sdl-config" win32 &&
+	make SDL_CONFIG="$PWD/build/SDL-1.2/build-mingw32/bin/sdl-config" \
+	     SLIRP_INC="-I$PWD/build/slirp/build-mingw32 -DLIBSLIRP_STATIC" \
+	     SLIRP_LIB="-L$PWD/build/slirp/build-mingw32 -lslirp" win32 &&
 	strip -s tiny386.exe &&
 	cp tiny386.exe out/win32 &&
 	make clean &&

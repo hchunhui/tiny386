@@ -396,11 +396,14 @@ static void *net_open(NE2000State *s)
 }
 
 #elif defined(USE_SLIRP)
-#include "slirp/libslirp.h"
+#include <slirp/libslirp.h>
+#include <stdio.h>
 struct SLIRP {
     void *slirp;
     void *ne2000;
     uint32_t nextts;
+    fd_set rfds, wfds, efds;
+    unsigned int maxfd;
 };
 
 static void qemu_send_packet(void *vc, uint8_t *buf, int size)
@@ -423,30 +426,119 @@ void slirp_output(void *opaque, const uint8_t *pkt, int pkt_len)
 
 uint32_t get_uticks();
 
+
+static slirp_ssize_t cb_send_packet(const void *buf, size_t len, void *opaque)
+{
+    if (slirp_can_output(opaque)) {
+        slirp_output(opaque, buf, len);
+        return len;
+    }
+    return 0;
+}
+
+static void cb_guest_error(const char *msg, void *opaque)
+{
+    fprintf(stderr, "slirp: guest error: %s\n", msg);
+}
+
+static int64_t cb_clock_get_ns(void *opaque)
+{
+    return ((int64_t) get_uticks()) * 1000; // XXX: wrap
+}
+
+static void *cb_timer_new(SlirpTimerCb cb, void *cb_opaque, void *opaque)
+{
+    fprintf(stderr, "slirp: TODO: timer_new\n");
+    return NULL;
+}
+
+static void cb_timer_free(void *_timer, void *opaque)
+{
+}
+
+static void cb_timer_mod(void *timer, int64_t expire_time, void *opaque)
+{
+    fprintf(stderr, "slirp: TODO: timer_mod\n");
+}
+
+static void cb_register_poll_fd(int fd, void *opaque)
+{
+}
+
+static void cb_unregister_poll_fd(int fd, void *opaque)
+{
+}
+
+static void cb_notify(void *opaque)
+{
+}
+
+static const SlirpCb cb = {
+    .send_packet = cb_send_packet,
+    .guest_error = cb_guest_error,
+    .clock_get_ns = cb_clock_get_ns,
+    .timer_new = cb_timer_new,
+    .timer_free = cb_timer_free,
+    .timer_mod = cb_timer_mod,
+    .register_poll_fd = cb_register_poll_fd,
+    .unregister_poll_fd = cb_unregister_poll_fd,
+    .notify = cb_notify,
+};
+
+#if SLIRP_CONFIG_VERSION_MAX < 6
+typedef int slirp_os_socket;
+#define slirp_pollfds_fill_socket slirp_pollfds_fill
+#endif
+static int add_poll_cb(slirp_os_socket fd, int events, void *opaque)
+{
+    struct SLIRP *slirp = opaque;
+    if (events & SLIRP_POLL_IN)
+        FD_SET(fd, &slirp->rfds);
+    if (events & SLIRP_POLL_OUT)
+        FD_SET(fd, &slirp->wfds);
+    if (events & SLIRP_POLL_PRI)
+        FD_SET(fd, &slirp->efds);
+    if (slirp->maxfd < fd)
+        slirp->maxfd = fd;
+    return fd;
+}
+
+static int get_revents_cb(int idx, void *opaque)
+{
+    struct SLIRP *slirp = opaque;
+    int event = 0;
+    if (FD_ISSET(idx, &slirp->rfds))
+        event |= SLIRP_POLL_IN;
+    if (FD_ISSET(idx, &slirp->wfds))
+        event |= SLIRP_POLL_OUT;
+    if (FD_ISSET(idx, &slirp->efds))
+        event |= SLIRP_POLL_PRI;
+    return event;
+}
+
 void ne2000_step(NE2000State *ne2000)
 {
     struct SLIRP *s = ne2000->vc;
-
-    fd_set rfds, wfds, efds;
-    int fd_max, ret, delay;
-    struct timeval tv;
-
     uint32_t now = get_uticks();
     if (now < s->nextts)
         return;
     s->nextts = now + 10000;
 
     /* wait for an event */
-    FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
-    FD_ZERO(&efds);
-    fd_max = -1;
-    slirp_select_fill(s->slirp, &fd_max, &rfds, &wfds, &efds);
+    FD_ZERO(&s->rfds);
+    FD_ZERO(&s->wfds);
+    FD_ZERO(&s->efds);
+    s->maxfd = 0;
 
+    int _ = 0;
+    slirp_pollfds_fill_socket(s->slirp, &_, add_poll_cb, s);
+
+    struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 0;
-    ret = select(fd_max + 1, &rfds, &wfds, &efds, &tv);
-    slirp_select_poll(s->slirp, &rfds, &wfds, &efds, (ret <= 0));
+
+    int ret = select(s->maxfd+1, &s->rfds, &s->wfds, &s->efds, &tv);
+    slirp_pollfds_poll(s->slirp, ret < 0, get_revents_cb, s);
 }
 
 static void *net_open(NE2000State *s)
@@ -460,9 +552,22 @@ static void *net_open(NE2000State *s)
     const char *vhostname = NULL;
     int restricted = 0;
 
+    SlirpConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.version = 1;
+    cfg.restricted = restricted;
+    cfg.in_enabled = true;
+    cfg.vnetwork = net_addr;
+    cfg.vnetmask = mask;
+    cfg.vhost = host;
+    cfg.in6_enabled = false;
+    cfg.vhostname = vhostname;
+    cfg.bootfile = bootfile;
+    cfg.vdhcp_start = dhcp;
+    cfg.vnameserver = dns;
+
     struct SLIRP *slirp = malloc(sizeof(struct SLIRP));
-    slirp->slirp = slirp_init(restricted, net_addr, mask, host, vhostname,
-                              "", bootfile, dhcp, dns, slirp);
+    slirp->slirp = slirp_new(&cfg, &cb, slirp);
     slirp->ne2000 = s;
     slirp->nextts = get_uticks();
     return slirp;

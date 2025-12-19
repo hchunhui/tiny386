@@ -1,0 +1,139 @@
+diff --git a/src/dnssearch.c b/src/dnssearch.c
+index cbd1a19..fdd7c7c 100644
+--- a/src/dnssearch.c
++++ b/src/dnssearch.c
+@@ -232,6 +232,7 @@ static size_t domain_compactify(CompactDomain *domains, size_t n)
+     return outptr - start;
+ }
+ 
++#if 0
+ int translate_dnssearch(Slirp *s, const char **names)
+ {
+     size_t blocks, bsrc_start, bsrc_end, bdst_start;
+@@ -304,3 +305,4 @@ int translate_dnssearch(Slirp *s, const char **names)
+     s->vdnssearch_len = memreq;
+     return 0;
+ }
++#endif
+diff --git a/src/ip.h b/src/ip.h
+index f0859f0..31159a2 100644
+--- a/src/ip.h
++++ b/src/ip.h
+@@ -180,18 +180,14 @@ struct ip_timestamp {
+ 
+ #define IP_MSS 576 /* default maximum segment size */
+ 
+-#if GLIB_SIZEOF_VOID_P == 4
+ SLIRP_PACKED_BEGIN
+ struct mbuf_ptr {
+-    struct mbuf *mptr;
+-    uint32_t dummy;
+-} SLIRP_PACKED_END;
+-#else
+-SLIRP_PACKED_BEGIN
+-struct mbuf_ptr {
+-    struct mbuf *mptr;
++    union {
++        struct mbuf *mptr;
++        uint64_t _;
++    };
+ } SLIRP_PACKED_END;
+-#endif
++
+ struct qlink {
+     void *next, *prev;
+ };
+diff --git a/src/misc.c b/src/misc.c
+index e5e2164..de906c9 100644
+--- a/src/misc.c
++++ b/src/misc.c
+@@ -133,6 +133,7 @@ err:
+     return -1;
+ }
+ 
++#if 0
+ static void fork_exec_child_setup(gpointer data)
+ {
+ #ifndef _WIN32
+@@ -438,6 +439,7 @@ char *slirp_neighbor_info(Slirp *slirp)
+ 
+     return g_string_free(str, FALSE);
+ }
++#endif
+ 
+ int slirp_bind_outbound(struct socket *so, unsigned short af)
+ {
+diff --git a/src/slirp.c b/src/slirp.c
+index 8c7cb5e..a3ddf65 100644
+--- a/src/slirp.c
++++ b/src/slirp.c
+@@ -576,6 +576,7 @@ static void slirp_init_once(void)
+     loopback_addr.s_addr = htonl(INADDR_LOOPBACK);
+     loopback_mask = htonl(IN_CLASSA_NET);
+ 
++#if 0
+     debug = g_getenv("SLIRP_DEBUG");
+     if (debug) {
+         const GDebugKey keys[] = {
+@@ -587,6 +588,7 @@ static void slirp_init_once(void)
+         };
+         slirp_debug = g_parse_debug_string(debug, keys, G_N_ELEMENTS(keys));
+     }
++#endif
+ }
+ 
+ static void ra_timer_handler_cb(void *opaque)
+@@ -679,7 +681,7 @@ Slirp *slirp_new(const SlirpConfig *cfg, const SlirpCb *callbacks, void *opaque)
+     slirp->tftp_server_name = g_strdup(cfg->tftp_server_name);
+ 
+     if (cfg->vdnssearch) {
+-        translate_dnssearch(slirp, cfg->vdnssearch);
++        assert(false);
+     }
+     slirp->if_mtu = cfg->if_mtu == 0 ? IF_MTU_DEFAULT : cfg->if_mtu;
+     slirp->if_mru = cfg->if_mru == 0 ? IF_MRU_DEFAULT : cfg->if_mru;
+diff --git a/src/tcp_subr.c b/src/tcp_subr.c
+index 8251c76..0410c40 100644
+--- a/src/tcp_subr.c
++++ b/src/tcp_subr.c
+@@ -646,7 +646,7 @@ int tcp_emu(struct socket *so, struct mbuf *m)
+             struct socket *tmpso;
+             struct sockaddr_in addr;
+             socklen_t addrlen = sizeof(struct sockaddr_in);
+-            char *eol = g_strstr_len(m->m_data, m->m_len, "\r\n");
++            char *eol = NULL;
+ 
+             if (!eol) {
+                 return 1;
+@@ -986,7 +986,7 @@ int tcp_ctl(struct socket *so)
+ 
+     DEBUG_CALL("tcp_ctl");
+     DEBUG_ARG("so = %p", so);
+-
++#if 0
+     /* TODO: IPv6 */
+     if (so->so_faddr.s_addr != slirp->vhost_addr.s_addr) {
+         /* Check if it's pty_exec */
+@@ -1006,6 +1006,7 @@ int tcp_ctl(struct socket *so)
+             }
+         }
+     }
++#endif
+     sb->sb_cc = slirp_fmt(sb->sb_wptr, sb->sb_datalen - (sb->sb_wptr - sb->sb_data),
+                           "Error: No application configured.\r\n");
+     sb->sb_wptr += sb->sb_cc;
+diff --git a/src/version.c b/src/version.c
+index 93e0be9..e439f78 100644
+--- a/src/version.c
++++ b/src/version.c
+@@ -1,8 +1,10 @@
+ /* SPDX-License-Identifier: BSD-3-Clause */
+ #include "libslirp.h"
+ 
++#if 0
+ const char *
+ slirp_version_string(void)
+ {
+     return SLIRP_VERSION_STRING;
+ }
++#endif

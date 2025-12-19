@@ -1,32 +1,13 @@
 Q ?= @
 CC ?= gcc
 SDL_CONFIG ?= sdl-config
-CFLAGS = -I . -O3 -g `${SDL_CONFIG} --cflags` ${CFLAGS_PLAT}
-LIBS = `${SDL_CONFIG} --libs` -lm ${LIBS_PLAT}
+SLIRP_LIB ?= -lslirp
+CFLAGS = -I . -O3 -g `${SDL_CONFIG} --cflags` ${SLIRP_INC} ${CFLAGS_PLAT}
+LIBS = `${SDL_CONFIG} --libs` -lm ${SLIRP_LIB} ${LIBS_PLAT}
 
 SRCS = ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c fmopl.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
 SRCS += pci.c
 SRCS += win32.c
-
-# slirp
-SRCS += \
-slirp/bootp.c \
-slirp/cksum.c \
-slirp/if.c \
-slirp/ip_icmp.c \
-slirp/ip_input.c \
-slirp/ip_output.c \
-slirp/mbuf.c \
-slirp/misc.c \
-slirp/sbuf.c \
-slirp/slirp.c \
-slirp/socket.c \
-slirp/tcp_input.c \
-slirp/tcp_output.c \
-slirp/tcp_subr.c \
-slirp/tcp_timer.c \
-slirp/cutils.c \
-slirp/udp.c
 
 # OSD
 SRCS += osd/microui.c osd/osd.c

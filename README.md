@@ -24,7 +24,7 @@ For firmware, the BIOS/VGABIOS comes from seabios. Tiny386 also supports booting
 See [here](https://hchunhui.github.io/tiny386)
 
 ## Build
-Linux: You need to install `SDL1.2` or `sdl12-compat` first, then type `make`.
+Linux: You need to install `libslirp` and `SDL1.2` (or `sdl12-compat`) first, then type `make`.
 
 For other platforms, please refer to `.github/workflows/build.yml`.
 
