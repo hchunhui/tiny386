@@ -79,6 +79,8 @@ Currently the only supported target is the JC3248W535 dev board. The supported E
 You can find the pre-built flash image `esp/flash_image_JC3248W535.bin` from [here](https://github.com/hchunhui/tiny386/releases).
 The pre-built image can be flashed directly to offset 0.
 
+Online flasher for esp chips: https://espressif.github.io/esptool-js
+
 To build and flash manually:
 ```sh
 scripts/build.sh patch_idf  # apply patches to ESP-IDF
@@ -106,6 +108,20 @@ Alternative usage: `bios.bin` `vgabios.bin` `vmlinux.bin` and `linuxstart.bin` c
 - USB hid (WIP)
 
 See [here](https://github.com/hchunhui/tiny386/pull/4).
+
+## Troubleshooting
+
+### "0 bytes of memory" during Windows 95 setup
+Use "setup /im" to bypass memory check.
+
+### "protection error" during Windows 95 startup
+Use [patcher9x](https://github.com/JHRobotics/patcher9x).
+
+### NE2000 doesn't work
+Manually set the IRQ to 9(or 2).
+
+### freeze during Windows NT4/2000/XP startup
+Use `fill_cmos = 0` in the config ini file.
 
 ## License
 The cpu emulator and the project as a whole are both licensed under the BSD-3-Clause license.
