@@ -1,6 +1,6 @@
 Q ?= @
 CC ?= gcc
-CFLAGS = -I . -Os -DLIBSLIRP_STATIC
+CFLAGS = -I . -Os -ffunction-sections -fdata-sections -DLIBSLIRP_STATIC
 
 SRCS = \
 slirp/src/ip6_output.c \

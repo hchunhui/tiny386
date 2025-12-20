@@ -15,12 +15,12 @@ build_sdl() {
 	cd SDL-1.2 &&
 	patch -p1 < ../../scripts/sdl.patch &&
 	mkdir -p build && cd build &&
-	../configure --disable-shared --disable-joystick --disable-cdrom --enable-alsa --disable-oss --disable-esd --disable-sndio --disable-pulseaudio --prefix="$PWD" &&
+	CFLAGS="-Os -ffunction-sections -fdata-sections" ../configure --disable-shared --disable-joystick --disable-cdrom --enable-alsa --disable-oss --disable-esd --disable-sndio --disable-pulseaudio --prefix="$PWD" &&
 	make &&
 	make install &&
 	cd .. &&
 	mkdir -p build-mingw32 && cd build-mingw32 &&
-	../configure --disable-shared --host=i686-w64-mingw32 --disable-stdio-redirect --prefix="$PWD" &&
+	CFLAGS="-Os -ffunction-sections -fdata-sections" ../configure --disable-shared --host=i686-w64-mingw32 --disable-stdio-redirect --prefix="$PWD" &&
 	make &&
 	make install &&
 	cd .. &&
