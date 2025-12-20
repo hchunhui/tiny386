@@ -25,7 +25,7 @@ PROGS = tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet
 all: ${PROGS}
 
 win32:
-	make -C . CC?=i686-w64-mingw32-gcc CFLAGS_PLAT=-mconsole LIBS_PLAT="-lws2_32 -liphlpapi" tiny386
+	make -C . CC?=i686-w64-mingw32-gcc CFLAGS_PLAT=-mconsole LIBS_PLAT="-lws2_32 -liphlpapi" tiny386 wifikbd
 
 clean:
 	rm -f ${OBJS} .depends ${PROGS}
@@ -47,9 +47,9 @@ tiny386_kvm: sdl/main.c kvm.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} -DUSEKVM ${CFLAGS} -o $@ $^$> ${LIBS}
 
-wifikbd: wifikbd.c
+wifikbd: wifikbd.c win32.c
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
-	${Q}${CC} ${CFLAGS} -o $@ wifikbd.c ${LIBS}
+	${Q}${CC} ${CFLAGS} -o $@ wifikbd.c win32.c ${LIBS}
 
 initnet: initnet.c
 	${Q}${CC} -o $@ initnet.c

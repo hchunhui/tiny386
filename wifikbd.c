@@ -7,8 +7,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+SOCKET fd;
+#else
 #include <arpa/inet.h>
 int fd;
+#endif
 
 void ps2_put_keycode(void *s, int is_down, int keycode)
 {
@@ -17,7 +23,7 @@ void ps2_put_keycode(void *s, int is_down, int keycode)
 	if (!is_down)
 		data[0] |= 0x80;
 	printf("put %x\n", data[0]);
-	write(fd, data, 1);
+	send(fd, data, 1, 0);
 }
 
 static uint8_t t(int x)
@@ -39,7 +45,7 @@ void ps2_mouse_event(void *s,
 	data[2] = t(dy);
 	data[3] = t(dz);
 	data[4] = buttons_state;
-	int ret = write(fd, data, 5);
+	int ret = send(fd, data, 5, 0);
 	assert(ret == 5);
 }
 
@@ -97,6 +103,7 @@ static int sdl_get_keycode(const SDL_KeyboardEvent *ev)
 		default: printf("unknown %x %d\n", sym, sym); return 0;
 		}
 	}
+#ifndef _WIN32
 	if (keycode < 9) {
 		keycode = 0;
 	} else if (keycode < 127 + 8) {
@@ -104,6 +111,7 @@ static int sdl_get_keycode(const SDL_KeyboardEvent *ev)
 	} else {
 		keycode = 0;
 	}
+#endif
 	return keycode;
 }
 
@@ -274,6 +282,10 @@ static void poll(void *opaque)
 
 int main(int argc, char *argv[])
 {
+#ifdef _WIN32
+	WSADATA Data;
+	WSAStartup(MAKEWORD(2, 0), &Data);
+#endif
 	int ret;
 	struct sockaddr_in addr;
 	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {

@@ -61,8 +61,8 @@ build_tiny386() {
 	make SDL_CONFIG="$PWD/build/SDL-1.2/build-mingw32/bin/sdl-config" \
 	     SLIRP_INC="-I$PWD/build/slirp/build-mingw32 -DLIBSLIRP_STATIC" \
 	     SLIRP_LIB="-L$PWD/build/slirp/build-mingw32 -lslirp" win32 &&
-	strip -s tiny386.exe &&
-	cp tiny386.exe out/win32 &&
+	strip -s tiny386.exe wifikbd.exe &&
+	cp tiny386.exe wifikbd.exe out/win32 &&
 	make clean &&
 	rm tiny386.exe &&
 	cd wasm && make && cd .. &&
