@@ -358,9 +358,17 @@ static void ne2000_receive(void *opaque, const uint8_t *buf, int size)
 #endif
 }
 
+uint32_t get_uticks();
+
+static int after_eq(uint32_t a, uint32_t b)
+{
+    return (a - b) < (1u << 31);
+}
+
 #if defined(USE_TUNTAP)
 struct TUN {
     int fd;
+    uint32_t nextts;
 };
 
 static void qemu_send_packet(void *vc, uint8_t *buf, int size)
@@ -378,6 +386,12 @@ void ne2000_step(NE2000State *s)
 
     if (tun->fd < 0)
         return;
+
+    uint32_t now = get_uticks();
+    if (!after_eq(now, tun->nextts))
+        return;
+    tun->nextts = now + 10000;
+
     while (ne2000_can_receive(s)) {
         int ret = read(tun->fd, buf, sizeof(buf));
         if (ret <= 0)
@@ -394,6 +408,7 @@ static void *net_open(NE2000State *s)
         tun->fd = atoi(getenv("TAPFD"));
     if (tun->fd >= 0)
         fcntl(tun->fd, F_SETFL, O_NONBLOCK);
+    tun->nextts = get_uticks();
     return tun;
 }
 
@@ -414,25 +429,11 @@ static void qemu_send_packet(void *vc, uint8_t *buf, int size)
     slirp_input(s->slirp, buf, size);
 }
 
-int slirp_can_output(void *opaque)
-{
-    struct SLIRP *s = opaque;
-    return ne2000_can_receive(s->ne2000);
-}
-
-void slirp_output(void *opaque, const uint8_t *pkt, int pkt_len)
-{
-    struct SLIRP *s = opaque;
-    ne2000_receive(s->ne2000, pkt, pkt_len);
-}
-
-uint32_t get_uticks();
-
-
 static slirp_ssize_t cb_send_packet(const void *buf, size_t len, void *opaque)
 {
-    if (slirp_can_output(opaque)) {
-        slirp_output(opaque, buf, len);
+    struct SLIRP *s = opaque;
+    if (ne2000_can_receive(s->ne2000)) {
+        ne2000_receive(s->ne2000, buf, len);
         return len;
     }
     return 0;
@@ -522,7 +523,7 @@ void ne2000_step(NE2000State *ne2000)
 {
     struct SLIRP *s = ne2000->vc;
     uint32_t now = get_uticks();
-    if (now < s->nextts)
+    if (!after_eq(now, s->nextts))
         return;
     s->nextts = now + 10000;
 
