@@ -1,3 +1,7 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
 #include "pc.h"
 #include "SDL.h"
 #include "osd/osd.h"
@@ -28,9 +32,14 @@ void *bigmalloc(size_t size)
 int load_rom(void *phys_mem, const char *file, uword addr, int backward)
 {
 	FILE *fp = fopen(file, "rb");
+	if (fp == NULL) {
+		fprintf(stderr, "load_rom: open %s failed: %s\n", file, strerror(errno));
+		abort();
+	}
+
 	fseek(fp, 0, SEEK_END);
 	int len = ftell(fp);
-	fprintf(stderr, "%s len %d\n", file, len);
+	fprintf(stderr, "load_rom: %s, len %d\n", file, len);
 	rewind(fp);
 	if (backward)
 		fread(phys_mem + addr - len, 1, len, fp);

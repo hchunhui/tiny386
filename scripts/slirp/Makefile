@@ -1,5 +1,5 @@
-Q ?= @
-CC ?= gcc
+Q = @
+CC = gcc
 CFLAGS = -I . -Os -ffunction-sections -fdata-sections -DLIBSLIRP_STATIC
 
 SRCS = \

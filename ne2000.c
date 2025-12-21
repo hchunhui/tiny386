@@ -272,6 +272,8 @@ static void ne2000_receive(void *opaque, const uint8_t *buf, int size)
 #if defined(DEBUG_NE2000)
     printf("NE2000: received len=%d\n", size);
 #endif
+    if (size > MAX_ETH_FRAME_SIZE)
+        return;
 
     if (s->cmd & E8390_STOP || ne2000_buffer_full(s))
         return;

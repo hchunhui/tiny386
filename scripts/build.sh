@@ -64,7 +64,7 @@ build_tiny386() {
 	strip -s tiny386.exe wifikbd.exe &&
 	cp tiny386.exe wifikbd.exe out/win32 &&
 	make clean &&
-	rm tiny386.exe &&
+	rm tiny386.exe wifikbd.exe &&
 	cd wasm && make && cd .. &&
 	mkdir -p out/wasm &&
 	cp wasm/html/tiny386.wasm out/wasm &&

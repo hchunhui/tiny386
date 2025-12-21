@@ -1,7 +1,8 @@
-Q ?= @
-CC ?= gcc
-SDL_CONFIG ?= sdl-config
-SLIRP_LIB ?= -lslirp
+Q = @
+CC = gcc
+HOSTCC = ${CC}
+SDL_CONFIG = sdl-config
+SLIRP_LIB = -lslirp
 CFLAGS = -I . -O3 -ffunction-sections -fdata-sections -g `${SDL_CONFIG} --cflags` -Wl,--gc-sections ${SLIRP_INC} ${CFLAGS_PLAT}
 LIBS = `${SDL_CONFIG} --libs` -lm ${SLIRP_LIB} ${LIBS_PLAT}
 
@@ -33,7 +34,7 @@ clean:
 prepare: fmopl.inc
 
 fmopl.inc: fmopl.c
-	${CC} -DGENTABLE $^$> -o fmoplgen -lm && ./fmoplgen > $@ && rm -f ./fmoplgen
+	${HOSTCC} -DGENTABLE $^$> -o fmoplgen -lm && ./fmoplgen > $@ && rm -f ./fmoplgen
 
 tiny386: sdl/main.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
@@ -41,7 +42,7 @@ tiny386: sdl/main.c pc.c ${OBJS}
 
 tiny386_nosdl: main.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
-	${Q}${CC} -DNOSDL ${CFLAGS} -o $@ $^$> ${LIBS}
+	${Q}${CC} ${CFLAGS} -o $@ $^$> ${LIBS}
 
 tiny386_kvm: sdl/main.c kvm.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"

@@ -286,6 +286,8 @@ int main(int argc, char *argv[])
 	WSADATA Data;
 	WSAStartup(MAKEWORD(2, 0), &Data);
 #endif
+	if (argc != 3)
+		return 1;
 	int ret;
 	struct sockaddr_in addr;
 	if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {

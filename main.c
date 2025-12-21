@@ -1,7 +1,9 @@
 // "headless" tiny386
 // for SDL port, see `sdl/main.c`
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include "pc.h"
 
 // platform HAL implementation
@@ -31,9 +33,14 @@ void *bigmalloc(size_t size)
 int load_rom(void *phys_mem, const char *file, uword addr, int backward)
 {
 	FILE *fp = fopen(file, "rb");
+	if (fp == NULL) {
+		fprintf(stderr, "load_rom: open %s failed: %s\n", file, strerror(errno));
+		abort();
+	}
+
 	fseek(fp, 0, SEEK_END);
 	int len = ftell(fp);
-	fprintf(stderr, "%s len %d\n", file, len);
+	fprintf(stderr, "load_rom: %s, len %d\n", file, len);
 	rewind(fp);
 	if (backward)
 		fread(phys_mem + addr - len, 1, len, fp);
@@ -72,7 +79,7 @@ int main(int argc, char *argv[])
 
 	int err = ini_parse(argv[1], parse_conf_ini, &conf);
 	if (err) {
-		printf("error %d\n", err);
+		fprintf(stderr, "error %d\n", err);
 		return err;
 	}
 
