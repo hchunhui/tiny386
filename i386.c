@@ -5140,6 +5140,7 @@ CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb)
 
 	cpui386_reset(cpu);
 
+	memset(&(cpu->cb), 0, sizeof(CPU_CB));
 	if (cb)
 		*cb = &(cpu->cb);
 	return cpu;
