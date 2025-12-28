@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
+#include <string.h>
 
 #ifdef BUILD_ESP32
 #include "esp_attr.h"
