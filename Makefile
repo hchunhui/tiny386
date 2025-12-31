@@ -48,12 +48,13 @@ tiny386_kvm: sdl/main.c kvm.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} -DUSEKVM ${CFLAGS} -o $@ $^$> ${LIBS}
 
-wifikbd: wifikbd.c win32.c
+wifikbd: tools/wifikbd.c win32.c
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
-	${Q}${CC} ${CFLAGS} -o $@ wifikbd.c win32.c ${LIBS}
+	${Q}${CC} ${CFLAGS} -o $@ $^$> ${LIBS}
 
-initnet: initnet.c
-	${Q}${CC} -o $@ initnet.c
+initnet: tools/initnet.c
+	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
+	${Q}${CC} -o $@ $^$>
 
 .depends: ${SRCS}
 	@/bin/echo -e " \e[1;32mDEP\e[0m\t\e[1;37m$^$>\e[0m \e[1;32m->\e[0m \e[1;37m$@\e[0m"
