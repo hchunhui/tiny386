@@ -21,6 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#define _FILE_OFFSET_BITS 64
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -1948,7 +1949,7 @@ static int bf_read_async(BlockDevice *bs,
         int i;
         for(i = 0; i < n; i++) {
             if (!bf->sector_table[sector_num]) {
-                fseek(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
+                fseeko(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
                 fread(buf, 1, SECTOR_SIZE, bf->f);
             } else {
                 memcpy(buf, bf->sector_table[sector_num], SECTOR_SIZE);
@@ -1957,7 +1958,7 @@ static int bf_read_async(BlockDevice *bs,
             buf += SECTOR_SIZE;
         }
     } else {
-        fseek(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, SEEK_SET);
+        fseeko(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, SEEK_SET);
         fread(buf, 1, n * SECTOR_SIZE, bf->f);
     }
     /* synchronous read */
@@ -1976,7 +1977,7 @@ static int bf_write_async(BlockDevice *bs,
         ret = -1; /* error */
         break;
     case BF_MODE_RW:
-        fseek(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, SEEK_SET);
+        fseeko(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, SEEK_SET);
         fwrite(buf, 1, n * SECTOR_SIZE, bf->f);
         ret = 0;
         break;
@@ -2030,7 +2031,7 @@ static BlockDevice *block_device_init(const char *filename,
         if (memcmp(buf, ide_magic, 8) == 0)
             start_offset = 1024;
     }
-    fseek(f, 0, SEEK_END);
+    fseeko(f, 0, SEEK_END);
     file_size = ftello(f) - start_offset;
 
     bs = pcmalloc(sizeof(*bs));
@@ -2054,14 +2055,14 @@ static BlockDevice *block_device_init(const char *filename,
     bs->get_sector_count = bf_get_sector_count;
     bs->get_chs = NULL;
     if (start_offset) {
-        fseek(f, 512, SEEK_SET);
+        fseeko(f, 512, SEEK_SET);
         unsigned char buf[7 * 2];
         fread(buf, 1, 7 * 2, f);
         bf->cylinders = buf[2] | (buf[3] << 8);
         bf->heads = buf[6] | (buf[7] << 8);
         bf->sectors = buf[12] | (buf[13] << 8);
         bs->get_chs = bf_get_chs;
-        fseek(f, 0, SEEK_END);
+        fseeko(f, 0, SEEK_END);
     }
     bs->read_async = bf_read_async;
     bs->write_async = bf_write_async;
@@ -2204,7 +2205,7 @@ static void block_device_reinit(BlockDevice *bs, const char *filename)
         return;
     }
 
-    fseek(f, 0, SEEK_END);
+    fseeko(f, 0, SEEK_END);
     file_size = ftello(f);
 
     bf->nb_sectors = file_size / 512;
