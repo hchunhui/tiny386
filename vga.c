@@ -545,7 +545,7 @@ static bool vbe_enabled(VGAState *s)
 static void vbe_fixup_regs(VGAState *s)
 {
     uint16_t *r = s->vbe_regs;
-    uint32_t bits, linelength, maxy, offset;
+    uint32_t bits, linelength, /*maxy,*/ offset;
 
     if (!vbe_enabled(s)) {
         /* vbe is turned off -- nothing to do */
@@ -921,13 +921,13 @@ static void vga_graphic_refresh(VGAState *s,
     uint32_t start_addr = s->cr[0x0d] | (s->cr[0x0c] << 8);
     uint32_t line_offset = s->cr[0x13];
     line_offset <<= 3;
-    uint32_t line_compare = s->cr[0x18] |
-        ((s->cr[0x07] & 0x10) << 4) |
-        ((s->cr[0x09] & 0x40) << 3);
+//    uint32_t line_compare = s->cr[0x18] |
+//        ((s->cr[0x07] & 0x10) << 4) |
+//        ((s->cr[0x09] & 0x40) << 3);
     if (vbe_enabled(s)) {
         line_offset = s->vbe_line_offset;
         start_addr = s->vbe_start_addr;
-        line_compare = 65535;
+//        line_compare = 65535;
     }
     uint32_t addr1 = 4 * start_addr;
     uint8_t *vram = s->vga_ram;
@@ -1469,16 +1469,8 @@ static void vga_write_ ## base(void *opaque, uint32_t addr, uint32_t val, int si
     return vga_ioport_write(opaque, base + addr, val);\
 }
 
-VGA_IO(0x3c0)
-VGA_IO(0x3b4)
-VGA_IO(0x3d4)
-VGA_IO(0x3ba)
-VGA_IO(0x3da)
-
 void vbe_write(VGAState *s, uint32_t offset, uint32_t val)
 {
-    FBDevice *fb_dev = s->fb_dev;
-
     if (offset == 0) {
         s->vbe_index = val;
     } else {
@@ -1647,8 +1639,7 @@ void IRAM_ATTR vga_mem_write16(VGAState *s, uint32_t addr, uint16_t val16)
     }
     uint32_t val = val16;
 
-    int memory_map_mode, plane, write_mode, b, func_select, mask;
-    uint32_t write_mask, bit_mask, set_mask;
+    int memory_map_mode, plane, mask;
 
 #ifdef DEBUG_VGA_MEM
     printf("vga: [0x" TARGET_FMT_plx "] = 0x%02x\n", addr, val);
@@ -1695,8 +1686,7 @@ void IRAM_ATTR vga_mem_write32(VGAState *s, uint32_t addr, uint32_t val)
         return;
     }
 
-    int memory_map_mode, plane, write_mode, b, func_select, mask;
-    uint32_t write_mask, bit_mask, set_mask;
+    int memory_map_mode, plane, mask;
 
 #ifdef DEBUG_VGA_MEM
     printf("vga: [0x" TARGET_FMT_plx "] = 0x%02x\n", addr, val);
@@ -1739,8 +1729,7 @@ bool IRAM_ATTR vga_mem_write_string(VGAState *s, uint32_t addr, uint8_t *buf, in
         return false;
     }
 
-    int memory_map_mode, plane, write_mode, b, func_select, mask;
-    uint32_t write_mask, bit_mask, set_mask;
+    int memory_map_mode, plane, mask;
 
 #ifdef DEBUG_VGA_MEM
     printf("vga: [0x" TARGET_FMT_plx "] = 0x%02x\n", addr, val);

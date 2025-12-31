@@ -2144,7 +2144,6 @@ static BlockDevice *block_device_init_espsd(int64_t start_sector, int64_t nb_sec
 
 IDEIFState *ide_allocate(int irq, void *pic, void (*set_irq)(void *pic, int irq, int level))
 {
-    int i;
     IDEIFState *s;
     
     s = pcmalloc(sizeof(IDEIFState));
@@ -2205,7 +2204,6 @@ static void block_device_reinit(BlockDevice *bs, const char *filename)
         return;
     }
 
-    char buf[8];
     fseek(f, 0, SEEK_END);
     file_size = ftello(f);
 

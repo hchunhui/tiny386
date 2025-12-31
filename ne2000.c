@@ -533,7 +533,7 @@ void ne2000_step(NE2000State *ne2000)
     FD_ZERO(&s->efds);
     s->maxfd = 0;
 
-    int _ = 0;
+    uint32_t _ = 0;
     slirp_pollfds_fill_socket(s->slirp, &_, add_poll_cb, s);
 
     struct timeval tv;

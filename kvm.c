@@ -48,8 +48,7 @@ static void sigalrm_handler(int sig)
 
 static bool in_iomem(uword addr)
 {
-	return addr >= 0xa0000 && addr < 0xc0000 || addr >= 0xe0000000;
-//	return addr >= 0xa0000 && addr < 0xc0000;
+	return (addr >= 0xa0000 && addr < 0xc0000) || addr >= 0xe0000000;
 }
 
 void cpukvm_register_mem(CPUKVM *cpu, int slot, uint32_t addr, uint32_t len,
@@ -74,10 +73,8 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	cpu->phys_mem = phys_mem;
 	cpu->phys_mem_size = phys_mem_size;
 
-	int ret, i;
+	int ret;
 	struct sigaction act;
-	struct kvm_pit_config pit_config;
-	uint64_t base_addr;
 
 	cpu->kvm_fd = open("/dev/kvm", O_RDWR);
 	if (cpu->kvm_fd < 0) {

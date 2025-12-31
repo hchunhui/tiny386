@@ -21,8 +21,6 @@ static void do_window(mu_Context *ctx, struct OSD *osd)
 	if (mu_begin_window_ex(ctx, "Tiny386 Control Panel",
 			       mu_rect(40, 40, 320, 240),
 			       MU_OPT_NOCLOSE)) {
-		mu_Container *win = mu_get_current_container(ctx);
-
 		static char buf[2][128];
 		mu_layout_row(ctx, 3, (int[]) { 54, -70, -1 }, 0);
 		for (int i = 0; i < 2; i++) {

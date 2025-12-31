@@ -208,8 +208,6 @@ static u32 pc_io_read32(void *o, int addr)
 static int pc_io_read_string(void *o, int addr, uint8_t *buf, int size, int count)
 {
 	PC *pc = o;
-	u32 val;
-
 	switch(addr) {
 	case 0x1f0:
 		return ide_data_read_string(pc->ide, buf, size, count);

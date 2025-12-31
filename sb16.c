@@ -212,12 +212,14 @@ static void control (SB16State *s, int hold)
     }
 }
 
+#if 0
 static void aux_timer (void *opaque)
 {
     SB16State *s = opaque;
     s->can_write = 1;
     s->set_irq(s->pic, s->irq, 1);
 }
+#endif
 
 #define DMA8_AUTO 1
 #define DMA8_HIGH 2
@@ -1519,6 +1521,7 @@ void sb16_audio_callback (void *opaque, uint8_t *stream, int free)
     }
 }
 
+#if 0
 static int sb16_post_load (void *opaque, int version_id)
 {
     SB16State *s = opaque;
@@ -1540,7 +1543,6 @@ static int sb16_post_load (void *opaque, int version_id)
     return 0;
 }
 
-#if 0
 static const MemoryRegionPortio sb16_ioport_list[] = {
     {  4, 1, 1, .write = mixer_write_indexb },
     {  5, 1, 1, .read = mixer_read, .write = mixer_write_datab },

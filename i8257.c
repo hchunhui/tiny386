@@ -292,11 +292,13 @@ uint64_t i8257_read_cont(void *opaque, hwaddr nport, unsigned size)
     return val;
 }
 
+#if 0
 static bool i8257_dma_has_autoinitialization(IsaDma *obj, int nchan)
 {
     I8257State *d = I8257(obj);
     return (d->regs[nchan & 3].mode >> 4) & 1;
 }
+#endif
 
 void i8257_dma_hold_DREQ(IsaDma *obj, int nchan)
 {
@@ -474,6 +476,7 @@ int i8257_dma_write_memory(IsaDma *obj, int nchan, void *buf, int pos,
 /* request the emulator to transfer a new DMA memory block ASAP (even
  * if the idle bottom half would not have exited the iothread yet).
  */
+#if 0
 static void i8257_dma_schedule(IsaDma *obj)
 {
     I8257State *d = I8257(obj);
@@ -481,6 +484,7 @@ static void i8257_dma_schedule(IsaDma *obj)
 //        qemu_notify_event();
     }
 }
+#endif
 
 static int i8257_phony_handler(void *opaque, int nchan, int dma_pos,
                                int dma_len)
@@ -529,7 +533,6 @@ static const MemoryRegionOps cont_io_ops = {
         .max_access_size = 1,
     },
 };
-#endif
 
 static int i8257_post_load(void *opaque, int version_id)
 {
@@ -538,7 +541,7 @@ static int i8257_post_load(void *opaque, int version_id)
 
     return 0;
 }
-#if 0
+
 static void i8257_realize(DeviceState *dev, Error **errp)
 {
     ISADevice *isa = ISA_DEVICE(dev);

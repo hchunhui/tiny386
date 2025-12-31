@@ -46,11 +46,6 @@ static inline uint32_t get_le32(const uint8_t *ptr)
     return ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24);
 }
 
-static inline uint64_t get_le64(const uint8_t *ptr)
-{
-    return get_le32(ptr) | ((uint64_t)get_le32(ptr + 4) << 32);
-}
-
 static inline void put_le16(uint8_t *ptr, uint16_t v)
 {
     ptr[0] = v;
@@ -63,12 +58,6 @@ static inline void put_le32(uint8_t *ptr, uint32_t v)
     ptr[1] = v >> 8;
     ptr[2] = v >> 16;
     ptr[3] = v >> 24;
-}
-
-static inline void put_le64(uint8_t *ptr, uint64_t v)
-{
-    put_le32(ptr, v);
-    put_le32(ptr + 4, v >> 32);
 }
 
 //#define DEBUG_CONFIG
@@ -107,12 +96,14 @@ static int bus_map_irq(PCIDevice *d, int irq_num)
     return (irq_num + slot_addend) & 3;
 }
 
+#if 0
 static void pci_device_set_irq(void *opaque, int irq_num, int level)
 {
     PCIDevice *d = opaque;
     PCIBus *b = d->bus;
     uint32_t mask;
-    int i, irq_level;
+    int i;
+//    int irq_level;
     
     //    printf("%s: pci_device_seq_irq: %d %d\n", d->name, irq_num, level);
     irq_num = bus_map_irq(d, irq_num);
@@ -126,9 +117,10 @@ static void pci_device_set_irq(void *opaque, int irq_num, int level)
     mask = 0;
     for(i = 0; i < 8; i++)
         mask |= b->irq_state[irq_num][i];
-    irq_level = (mask != 0);
+//    irq_level = (mask != 0);
 //    set_irq(&b->irq[irq_num], irq_level);
 }
+#endif
 
 static int devfn_alloc(PCIBus *b)
 {
@@ -146,7 +138,7 @@ PCIDevice *pci_register_device(PCIBus *b, const char *name, int devfn,
                                uint8_t revision, uint16_t class_id)
 {
     PCIDevice *d;
-    int i;
+//    int i;
     
     if (devfn < 0) {
         devfn = devfn_alloc(b);
@@ -534,6 +526,7 @@ uint32_t i440fx_read_data(void *opaque, uint32_t offset, int size_log2)
     }
 }
 
+#if 0
 static void i440fx_set_irq(void *opaque, int irq_num, int irq_level)
 {
     I440FXState *s = opaque;
@@ -552,6 +545,7 @@ static void i440fx_set_irq(void *opaque, int irq_num, int irq_level)
 //        set_irq(&s->pic_irqs[pic_irq], (s->pic_irq_state[pic_irq] != 0));
     }
 }
+#endif
 
 I440FXState *i440fx_init(PCIBus **pbus, int *ppiix3_devfn)
 //                         PhysMemoryMap *mem_map, PhysMemoryMap *port_map,
@@ -559,7 +553,7 @@ I440FXState *i440fx_init(PCIBus **pbus, int *ppiix3_devfn)
 {
     I440FXState *s;
     PCIBus *b;
-    PCIDevice *d;
+//    PCIDevice *d;
     int i;
     
     s = pcmalloc(sizeof(*s));

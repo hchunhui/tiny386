@@ -685,7 +685,7 @@ static inline bool translate32(CPUI386 *cpu, OptAddr *res, int rwm, int seg, uwo
 
 static inline bool in_iomem(uword addr)
 {
-	return addr >= 0xa0000 && addr < 0xc0000 || addr >= 0xe0000000;
+	return (addr >= 0xa0000 && addr < 0xc0000) || addr >= 0xe0000000;
 }
 
 static u8 IRAM_ATTR load8(CPUI386 *cpu, OptAddr *res)
@@ -1594,7 +1594,7 @@ static inline void clear_segs(CPUI386 *cpu)
 #define laddr32(addr) load32(cpu, addr)
 #define saddr32(addr, v) store32(cpu, addr, v)
 #define lseg(i) ((u16) SEGi((i)))
-#define set_sp(v, mask) (sreg32(4, (v) & mask | lreg32(4) & ~mask))
+#define set_sp(v, mask) (sreg32(4, ((v) & mask) | (lreg32(4) & ~mask)))
 
 /*
  * instructions
@@ -2269,7 +2269,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 
 #define SAHF() \
 	cpu->cc.mask &= OF; \
-	cpu->flags = cpu->flags & (wordmask ^ 0xff) | lreg8(4); \
+	cpu->flags = (cpu->flags & (wordmask ^ 0xff)) | lreg8(4); \
 	cpu->flags &= EFLAGS_MASK; \
 	cpu->flags |= 0x2;
 
@@ -2632,7 +2632,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 				cpu->cc.op = CC_SUB; \
 				cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 				bool zf = get_ZF(cpu); \
-				if (zf && rep == 2 || !zf && rep == 1) break; \
+				if ((zf && rep == 2) || (!zf && rep == 1)) break; \
 			} \
 		} else { \
 			while (lreg32(1)) { \
@@ -2644,7 +2644,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 				cpu->cc.op = CC_SUB; \
 				cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 				bool zf = get_ZF(cpu); \
-				if (zf && rep == 2 || !zf && rep == 1) break; \
+				if ((zf && rep == 2) || (!zf && rep == 1)) break; \
 			} \
 		} \
 	}
@@ -2733,7 +2733,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 				cpu->cc.op = CC_SUB; \
 				cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 				bool zf = get_ZF(cpu); \
-				if (zf && rep == 2 || !zf && rep == 1) break; \
+				if ((zf && rep == 2) || (!zf && rep == 1)) break; \
 			} \
 		} else { \
 			while (lreg32(1)) { \
@@ -2745,7 +2745,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 				cpu->cc.op = CC_SUB; \
 				cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 				bool zf = get_ZF(cpu); \
-				if (zf && rep == 2 || !zf && rep == 1) break; \
+				if ((zf && rep == 2) || (!zf && rep == 1)) break; \
 			} \
 		} \
 	}
@@ -3820,7 +3820,7 @@ static bool IRAM_ATTR_CPU_EXEC1 cpu_exec1(CPUI386 *cpu, int stepcount)
 	bool opsz16 = code16;
 	bool adsz16 = code16;
 	int rep = 0;
-	bool lock = false;
+	/*bool lock = false;*/
 	int curr_seg = -1;
 #ifndef I386_OPT2
 	for (;;) {
@@ -3840,7 +3840,7 @@ static bool IRAM_ATTR_CPU_EXEC1 cpu_exec1(CPUI386 *cpu, int stepcount)
 		HANDLE_PREFIX(0x67, adsz16 = !code16)
 		HANDLE_PREFIX(0xf3, rep = 1) // REP
 		HANDLE_PREFIX(0xf2, rep = 2) // REPNE
-		HANDLE_PREFIX(0xf0, lock = true)
+		HANDLE_PREFIX(0xf0, /*lock = true*/)
 #undef HANDLE_PREFIX
 		break;
 	}
@@ -3896,7 +3896,7 @@ static bool IRAM_ATTR_CPU_EXEC1 cpu_exec1(CPUI386 *cpu, int stepcount)
 		HANDLE_PREFIX(67, adsz16 = !code16)
 		HANDLE_PREFIX(f3, rep = 1) // REP
 		HANDLE_PREFIX(f2, rep = 2) // REPNE
-		HANDLE_PREFIX(f0, lock = true)
+		HANDLE_PREFIX(f0, /*lock = true*/)
 #undef HANDLE_PREFIX
 #endif
 	eswitch(b1) {
@@ -4890,7 +4890,7 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 	uword oldflags = cpu->flags;
 	uword newip;
 	int newcs;
-	uword newflags;
+	uword newflags = 0; // make the compiler happy
 	if (opsz16) {
 		/* ip */ TRY(translate(cpu, &meml1, 1, SEG_SS, sp & sp_mask, 2, 0));
 		/* cs */ TRY(translate(cpu, &meml2, 1, SEG_SS, (sp + 2) & sp_mask, 2, 0));

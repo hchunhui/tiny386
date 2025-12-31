@@ -60,11 +60,6 @@ struct PITState {
 };
 
 uint32_t get_uticks();
-static int after_eq(uint32_t a, uint32_t b)
-{
-	return (a - b) < (1u << 31);
-}
-
 static int pit_get_count(PITChannelState *s)
 {
 	uint32_t d;
@@ -275,7 +270,6 @@ void i8254_update_irq(PITState *pit)
 	uint32_t uticks = get_uticks();
 	PITChannelState *s = pit->channels;
 	uint32_t d = ((uint64_t) (uticks - s->count_load_time)) * PIT_FREQ / 1000000;
-	int out;
 	switch(s->mode) {
 	case 2:
 	case 3:

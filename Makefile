@@ -3,7 +3,7 @@ CC = gcc
 HOSTCC = ${CC}
 SDL_CONFIG = sdl-config
 SLIRP_LIB = -lslirp
-CFLAGS = -I . -O3 -ffunction-sections -fdata-sections -g `${SDL_CONFIG} --cflags` -Wl,--gc-sections ${SLIRP_INC} ${CFLAGS_PLAT}
+CFLAGS = -I . -Wall -O3 -ffunction-sections -fdata-sections -g `${SDL_CONFIG} --cflags` -Wl,--gc-sections ${SLIRP_INC} ${CFLAGS_PLAT}
 LIBS = `${SDL_CONFIG} --libs` -lm ${SLIRP_LIB} ${LIBS_PLAT}
 
 SRCS = ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c fmopl.c adlib.c ne2000.c i8257.c sb16.c pcspk.c

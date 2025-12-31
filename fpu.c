@@ -4,6 +4,7 @@
 #include "i386.h"
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 
 typedef struct {
 	uint32_t mant0;
@@ -429,6 +430,8 @@ static void fparith(FPU *fpu, int group, unsigned int d, double a, double b)
 	case 7: // FDIVR
 		c = b / a;
 		break;
+	default:
+		assert(false);
 	}
 	if (group == 3) {
 		fppop(fpu);
@@ -793,7 +796,6 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 	case 0: {
 		double a = fpget(fpu, 0);
 		double b = fpget(fpu, i);
-		double c = a;
 		fparith(fpu, group, 0, a, b);
 		break;
 	}
