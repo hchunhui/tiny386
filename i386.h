@@ -42,6 +42,7 @@ typedef struct {
 } CPU_CB;
 
 CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb);
+void cpui386_delete(CPUI386 *cpu);
 void cpui386_enable_fpu(CPUI386 *cpu);
 void cpui386_reset(CPUI386 *cpu);
 void cpui386_reset_pm(CPUI386 *cpu, uint32_t start_addr);

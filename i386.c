@@ -5149,7 +5149,15 @@ CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb)
 
 void cpui386_enable_fpu(CPUI386 *cpu)
 {
-	cpu->fpu = fpu_new();
+	if (!cpu->fpu)
+		cpu->fpu = fpu_new();
+}
+
+void cpui386_delete(CPUI386 *cpu)
+{
+	if (cpu->fpu)
+		fpu_delete(cpu->fpu);
+	free(cpu);
 }
 
 #if !defined(_WIN32) && !defined(__wasm__)

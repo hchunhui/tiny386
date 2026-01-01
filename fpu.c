@@ -154,6 +154,11 @@ FPU *fpu_new()
 	return fpu;
 }
 
+void fpu_delete(FPU *fpu)
+{
+	free(fpu);
+}
+
 static double fpget(FPU *fpu, int i)
 {
 	unsigned int idx = (fpu->top + i) & 7;
