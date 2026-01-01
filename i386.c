@@ -3714,10 +3714,10 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 #include <time.h>
 static uint64_t get_nticks()
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ((uint64_t) ts.tv_sec * 1000000000ull +
-	    (uint64_t) ts.tv_nsec);
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ((uint64_t) ts.tv_sec * 1000000000ull +
+		(uint64_t) ts.tv_nsec);
 }
 
 #define RDTSC() \

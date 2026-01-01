@@ -37,7 +37,7 @@ static uint8_t t(int x)
 }
 
 void ps2_mouse_event(void *s,
-                     int dx, int dy, int dz, int buttons_state)
+		     int dx, int dy, int dz, int buttons_state)
 {
 	uint8_t data[5];
 	data[0] = 0;
@@ -167,7 +167,7 @@ static void sdl_handle_key_event(const SDL_KeyboardEvent *ev, PC *pc)
 }
 
 static void sdl_send_mouse_event(PC *pc, int x1, int y1,
-                                 int dz, int state, bool is_absolute)
+				 int dz, int state, bool is_absolute)
 {
 	int buttons, x, y;
 
@@ -191,15 +191,15 @@ static void sdl_send_mouse_event(PC *pc, int x1, int y1,
 #include <time.h>
 static uint32_t get_uticks()
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ((uint32_t) ts.tv_sec * 1000000 +
-            (uint32_t) ts.tv_nsec / 1000);
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ((uint32_t) ts.tv_sec * 1000000 +
+		(uint32_t) ts.tv_nsec / 1000);
 }
 
 static int after_eq(uint32_t a, uint32_t b)
 {
-    return (a - b) < (1u << 31);
+	return (a - b) < (1u << 31);
 }
 
 static void sdl_handle_mouse_motion_event(const SDL_Event *ev, PC *pc)

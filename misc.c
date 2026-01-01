@@ -67,7 +67,7 @@ static int ReadKBByte()
 static int IsKBHit()
 {
 #ifdef BUILD_ESP32
-        size_t len;
+	size_t len;
 	if (uart_get_buffered_data_len(0, &len) == ESP_OK) {
 		if (len)
 			return 1;
@@ -290,43 +290,43 @@ void u8250_update(U8250 *uart)
 
 static uint32_t cmos_get_timer(CMOS *s)
 {
-    struct timespec ts;
+	struct timespec ts;
 
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t)ts.tv_sec * CMOS_FREQ +
-        ((uint64_t)ts.tv_nsec * CMOS_FREQ / 1000000000);
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint32_t)ts.tv_sec * CMOS_FREQ +
+		((uint64_t)ts.tv_nsec * CMOS_FREQ / 1000000000);
 }
 
 static void cmos_update_timer(CMOS *s)
 {
-    int period_code;
+	int period_code;
 
-    period_code = s->data[RTC_REG_A] & 0x0f;
-    if ((s->data[RTC_REG_B] & REG_B_PIE) &&
-        period_code != 0) {
-        if (period_code <= 2)
-            period_code += 7;
-        s->irq_period = 1 << (period_code - 1);
-        s->irq_timeout = (cmos_get_timer(s) + s->irq_period) &
-            ~(s->irq_period - 1);
-    }
+	period_code = s->data[RTC_REG_A] & 0x0f;
+	if ((s->data[RTC_REG_B] & REG_B_PIE) &&
+	    period_code != 0) {
+		if (period_code <= 2)
+			period_code += 7;
+		s->irq_period = 1 << (period_code - 1);
+		s->irq_timeout = (cmos_get_timer(s) + s->irq_period) &
+			~(s->irq_period - 1);
+	}
 }
 
 void cmos_update_irq(CMOS *s)
 {
-    uint32_t d;
-    if (s->data[RTC_REG_B] & REG_B_PIE) {
-        d = cmos_get_timer(s) - s->irq_timeout;
-        if ((int32_t)d >= 0) {
-            /* this is not what the real RTC does. Here we sent the IRQ
-               immediately */
-            s->data[RTC_REG_C] |= 0xc0;
-            s->set_irq(s->pic, s->irq, 1);
-	    s->set_irq(s->pic, s->irq, 0);
-            /* update for the next irq */
-            s->irq_timeout += s->irq_period;
-        }
-    }
+	uint32_t d;
+	if (s->data[RTC_REG_B] & REG_B_PIE) {
+		d = cmos_get_timer(s) - s->irq_timeout;
+		if ((int32_t)d >= 0) {
+			/* this is not what the real RTC does. Here we sent the IRQ
+			   immediately */
+			s->data[RTC_REG_C] |= 0xc0;
+			s->set_irq(s->pic, s->irq, 1);
+			s->set_irq(s->pic, s->irq, 0);
+			/* update for the next irq */
+			s->irq_timeout += s->irq_period;
+		}
+	}
 }
 
 uint8_t cmos_ioport_read(CMOS *cmos, int addr)

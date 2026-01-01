@@ -137,7 +137,7 @@ struct FPU {
 
 static u16 getsw(FPU *fpu)
 {
-        return (fpu->sw & 0xc7ff) | (fpu->top << 11);
+	return (fpu->sw & 0xc7ff) | (fpu->top << 11);
 }
 
 static void setsw(FPU *fpu, u16 sw)
@@ -269,21 +269,21 @@ static bool fploadbcd(void *cpu, int seg, uword addr, double *res)
 	if(!cpu_load16(cpu, seg, addr + 8, &hi))
 		return false;
 
-        uint64_t val = 0;
-        int sign = hi & 0x8000;
-        hi &= 0x7FFF;
-        for (int i = 0; i < 4; i++) {
+	uint64_t val = 0;
+	int sign = hi & 0x8000;
+	hi &= 0x7FFF;
+	for (int i = 0; i < 4; i++) {
 		val = val * 100 + bcd100(lo);
 		lo >>= 8;
-        }
-        for (int i = 0; i < 4; i++) {
+	}
+	for (int i = 0; i < 4; i++) {
 		val = val * 100 + bcd100(mi);
 		mi >>= 8;
-        }
-        for (int i = 0; i < 2; i++) {
+	}
+	for (int i = 0; i < 2; i++) {
 		val = val * 100 + bcd100(hi);
 		hi >>= 8;
-        }
+	}
 	*res = copysign(val, sign ? -1.0 : 1.0);
 	return true;
 }
@@ -377,9 +377,9 @@ static bool fpstorebcd(void *cpu, int seg, uword addr, double val)
 		v /= 100;
 		if (!cpu_store8(cpu, seg, addr + i, res))
 			return false;
-        }
+	}
 
-        int res = (v % 10) | ((v / 10) % 10) << 4;
+	int res = (v % 10) | ((v / 10) % 10) << 4;
 	if (sign)
 		res |= 0x80;
 	if (!cpu_store8(cpu, seg, addr + 9, res))

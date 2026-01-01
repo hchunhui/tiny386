@@ -1118,7 +1118,7 @@ static void ide_atapi_cmd_read(IDEState *s, int lba, int nb_sectors,
 {
 #ifdef DEBUG_IDE_ATAPI
     printf("read %s: LBA=%d nb_sectors=%d\n", 0 ? "dma" : "pio",
-	lba, nb_sectors);
+           lba, nb_sectors);
 #endif
     ide_atapi_cmd_read_pio(s, lba, nb_sectors, sector_size);
 }
@@ -1160,10 +1160,10 @@ static void ide_atapi_cmd(IDEState *s)
     /* If there's a UNIT_ATTENTION condition pending, only
        REQUEST_SENSE and INQUIRY commands are allowed to complete. */
     if (s->sense_key == SENSE_UNIT_ATTENTION &&
-	s->io_buffer[0] != GPCMD_REQUEST_SENSE &&
-	s->io_buffer[0] != GPCMD_INQUIRY) {
-	ide_atapi_cmd_check_status(s);
-	return;
+        s->io_buffer[0] != GPCMD_REQUEST_SENSE &&
+        s->io_buffer[0] != GPCMD_INQUIRY) {
+        ide_atapi_cmd_check_status(s);
+        return;
     }
     switch(s->io_buffer[0]) {
     case GPCMD_TEST_UNIT_READY:

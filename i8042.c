@@ -724,7 +724,7 @@ void ps2_mouse_event(PS2MouseState *s,
     /* XXX: SDL sometimes generates nul events: we delete them */
     if (s->mouse_dx == 0 && s->mouse_dy == 0 && s->mouse_dz == 0 &&
         s->mouse_buttons == buttons_state)
-	return;
+        return;
     s->mouse_buttons = buttons_state;
 
     if (!(s->mouse_status & MOUSE_STATUS_REMOTE) &&

@@ -648,7 +648,7 @@ static int OPLOpenTable( void )
 		free(AMS_TABLE);
 		return 0;
 	}
-    ENV_CURVE = g_new(int32_t, 2 * EG_ENT + 1);
+	ENV_CURVE = g_new(int32_t, 2 * EG_ENT + 1);
 	/* make total level table */
 	for (t = 0;t < EG_ENT-1 ;t++){
 		rate = ((1<<TL_BITS)-1)/pow(10,EG_STEP*t/20);	/* dB -> voltage */
@@ -669,9 +669,9 @@ static int OPLOpenTable( void )
 		pom = 20*log10(1/pom);	   /* decibel */
 		j = pom / EG_STEP;         /* TL_TABLE steps */
 
-        /* degree 0   -  90    , degree 180 -  90 : plus section */
+		/* degree 0   -  90    , degree 180 -  90 : plus section */
 		SIN_TABLE[          s] = SIN_TABLE[SIN_ENT/2-s] = &TL_TABLE[j];
-        /* degree 180 - 270    , degree 360 - 270 : minus section */
+		/* degree 180 - 270    , degree 360 - 270 : minus section */
 		SIN_TABLE[SIN_ENT/2+s] = SIN_TABLE[SIN_ENT  -s] = &TL_TABLE[TL_MAX+j];
 /*		LOG(LOG_INF,("sin(%3d) = %f:%f db\n",s,pom,(FLOAT)j * EG_STEP));*/
 	}
@@ -716,7 +716,7 @@ static int OPLOpenTable( void )
 
 static void OPLCloseTable( void )
 {
-    g_free(ENV_CURVE);
+	g_free(ENV_CURVE);
 	free(TL_TABLE);
 	free(SIN_TABLE);
 	free(AMS_TABLE);
@@ -786,7 +786,7 @@ static void OPLWriteReg(FM_OPL *OPL, int r, int v)
 		case 0x01:
 			/* wave selector enable */
 			OPL->wavesel = v&0x20;
-                        if(!OPL->wavesel)
+			if(!OPL->wavesel)
 			{
 				/* preset compatible mode */
 				int c;
@@ -820,18 +820,18 @@ static void OPLWriteReg(FM_OPL *OPL, int r, int v)
 				{
 					FLOAT interval = st2 ? (FLOAT)OPL->T[1]*OPL->TimerBase : 0.0;
 					OPL->st[1] = st2;
-                    if (OPL->TimerHandler) {
-                        (OPL->TimerHandler)(OPL->TimerParam, 1, interval);
-                    }
+					if (OPL->TimerHandler) {
+						(OPL->TimerHandler)(OPL->TimerParam, 1, interval);
+					}
 				}
 				/* timer 1 */
 				if(OPL->st[0] != st1)
 				{
 					FLOAT interval = st1 ? (FLOAT)OPL->T[0]*OPL->TimerBase : 0.0;
 					OPL->st[0] = st1;
-                    if (OPL->TimerHandler) {
-                        (OPL->TimerHandler)(OPL->TimerParam, 0, interval);
-                    }
+					if (OPL->TimerHandler) {
+						(OPL->TimerHandler)(OPL->TimerParam, 0, interval);
+					}
 				}
 			}
 			return;
@@ -1011,7 +1011,7 @@ static void OPL_UnLockTable(void)
 /* ---------- update one of chip ----------- */
 void YM3812UpdateOne(FM_OPL *OPL, int16_t *buffer, int length)
 {
-    int i;
+	int i;
 	int data;
 	int16_t *buf = buffer;
 	uint32_t amsCnt  = OPL->amsCnt;
@@ -1036,7 +1036,7 @@ void YM3812UpdateOne(FM_OPL *OPL, int16_t *buffer, int length)
 		vib_table = OPL->vib_table;
 	}
 	R_CH = rhythm ? &S_CH[6] : E_CH;
-    for( i=0; i < length ; i++ )
+	for( i=0; i < length ; i++ )
 	{
 		/*            channel A         channel B         channel C      */
 		/* LFO */
@@ -1165,10 +1165,10 @@ void OPLDestroy(FM_OPL *OPL)
 /* ----------  Option handlers ----------       */
 
 void OPLSetTimerHandler(FM_OPL *OPL, OPL_TIMERHANDLER TimerHandler,
-                        void *param)
+			void *param)
 {
 	OPL->TimerHandler   = TimerHandler;
-    OPL->TimerParam = param;
+	OPL->TimerParam = param;
 }
 
 /* ---------- YM3812 I/O interface ---------- */
@@ -1234,10 +1234,10 @@ int OPLTimerOver(FM_OPL *OPL,int c)
 		}
 	}
 	/* reload timer */
-    if (OPL->TimerHandler) {
-        (OPL->TimerHandler)(OPL->TimerParam, c,
-                            (FLOAT)OPL->T[c] * OPL->TimerBase);
-    }
+	if (OPL->TimerHandler) {
+		(OPL->TimerHandler)(OPL->TimerParam, c,
+				    (FLOAT)OPL->T[c] * OPL->TimerBase);
+	}
 	return OPL->status>>7;
 }
 
@@ -1248,11 +1248,11 @@ int main(int argc, char *argv[])
 	OPLOpenTable();
 #define P(TAB, LEN) \
 	printf("static const int32_t " #TAB "[] = {\n"); \
-	for (int i = 0; i < (LEN); i++)	printf(" %d,", TAB[i]); \
+	for (int i = 0; i < (LEN); i++) printf(" %d,", TAB[i]); \
 	printf("\n};\n\n")
 #define PX(TAB, LEN) \
 	printf("static const int32_t * const " #TAB "[] = {\n"); \
-	for (int i = 0; i < (LEN); i++)	printf("&TL_TABLE[%d],", TAB[i] - TL_TABLE); \
+	for (int i = 0; i < (LEN); i++) printf("&TL_TABLE[%d],", TAB[i] - TL_TABLE); \
 	printf("\n};\n\n")
 	P(TL_TABLE, 2 * TL_MAX);
 	PX(SIN_TABLE, 4 * SIN_ENT);

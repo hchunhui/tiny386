@@ -166,7 +166,7 @@ static void sdl_handle_key_event(const SDL_KeyboardEvent *ev, PC *pc)
 }
 
 static void sdl_send_mouse_event(PC *pc, int x1, int y1,
-                                 int dz, int state, bool is_absolute)
+				 int dz, int state, bool is_absolute)
 {
 	int buttons, x, y;
 

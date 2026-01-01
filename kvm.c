@@ -60,7 +60,7 @@ void cpukvm_register_mem(CPUKVM *cpu, int slot, uint32_t addr, uint32_t len,
 	memreg.guest_phys_addr = addr;
 	memreg.memory_size = len;
 	memreg.userspace_addr = (unsigned long) ptr;
-        if (ioctl(cpu->vm_fd, KVM_SET_USER_MEMORY_REGION, &memreg) < 0) {
+	if (ioctl(cpu->vm_fd, KVM_SET_USER_MEMORY_REGION, &memreg) < 0) {
 		perror("KVM_SET_USERn_MEMORY_REGION");
 		abort();
 	}
@@ -98,8 +98,8 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 		abort();
 	}
 
-        if (ioctl(cpu->vm_fd, KVM_SET_TSS_ADDR, 0xfffbd000) < 0) {
-                perror("KVM_SET_TSS_ADDR");
+	if (ioctl(cpu->vm_fd, KVM_SET_TSS_ADDR, 0xfffbd000) < 0) {
+		perror("KVM_SET_TSS_ADDR");
 		abort();
 	}
 
@@ -110,7 +110,7 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	memreg.guest_phys_addr = 0;
 	memreg.memory_size = 0xa0000;
 	memreg.userspace_addr = (unsigned long) phys_mem;
-        if (ioctl(cpu->vm_fd, KVM_SET_USER_MEMORY_REGION, &memreg) < 0) {
+	if (ioctl(cpu->vm_fd, KVM_SET_USER_MEMORY_REGION, &memreg) < 0) {
 		perror("KVM_SET_USER_MEMORY_REGION");
 		abort();
 	}
@@ -120,7 +120,7 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	memreg.guest_phys_addr = 0xc0000;
 	memreg.memory_size = phys_mem_size - 0xc0000;
 	memreg.userspace_addr = (unsigned long) phys_mem + 0xc0000;
-        if (ioctl(cpu->vm_fd, KVM_SET_USER_MEMORY_REGION, &memreg) < 0) {
+	if (ioctl(cpu->vm_fd, KVM_SET_USER_MEMORY_REGION, &memreg) < 0) {
 		perror("KVM_SET_USER_MEMORY_REGION");
 		abort();
 	}
@@ -170,14 +170,14 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 
 	struct kvm_sregs sregs;
 	struct kvm_regs regs;
-        if (ioctl(cpu->vcpu_fd, KVM_GET_SREGS, &sregs) < 0) {
+	if (ioctl(cpu->vcpu_fd, KVM_GET_SREGS, &sregs) < 0) {
 		perror("KVM_GET_SREGS");
 		exit(1);
 	}
 	sregs.cs.selector = 0xf000;
 	sregs.cs.base = 0xf0000;
 
-        if (ioctl(cpu->vcpu_fd, KVM_SET_SREGS, &sregs) < 0) {
+	if (ioctl(cpu->vcpu_fd, KVM_SET_SREGS, &sregs) < 0) {
 		perror("KVM_SET_SREGS");
 		exit(1);
 	}

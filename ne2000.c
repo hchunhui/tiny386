@@ -205,7 +205,7 @@ static void ne2000_update_irq(NE2000State *s)
     isr = (sisr & s->imr) & 0x7f;
 #if defined(DEBUG_NE2000)
     printf("NE2000: Set IRQ to %d (%02x %02x)\n",
-	   isr ? 1 : 0, sisr, s->imr);
+           isr ? 1 : 0, sisr, s->imr);
 #endif
     s->set_irq(s->pic, s->irq, (isr != 0));
 }
@@ -734,12 +734,12 @@ uint32_t ne2000_ioport_read(void *opaque, uint32_t addr)
         case EN0_ISR:
             ret = atomic_load_explicit(&(s->isr), memory_order_acquire);
             break;
-	case EN0_RSARLO:
-	    ret = s->rsar & 0x00ff;
-	    break;
-	case EN0_RSARHI:
-	    ret = s->rsar >> 8;
-	    break;
+        case EN0_RSARLO:
+            ret = s->rsar & 0x00ff;
+            break;
+        case EN0_RSARHI:
+            ret = s->rsar >> 8;
+            break;
         case EN1_PHYS ... EN1_PHYS + 5:
             ret = s->phys[offset - EN1_PHYS];
             break;
@@ -758,21 +758,21 @@ uint32_t ne2000_ioport_read(void *opaque, uint32_t addr)
         case EN2_STOPPG:
             ret = s->stop >> 8;
             break;
-	case EN0_RTL8029ID0:
-	    ret = 0x50;
-	    break;
-	case EN0_RTL8029ID1:
-	    ret = 0x43;
-	    break;
-	case EN3_CONFIG0:
-	    ret = 0;		/* 10baseT media */
-	    break;
-	case EN3_CONFIG2:
-	    ret = 0x40;		/* 10baseT active */
-	    break;
-	case EN3_CONFIG3:
-	    ret = 0x40;		/* Full duplex */
-	    break;
+        case EN0_RTL8029ID0:
+            ret = 0x50;
+            break;
+        case EN0_RTL8029ID1:
+            ret = 0x43;
+            break;
+        case EN3_CONFIG0:
+            ret = 0;		/* 10baseT media */
+            break;
+        case EN3_CONFIG2:
+            ret = 0x40;		/* 10baseT active */
+            break;
+        case EN3_CONFIG3:
+            ret = 0x40;		/* Full duplex */
+            break;
         default:
             ret = 0x00;
             break;
