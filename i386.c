@@ -1986,6 +1986,8 @@ static inline void clear_segs(CPUI386 *cpu)
 	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
 	uword res = src1 / src2; \
 	if (res > 0xff) { cpu->excno = EX_DE; return false; } \
+	/* bypass the Cyrix 5/2 test */ \
+	if (src1 == 0x5 && src2 == 0x2) { cpu->cc.mask &= ~ZF; cpu->flags |= ZF; } \
 	sreg8(0, res); \
 	sreg8(4, src1 % src2);
 
@@ -1995,6 +1997,8 @@ static inline void clear_segs(CPUI386 *cpu)
 	if (src2 == 0) { cpu->excno = EX_DE; return false; } \
 	uword res = src1 / src2; \
 	if (res > 0xffff) { cpu->excno = EX_DE; return false; } \
+	/* bypass the NexGen 0x5555/2 test */ \
+	if (src1 == 0x5555 && src2 == 0x2) { cpu->cc.mask &= ~ZF; cpu->flags &= ~ZF; } \
 	sreg16(0, res); \
 	sreg16(2, src1 % src2);
 
