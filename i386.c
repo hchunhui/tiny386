@@ -2298,6 +2298,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	} \
 	cpu->flags &= ~IF;
 
+/* STI: interrupts enabled at the end of the **next** instruction */
 #define STI() \
 	if (get_IOPL(cpu) < cpu->cpl) { \
 		cpu->excno = EX_GP; \
@@ -2305,7 +2306,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		return false; \
 	} \
 	cpu->flags |= IF; \
-	if (cpu->intr) return true;
+	stepcount = 2;
 
 #define CLD() \
 	cpu->flags &= ~DF;
