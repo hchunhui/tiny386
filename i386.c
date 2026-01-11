@@ -2255,7 +2255,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 #define STI() \
 	if (get_IOPL(cpu) < cpu->cpl) THROW(EX_GP, 0); \
 	cpu->flags |= IF; \
-	if (cpu->intr) stepcount = 2;
+	if (cpu->intr || stepcount < 2) stepcount = 2;
 
 #define CLD() \
 	cpu->flags &= ~DF;
