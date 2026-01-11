@@ -98,6 +98,11 @@ struct CPUI386 {
 
 	bool intr;
 	CPU_CB cb;
+
+	int gen;
+	struct {
+		uword cs, eip, esp;
+	} sysenter;
 };
 
 #define dolog(...) fprintf(stderr, __VA_ARGS__)
@@ -3596,12 +3601,11 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 		REGi(1) = 0x20555043; \
 		break; \
 	case 1: \
-		REGi(0) = 0 | (0 << 4); \
-		if (cpu->flags_mask == EFLAGS_MASK_586) REGi(0) |= 5 << 8; \
-		else REGi(0) |= 4 << 8; \
+		REGi(0) = 0 | (0 << 4) | (cpu->gen << 8); \
 		REGi(3) = 0; \
 		REGi(2) = 0x100; \
 		if (cpu->fpu) REGi(2) |= 1; \
+		if (cpu->gen > 5) REGi(2) |= 0x820; \
 		REGi(1) = 0; \
 		break; \
 	default: \
@@ -3651,6 +3655,52 @@ static uint64_t get_nticks()
 #define CMOVd(a, b, la, sa, lb, sb) \
 	COND() \
 	if (cond) sa(a, lb(b));
+
+#define WRMSR() \
+	if (cpu->cpl != 0) THROW(EX_GP, 0); \
+	switch (REGi(1)) { \
+	case 0x174: cpu->sysenter.cs = REGi(0); break; \
+	case 0x176: cpu->sysenter.eip = REGi(0); break; \
+	case 0x175: cpu->sysenter.esp = REGi(0); break; \
+	default: cpu_debug(cpu); THROW(EX_GP, 0); \
+	}
+
+#define RDMSR() \
+	if (cpu->cpl != 0) THROW(EX_GP, 0); \
+	switch (REGi(1)) { \
+	case 0x174: REGi(0) = cpu->sysenter.cs; REGi(2) = 0; break; \
+	case 0x176: REGi(0) = cpu->sysenter.eip; REGi(2) = 0; break; \
+	case 0x175: REGi(0) = cpu->sysenter.esp; REGi(2) = 0; break; \
+	default: cpu_debug(cpu); THROW(EX_GP, 0); \
+	}
+
+static void __sysenter(CPUI386 *cpu, int pl, int cs)
+{
+	cpu->seg[SEG_CS].sel = (cs & 0xfffc) | pl;
+	cpu->seg[SEG_CS].base = 0;
+	cpu->seg[SEG_CS].limit = 0xffffffff;
+	cpu->seg[SEG_CS].flags = SEG_D_BIT | 0x5b | (pl << 5);
+	cpu->cpl = pl;
+	cpu->code16 = false;
+	cpu->sp_mask = 0xffffffff;
+	cpu->seg[SEG_SS].sel = ((cs + 8) & 0xfffc) | pl;
+	cpu->seg[SEG_SS].base = 0;
+	cpu->seg[SEG_SS].limit = 0xffffffff;
+	cpu->seg[SEG_SS].flags = SEG_B_BIT | 0x53 | (pl << 5);
+}
+
+#define SYSENTER() \
+	if (!(cpu->cr0 & 1) || (cpu->sysenter.cs & ~0x3) == 0) THROW(EX_GP, 0); \
+	cpu->flags &= ~(VM | IF); \
+	__sysenter(cpu, 0, cpu->sysenter.cs); \
+	REGi(4) = cpu->sysenter.esp; \
+	cpu->next_ip = cpu->sysenter.eip;
+
+#define SYSEXIT() \
+	if (!(cpu->cr0 & 1) || (cpu->sysenter.cs & ~0x3) == 0 || cpu->cpl) THROW(EX_GP, 0); \
+	__sysenter(cpu, 3, cpu->sysenter.cs + 16); \
+	REGi(4) = REGi(1); \
+	cpu->next_ip = REGi(2);
 
 static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp);
 static bool IRAM_ATTR pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret);
@@ -4872,6 +4922,10 @@ void cpui386_reset(CPUI386 *cpu)
 
 	cpu->cc.mask = 0;
 	tlb_clear(cpu);
+
+	cpu->sysenter.cs = 0;
+	cpu->sysenter.eip = 0;
+	cpu->sysenter.esp = 0;
 }
 
 void cpui386_reset_pm(CPUI386 *cpu, uint32_t start_addr)
@@ -4916,9 +4970,10 @@ CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	switch (gen) {
 	case 3: cpu->flags_mask = EFLAGS_MASK_386; break;
 	case 4: cpu->flags_mask = EFLAGS_MASK_486; break;
-	case 5: cpu->flags_mask = EFLAGS_MASK_586; break;
+	case 5: case 6: cpu->flags_mask = EFLAGS_MASK_586; break;
 	default: assert(false);
 	}
+	cpu->gen = gen;
 
 	cpu->tlb.size = tlb_size;
 	cpu->tlb.tab = malloc(sizeof(struct tlb_entry) * tlb_size);
