@@ -21,6 +21,8 @@ idf_component_register(SRCS "esp_main.c"
 "lcd_st7701.c"
 "i2s.c"
 "storage.c"
+"usb_hid.c"
+"usb_input.c"
 INCLUDE_DIRS "")
 
 # XXX
