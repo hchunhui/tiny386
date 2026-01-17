@@ -57,6 +57,12 @@ typedef struct {
 	bool osd_enabled;
 } Console;
 
+void console_send_kbd(void *opaque, int keypress, int keycode)
+{
+	Console *s = opaque;
+	ps2_put_keycode(s->pc->kbd, keypress, keycode);
+}
+
 Console *console_init(int width, int height)
 {
 	Console *s = malloc(sizeof(Console));
@@ -74,6 +80,7 @@ Console *console_init(int width, int height)
 	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY,
 			    SDL_DEFAULT_REPEAT_INTERVAL);
 	SDL_WM_SetCaption("tiny386 - use ctrl + ] to grab/ungrab", NULL);
+	osd_attach_console(s->osd, s);
 	return s;
 }
 

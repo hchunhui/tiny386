@@ -67,6 +67,12 @@ typedef struct {
 	int mbtn;
 } Console;
 
+void console_send_kbd(void *opaque, int keypress, int keycode)
+{
+	Console *s = opaque;
+	ps2_put_keycode(s->pc->kbd, keypress, keycode);
+}
+
 Console *console_init(int width, int height)
 {
 	Console *s = malloc(sizeof(Console));
@@ -82,6 +88,7 @@ Console *console_init(int width, int height)
 	s->fb = bigmalloc(s->width * s->height * 4);
 	s->cnfgret = 1;
 	CNFGSetup("tiny386 - use ctrl + ] to grab/ungrab", s->width, s->height);
+	osd_attach_console(s->osd, s);
 	s->lastx = -1;
 	s->lasty = -1;
 	s->relx = 0;
@@ -180,7 +187,6 @@ void HandleKey(int cnfgkeycode, int bDown)
 			static int en;
 			en ^= 1;
 			CNFGConfineMouse(en);
-			// TODO: confine keyboard
 			CNFGSetCursor(en ? CNFG_CURSOR_HIDDEN : CNFG_CURSOR_ARROW);
 			return;
 		}

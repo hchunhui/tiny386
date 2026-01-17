@@ -14,6 +14,7 @@ struct OSD {
 	mu_Context ctx;
 	EMULINK *emulink;
 	IDEIFState *ide, *ide2;
+	void *console;
 };
 
 static void do_window(mu_Context *ctx, struct OSD *osd)
@@ -63,6 +64,33 @@ static void do_window(mu_Context *ctx, struct OSD *osd)
 					ide_change_cd(ide, i % 2, buf2[i]);
 			}
 			mu_pop_id(ctx);
+		}
+
+		if (osd->console) {
+			void __attribute__((weak)) console_send_kbd(void *opaque, int keypress, int keycode);
+			if (console_send_kbd) {
+				mu_layout_row(ctx, 3, (int[]) { 75, 75, 75 }, 0);
+				if (mu_button(ctx, "Ctrl+Alt+Del")) {
+					console_send_kbd(osd->console, 1, 0x1d);
+					console_send_kbd(osd->console, 1, 0x38);
+					console_send_kbd(osd->console, 1, 0x53);
+					console_send_kbd(osd->console, 0, 0x53);
+					console_send_kbd(osd->console, 0, 0x38);
+					console_send_kbd(osd->console, 0, 0x1d);
+				}
+				if (mu_button(ctx, "Ctrl+[")) {
+					console_send_kbd(osd->console, 1, 0x1d);
+					console_send_kbd(osd->console, 1, 0x1a);
+					console_send_kbd(osd->console, 0, 0x1a);
+					console_send_kbd(osd->console, 0, 0x1d);
+				}
+				if (mu_button(ctx, "Ctrl+]")) {
+					console_send_kbd(osd->console, 1, 0x1d);
+					console_send_kbd(osd->console, 1, 0x1b);
+					console_send_kbd(osd->console, 0, 0x1b);
+					console_send_kbd(osd->console, 0, 0x1d);
+				}
+			}
 		}
 		mu_end_window(ctx);
 	}
@@ -268,6 +296,7 @@ OSD *osd_init()
 	OSD *osd = malloc(sizeof(OSD));
 	osd->emulink = NULL;
 	osd->ide = osd->ide2 = NULL;
+	osd->console = NULL;
 	mu_init(&(osd->ctx));
 	osd->ctx.text_height = text_height;
 	osd->ctx.text_width = text_width;
@@ -283,6 +312,11 @@ void osd_attach_ide(OSD *osd, void *ide, void *ide2)
 {
 	osd->ide = ide;
 	osd->ide2 = ide2;
+}
+
+void osd_attach_console(OSD *osd, void *console)
+{
+	osd->console = console;
 }
 
 void osd_handle_mouse_motion(OSD *osd, int x, int y)
