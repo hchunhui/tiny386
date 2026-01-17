@@ -24,7 +24,9 @@ For firmware, the BIOS/VGABIOS comes from seabios. Tiny386 also supports booting
 See [here](https://hchunhui.github.io/tiny386)
 
 ## Build
-Linux: You need to install `libslirp` and `SDL1.2` (or `sdl12-compat`) first, then type `make`.
+Linux (with rawdraw): You need to install `libslirp` `libx11` and `libasound2` first, then type `make`.
+
+Linux (with SDL): You need to install `libslirp` `SDL1.2` (or `sdl12-compat`) first, then type `make USE_SDL=y`.
 
 For other platforms, please refer to `.github/workflows/build.yml`.
 
@@ -69,7 +71,7 @@ fpu = 0
 ./tiny386 config.ini
 ```
 
-For SDL port:
+For rawdraw and SDL port:
 Press "Ctrl + ]" to grab/ungrab the keyboard and mouse. Press "Ctrl + [" to show/hide OSD (On Screen Display). In OSD mode, the floppy/CD-ROM disk can be changed on the fly.
 
 ## ESP32 port
