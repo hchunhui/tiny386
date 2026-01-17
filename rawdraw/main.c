@@ -82,7 +82,6 @@ Console *console_init(int width, int height)
 	s->fb = bigmalloc(s->width * s->height * 4);
 	s->cnfgret = 1;
 	CNFGSetup("tiny386 - use ctrl + ] to grab/ungrab", s->width, s->height);
-	osd_attach_console(s->osd, s);
 	s->lastx = -1;
 	s->lasty = -1;
 	s->relx = 0;
