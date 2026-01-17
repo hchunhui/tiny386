@@ -60,6 +60,8 @@ bool cpu_store32(CPUI386 *cpu, int seg, uword addr, u32 val);
 void cpu_setax(CPUI386 *cpu, u16 ax);
 u16 cpu_getax(CPUI386 *cpu);
 void cpu_setexc(CPUI386 *cpu, int excno, uword excerr);
+void cpu_setflags(CPUI386 *cpu, uword set_mask, uword clear_mask);
+uword cpu_getflags(CPUI386 *cpu);
 void cpu_abort(CPUI386 *cpu, int code);
 
 #endif /* I386_H */

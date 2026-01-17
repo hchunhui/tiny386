@@ -3605,7 +3605,7 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 		REGi(3) = 0; \
 		REGi(2) = 0x100; \
 		if (cpu->fpu) REGi(2) |= 1; \
-		if (cpu->gen > 5) REGi(2) |= 0x820; \
+		if (cpu->gen > 5) REGi(2) |= 0x8820; \
 		REGi(1) = 0; \
 		break; \
 	default: \
@@ -4882,6 +4882,26 @@ void cpu_setexc(CPUI386 *cpu, int excno, uword excerr)
 {
 	cpu->excno = excno;
 	cpu->excerr = excerr;
+}
+
+void cpu_setflags(CPUI386 *cpu, uword set_mask, uword clear_mask)
+{
+	if (cpu->cc.mask & (set_mask | clear_mask)) {
+		refresh_flags(cpu);
+		cpu->cc.mask = 0;
+	}
+	cpu->flags |= set_mask;
+	cpu->flags &= ~clear_mask;
+	cpu->flags &= EFLAGS_MASK;
+}
+
+uword cpu_getflags(CPUI386 *cpu)
+{
+	if (cpu->cc.mask) {
+		refresh_flags(cpu);
+		cpu->cc.mask = 0;
+	}
+	return cpu->flags;
 }
 
 void cpui386_reset(CPUI386 *cpu)

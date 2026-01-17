@@ -795,6 +795,39 @@ bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uin
 #define LN2		0.69314718055994530941683L
 #define LG2		0.30102999566398119521379L
 
+enum {
+	CF = 0x1,
+	PF = 0x4,
+	ZF = 0x40,
+};
+
+static bool cmov_cond(FPU *fpu, void *cpu, int i)
+{
+	uword flags = cpu_getflags(cpu);
+	switch(i) {
+	case 0x0: return flags & CF;
+	case 0x1: return flags & ZF;
+	case 0x2: return flags & (CF | ZF);
+	case 0x3: return flags & PF;
+	default: assert(false);
+	}
+}
+
+static void ucomi(FPU *fpu, void *cpu, int i)
+{
+	double a = fpget(fpu, 0);
+	double b = fpget(fpu, i);
+	if (isunordered(a, b)) {
+		cpu_setflags(cpu, ZF | PF | CF, 0);
+	} else if (a == b) {
+		cpu_setflags(cpu, ZF, PF | CF);
+	} else if (a < b) {
+		cpu_setflags(cpu, CF, ZF | PF);
+	} else {
+		cpu_setflags(cpu, 0, ZF | PF | CF);
+	}
+}
+
 bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 {
 	switch (op) {
@@ -1019,9 +1052,13 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 			}
 			cpu_setexc(cpu, 6, 0);
 			return false;
-		default: // FCMOV TODO
-			cpu_abort(cpu, -9002);
+		case 0: case 1: case 2: case 3: // FCMOV
+			if (cmov_cond(fpu, cpu, group))
+				fpset(fpu, 0, fpget(fpu, i));
 			break;
+		default:
+			cpu_setexc(cpu, 6, 0);
+			return false;
 		}
 		break;
 	case 3:
@@ -1048,9 +1085,17 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 				return false;
 			}
 			break;
-		default: // FCMOV TODO
-			cpu_abort(cpu, -9003);
+		case 0: case 1: case 2: case 3: // FCMOV
+			if (!cmov_cond(fpu, cpu, group))
+				fpset(fpu, 0, fpget(fpu, i));
 			break;
+		case 5: // FUCOMI
+		case 6: // FCOMI TODO: raise IA
+			ucomi(fpu, cpu, i);
+			break;
+		default:
+			cpu_setexc(cpu, 6, 0);
+			return false;
 		}
 		break;
 	case 4: {
@@ -1144,11 +1189,10 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 				return false;
 			}
 			break;
-		case 5: // FUCOMIP TODO
-			cpu_abort(cpu, -9004);
-			break;
-		case 6: // FCOMIP TODO
-			cpu_abort(cpu, -9005);
+		case 5: // FUCOMIP
+		case 6: // FCOMIP TODO: raise IA
+			ucomi(fpu, cpu, i);
+			fppop(fpu);
 			break;
 		case 7:
 			cpu_setexc(cpu, 6, 0);
