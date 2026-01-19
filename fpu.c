@@ -1202,3 +1202,9 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 	}
 	return true;
 }
+
+#ifdef I386_ENABLE_MMX
+#define MMX_fpu_c
+#include "simd.inc"
+#undef MMX_fpu_c
+#endif

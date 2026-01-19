@@ -3592,6 +3592,12 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 // 586 and later...
 #define UD0() THROW0(EX_UD);
 
+#ifdef I386_ENABLE_MMX
+#define CPUID_SIMD_FEATURE 0x800000
+#else
+#define CPUID_SIMD_FEATURE 0x0
+#endif
+
 #define CPUID() \
 	switch (REGi(0)) { \
 	case 0: \
@@ -3606,6 +3612,7 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 		REGi(2) = 0x100; \
 		if (cpu->fpu) REGi(2) |= 1; \
 		if (cpu->gen > 5) REGi(2) |= 0x8820; \
+		if (cpu->gen > 5 && cpu->fpu) REGi(2) |= CPUID_SIMD_FEATURE; \
 		REGi(1) = 0; \
 		break; \
 	default: \
@@ -3701,6 +3708,12 @@ static void __sysenter(CPUI386 *cpu, int pl, int cs)
 	__sysenter(cpu, 3, cpu->sysenter.cs + 16); \
 	REGi(4) = REGi(1); \
 	cpu->next_ip = REGi(2);
+
+#ifdef I386_ENABLE_MMX
+#define MMX_i386_c
+#include "simd.inc"
+#undef MMX_i386_c
+#endif
 
 static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp);
 static bool IRAM_ATTR pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret);
