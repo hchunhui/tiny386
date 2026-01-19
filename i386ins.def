@@ -422,7 +422,6 @@ IG7(C(0x07), Ms,     0, INVLPG)
 //used by win98se
 #ifdef I2
 I2(C(0xa2), _,       0, CPUID) // CPUID
-I2(C(0x77), _,       0, UD0) // EMMS
 #endif
 
 //used by winXP
@@ -440,4 +439,10 @@ I2(C(0x30), _,       0, WRMSR)
 I2(C(0x32), _,       0, RDMSR)
 I2(C(0x34), _,       0, SYSENTER)
 I2(C(0x35), _,       0, SYSEXIT)
+#endif
+
+#ifdef I386_ENABLE_MMX
+#define MMX_i386ins_def
+#include "simd.inc"
+#undef MMX_i386ins_def
 #endif
