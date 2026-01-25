@@ -441,8 +441,8 @@ I2(C(0x34), _,       0, SYSENTER)
 I2(C(0x35), _,       0, SYSEXIT)
 #endif
 
-#ifdef I386_ENABLE_MMX
-#define MMX_i386ins_def
+#if defined(I386_ENABLE_MMX) || defined(I386_ENABLE_SSE)
+#define SIMD_i386ins_def
 #include "simd.inc"
-#undef MMX_i386ins_def
+#undef SIMD_i386ins_def
 #endif

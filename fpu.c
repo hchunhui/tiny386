@@ -125,6 +125,11 @@ static long double fromf80(F80 f80)
 #define sincos sincosl
 #endif
 
+typedef union {
+	uint32_t u32v[4];
+	float f32v[4];
+} UXMM;
+
 struct FPU {
 	u16 cw, sw; // TODO: tag word
 	unsigned int top;
@@ -133,6 +138,11 @@ struct FPU {
 	F80 rawst[8];
 	u8 rawtagr;
 	u8 rawtagw;
+
+#ifdef I386_ENABLE_SSE
+	u32 mxcsr;
+	UXMM xmm[8];
+#endif
 };
 
 static u16 getsw(FPU *fpu)
@@ -798,7 +808,10 @@ bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uin
 enum {
 	CF = 0x1,
 	PF = 0x4,
+	AF = 0x10,
 	ZF = 0x40,
+	SF = 0x80,
+	OF = 0x800,
 };
 
 static bool cmov_cond(FPU *fpu, void *cpu, int i)
@@ -1203,8 +1216,8 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 	return true;
 }
 
-#ifdef I386_ENABLE_MMX
-#define MMX_fpu_c
+#if defined(I386_ENABLE_MMX) || defined(I386_ENABLE_SSE)
+#define SIMD_fpu_c
 #include "simd.inc"
-#undef MMX_fpu_c
+#undef SIMD_fpu_c
 #endif

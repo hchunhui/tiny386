@@ -3592,7 +3592,9 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 // 586 and later...
 #define UD0() THROW0(EX_UD);
 
-#ifdef I386_ENABLE_MMX
+#if defined(I386_ENABLE_SSE)
+#define CPUID_SIMD_FEATURE 0x3800000
+#elif defined(I386_ENABLE_MMX)
 #define CPUID_SIMD_FEATURE 0x800000
 #else
 #define CPUID_SIMD_FEATURE 0x0
@@ -3709,10 +3711,10 @@ static void __sysenter(CPUI386 *cpu, int pl, int cs)
 	REGi(4) = REGi(1); \
 	cpu->next_ip = REGi(2);
 
-#ifdef I386_ENABLE_MMX
-#define MMX_i386_c
+#if defined(I386_ENABLE_MMX) || defined(I386_ENABLE_SSE)
+#define SIMD_i386_c
 #include "simd.inc"
-#undef MMX_i386_c
+#undef SIMD_i386_c
 #endif
 
 static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp);
