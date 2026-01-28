@@ -106,7 +106,7 @@ static int sdl_get_keycode(const SDL_KeyboardEvent *ev)
 #ifndef _WIN32
 	if (keycode < 9) {
 		keycode = 0;
-	} else if (keycode < 127 + 8) {
+	} else if (keycode < 127 + 9) {
 		keycode -= 8;
 	} else {
 		keycode = 0;

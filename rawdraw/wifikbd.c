@@ -138,7 +138,7 @@ static int translate_key(int cnfgkeycode)
 	int keycode = CNFGLastScancode;
 	if (keycode < 9) {
 		keycode = 0;
-	} else if (keycode < 127 + 8) {
+	} else if (keycode < 127 + 9) {
 		keycode -= 8;
 	} else {
 		keycode = 0;
