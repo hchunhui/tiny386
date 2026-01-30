@@ -503,7 +503,6 @@ bool fpu_xmm_grp15(FPU *fpu, void *cpu, int op, int seg, uint32_t addr);
 	}
 
 #define SIMD_GRP15() \
-	if (cpu->cr0 & 0xc) THROW0(EX_NM); \
 	TRY(fetch8(cpu, &modrm)); \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
