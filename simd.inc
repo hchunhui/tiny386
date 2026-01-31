@@ -42,7 +42,7 @@ I2(C(0xd6), _, 0, MOVQ_DQ)
 I2(C(0x5a), _, 0, CVTS2D_D2S)
 I2(C(0x5b), _, 0, CVTDQ_PS)
 I2(C(0xe6), _, 0, CVTDQ_PD)
-#endif /* I386_ENABLE_SSE */
+#endif /* I386_ENABLE_SSE2 */
 
 #endif /* I2 */
 #endif /* SIMD_i386ins_def */
@@ -94,7 +94,7 @@ bool fpu_xmm_rr(FPU *fpu, void *cpu, int op, int dst, int src);
 bool fpu_xmm_rm(FPU *fpu, void *cpu, int op, int dst, int seg, uint32_t addr);
 bool fpu_xmm_ri(FPU *fpu, void *cpu, int op, int func, int dst, int imm);
 bool fpu_xmm_mr(FPU *fpu, void *cpu, int op, int src, int seg, uint32_t addr);
-#endif /* I386_ENABLE_SSE */
+#endif /* I386_ENABLE_SSE2 */
 
 #endif /* defined(SIMD_i386_c) || defined(SIMD_fpu_c) */
 
