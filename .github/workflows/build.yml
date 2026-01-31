@@ -33,4 +33,5 @@ jobs:
     - name: release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        UPLOADTOOL_ISPRERELEASE: "true"
       run: wget -c https://github.com/probonopd/uploadtool/raw/master/upload.sh && scripts/build.sh bundle && bash upload.sh tiny386.tar.xz
