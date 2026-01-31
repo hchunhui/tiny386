@@ -44,6 +44,11 @@ I2(C(0x5b), _, 0, CVTDQ_PS)
 I2(C(0xe6), _, 0, CVTDQ_PD)
 #endif /* I386_ENABLE_SSE2 */
 
+#ifdef I386_ENABLE_SSE3
+I2(C(0xd0, 0x7c, 0x7d), _, 0, SIMD_VxWx_P)
+I2(C(0xf0), _, 0, LDDQU)
+#endif /* I386_ENABLE_SSE3 */
+
 #endif /* I2 */
 #endif /* SIMD_i386ins_def */
 
@@ -478,6 +483,39 @@ bool fpu_xmm_mr(FPU *fpu, void *cpu, int op, int src, int seg, uint32_t addr);
 			} \
 		} else { \
 			THROW0(EX_UD); \
+		} \
+	}
+
+#define SIMD_VxWx_P() \
+	if (cpu->cr0 & 0xc) THROW0(EX_NM); \
+	TRY(fetch8(cpu, &modrm)); \
+	int reg = (modrm >> 3) & 7; \
+	int mod = modrm >> 6; \
+	int rm = modrm & 7; \
+	if (mod == 3) { \
+		if (rep == 0) { \
+			if (opsz16 == code16) /* NP */ { \
+				THROW0(EX_UD); \
+			} else /* 66 */ { \
+				TRY_SSE2(fpu_xmmpf64_rr(cpu->fpu, cpu, b1, reg, rm)); \
+			} \
+		} else if (rep == 1) /* F3 */ { \
+			THROW0(EX_UD); \
+		} else /* F2 */ { \
+			TRY(fpu_xmmpf32_rr(cpu->fpu, cpu, b1, reg, rm)); \
+		} \
+	} else { \
+		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
+		if (rep == 0) { \
+			if (opsz16 == code16) /* NP */ { \
+				THROW0(EX_UD); \
+			} else /* 66 */ { \
+				TRY_SSE2(fpu_xmmpf64_rm(cpu->fpu, cpu, b1, reg, curr_seg, addr)); \
+			} \
+		} else if (rep == 1) /* F3 */ { \
+			THROW0(EX_UD); \
+		} else /* F2 */ { \
+			TRY(fpu_xmmpf32_rm(cpu->fpu, cpu, b1, reg, curr_seg, addr)); \
 		} \
 	}
 
@@ -1238,6 +1276,29 @@ static int32_t trunci32(double val)
 #endif /* I386_ENABLE_SSE2 */
 #endif /* SIMD_i386_c */
 
+#ifdef I386_ENABLE_SSE3
+#define LDDQU() \
+	if (cpu->cr0 & 0xc) THROW0(EX_NM); \
+	TRY(fetch8(cpu, &modrm)); \
+	int reg = (modrm >> 3) & 7; \
+	int mod = modrm >> 6; \
+	int rm = modrm & 7; \
+	if (mod == 3) { \
+		THROW0(EX_UD); \
+	} else { \
+		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
+		if (rep != 2) { \
+			THROW0(EX_UD); \
+		} else /* F2 */ { \
+			uint32_t *dq = fpu_xmm_get_u32(cpu->fpu, reg); \
+			TRY(cpu_load32(cpu, curr_seg, addr, &(dq[0]))); \
+			TRY(cpu_load32(cpu, curr_seg, addr + 4, &(dq[1]))); \
+			TRY(cpu_load32(cpu, curr_seg, addr + 8, &(dq[2]))); \
+			TRY(cpu_load32(cpu, curr_seg, addr + 12, &(dq[3]))); \
+		} \
+	}
+#endif /* I386_ENABLE_SSE3 */
+
 #ifdef SIMD_fpu_c
 // MMX
 static F80 *fpu_mm(FPU *fpu, int i)
@@ -1961,6 +2022,58 @@ static void UCOMIsf32(void *cpu, UXMM d, UXMM s)
 	}
 }
 
+#ifdef I386_ENABLE_SSE3
+static UXMM MOVSLDUP(UXMM a)
+{
+	UXMM r;
+	r.u32v[0] = a.u32v[0];
+	r.u32v[1] = a.u32v[0];
+	r.u32v[2] = a.u32v[2];
+	r.u32v[3] = a.u32v[2];
+	return r;
+}
+
+static UXMM MOVSHDUP(UXMM a)
+{
+	UXMM r;
+	r.u32v[0] = a.u32v[1];
+	r.u32v[1] = a.u32v[1];
+	r.u32v[2] = a.u32v[3];
+	r.u32v[3] = a.u32v[3];
+	return r;
+}
+
+static UXMM ADDSUBpf32(UXMM a, UXMM b)
+{
+	UXMM r;
+	r.u32v[0] = a.u32v[0] - b.u32v[0];
+	r.u32v[1] = a.u32v[1] + b.u32v[1];
+	r.u32v[2] = a.u32v[2] - b.u32v[2];
+	r.u32v[3] = a.u32v[3] - b.u32v[3];
+	return r;
+}
+
+static UXMM HADDpf32(UXMM a, UXMM b)
+{
+	UXMM r;
+	r.u32v[0] = a.u32v[0] + a.u32v[1];
+	r.u32v[1] = a.u32v[2] + a.u32v[3];
+	r.u32v[2] = b.u32v[0] + b.u32v[1];
+	r.u32v[3] = b.u32v[2] + b.u32v[3];
+	return r;
+}
+
+static UXMM HSUBpf32(UXMM a, UXMM b)
+{
+	UXMM r;
+	r.u32v[0] = a.u32v[0] - a.u32v[1];
+	r.u32v[1] = a.u32v[2] - a.u32v[3];
+	r.u32v[2] = b.u32v[0] - b.u32v[1];
+	r.u32v[3] = b.u32v[2] - b.u32v[3];
+	return r;
+}
+#endif
+
 bool fpu_xmmsf32_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 {
 	UXMM d = fpu->xmm[dst];
@@ -1978,6 +2091,10 @@ bool fpu_xmmsf32_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 	case 0x5f: d = MAXsf32(d, s); break;
 	case 0x5d: d = MINsf32(d, s); break;
 	case 0x52: d = RSQRTsf32(d, s); break;
+#ifdef I386_ENABLE_SSE3
+	case 0x12: d = MOVSLDUP(s); break;
+	case 0x16: d = MOVSHDUP(s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -2006,6 +2123,10 @@ bool fpu_xmmsf32_rm(FPU *fpu, void *cpu, int op, int dst, int seg, uint32_t addr
 	case 0x5f: d = MAXsf32(d, s); break;
 	case 0x5d: d = MINsf32(d, s); break;
 	case 0x52: d = RSQRTsf32(d, s); break;
+#ifdef I386_ENABLE_SSE3
+	case 0x12: d = MOVSLDUP(s); break;
+	case 0x16: d = MOVSHDUP(s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -2082,6 +2203,11 @@ bool fpu_xmmpf32_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 	case 0x55: d = ANDNpu32(d, s); break;
 	case 0x56: d = ORpu32(d, s); break;
 	case 0x57: d = XORpu32(d, s); break;
+#ifdef I386_ENABLE_SSE3
+	case 0xd0: d = ADDSUBpf32(d, s); break;
+	case 0x7c: d = HADDpf32(d, s); break;
+	case 0x7d: d = HSUBpf32(d, s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -2121,6 +2247,11 @@ bool fpu_xmmpf32_rm(FPU *fpu, void *cpu, int op, int dst, int seg, uint32_t addr
 	case 0x55: d = ANDNpu32(d, s); break;
 	case 0x56: d = ORpu32(d, s); break;
 	case 0x57: d = XORpu32(d, s); break;
+#ifdef I386_ENABLE_SSE3
+	case 0xd0: d = ADDSUBpf32(d, s); break;
+	case 0x7c: d = HADDpf32(d, s); break;
+	case 0x7d: d = HSUBpf32(d, s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -2433,6 +2564,40 @@ static void UCOMIsf64(void *cpu, UXMM d, UXMM s)
 	}
 }
 
+#ifdef I386_ENABLE_SSE3
+static UXMM MOVDDUP(UXMM a)
+{
+	UXMM r;
+	r.u64v[0] = a.u64v[0];
+	r.u64v[1] = a.u64v[0];
+	return r;
+}
+
+static UXMM ADDSUBpf64(UXMM a, UXMM b)
+{
+	UXMM r;
+	r.u64v[0] = a.u64v[0] - b.u64v[0];
+	r.u64v[1] = a.u64v[1] + b.u64v[1];
+	return r;
+}
+
+static UXMM HADDpf64(UXMM a, UXMM b)
+{
+	UXMM r;
+	r.u64v[0] = a.u64v[0] + a.u64v[1];
+	r.u64v[1] = b.u64v[0] + b.u64v[1];
+	return r;
+}
+
+static UXMM HSUBpf64(UXMM a, UXMM b)
+{
+	UXMM r;
+	r.u64v[0] = a.u64v[0] - a.u64v[1];
+	r.u64v[1] = b.u64v[0] - b.u64v[1];
+	return r;
+}
+#endif
+
 bool fpu_xmmsf64_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 {
 	UXMM d = fpu->xmm[dst];
@@ -2448,6 +2613,9 @@ bool fpu_xmmsf64_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 	case 0x51: d = SQRTsf64(d, s); break;
 	case 0x5f: d = MAXsf64(d, s); break;
 	case 0x5d: d = MINsf64(d, s); break;
+#ifdef I386_ENABLE_SSE3
+	case 0x12: d = MOVDDUP(s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -2476,6 +2644,9 @@ bool fpu_xmmsf64_rm(FPU *fpu, void *cpu, int op, int dst, int seg, uint32_t addr
 	case 0x51: d = SQRTsf64(d, s); break;
 	case 0x5f: d = MAXsf64(d, s); break;
 	case 0x5d: d = MINsf64(d, s); break;
+#ifdef I386_ENABLE_SSE3
+	case 0x12: d = MOVDDUP(s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -2550,6 +2721,11 @@ bool fpu_xmmpf64_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 	case 0x55: d = ANDNpu64(d, s); break;
 	case 0x56: d = ORpu64(d, s); break;
 	case 0x57: d = XORpu64(d, s); break;
+#ifdef I386_ENABLE_SSE3
+	case 0xd0: d = ADDSUBpf64(d, s); break;
+	case 0x7c: d = HADDpf64(d, s); break;
+	case 0x7d: d = HSUBpf64(d, s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -2587,6 +2763,11 @@ bool fpu_xmmpf64_rm(FPU *fpu, void *cpu, int op, int dst, int seg, uint32_t addr
 	case 0x55: d = ANDNpu64(d, s); break;
 	case 0x56: d = ORpu64(d, s); break;
 	case 0x57: d = XORpu64(d, s); break;
+#ifdef I386_ENABLE_SSE3
+	case 0xd0: d = ADDSUBpf64(d, s); break;
+	case 0x7c: d = HADDpf64(d, s); break;
+	case 0x7d: d = HSUBpf64(d, s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
