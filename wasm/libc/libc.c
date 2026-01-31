@@ -11,14 +11,14 @@ int errno;
 extern unsigned char __heap_base;
 
 static unsigned char *bump = &__heap_base;
-void *malloc(unsigned long size)
+__attribute__ ((visibility ("default"))) void *malloc(unsigned long size)
 {
 	unsigned char *p = bump;
 	bump += (size + 15) / 16 * 16;
 	return p;
 }
 
-void free(void *p)
+__attribute__ ((visibility ("default"))) void free(void *p)
 {
 }
 
@@ -80,6 +80,23 @@ void *memcpy(void *dest, const void *src, unsigned long n)
 	for (unsigned long i = 0; i != n; i++)
 		q[i] = p[i];
 	return dest;
+}
+
+void *memmove(void *dest, const void *src, unsigned long n)
+{
+	if (src < dest) {
+		unsigned char *q = dest;
+		const unsigned char *p = src;
+		for (unsigned long i = n - 1; i + 1 != 0; i--)
+			q[i] = p[i];
+		return dest;
+	} else {
+		unsigned char *q = dest;
+		const unsigned char *p = src;
+		for (unsigned long i = 0; i != n; i++)
+			q[i] = p[i];
+		return dest;
+	}
 }
 
 char *strcpy(char *dest, const char *src)
@@ -223,6 +240,15 @@ int fprintf(FILE *fp, const char *fmt, ...)
 int fflush(FILE *fp)
 {
 	return 0;
+}
+
+int snprintf(char *s, size_t size, const char *fmt, ...)
+{
+	va_list val;
+	va_start(val, fmt);
+	int rv = npf_vsnprintf(s, size, fmt, val);
+	va_end(val);
+	return rv;
 }
 
 int __open(const char *path);

@@ -15,5 +15,6 @@ char *strchr(const char *s, int c);
 //#define strchr __builtin_strchr
 //#define memcmp __builtin_memcmp
 
+void *memmove(void *dest, const void *src, unsigned long n);
 
 #endif /* STRING_H */

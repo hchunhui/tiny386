@@ -22,6 +22,8 @@ int vfprintf(FILE *fp, const char *fmt, va_list args);
 int fprintf(FILE *fp, const char *fmt, ...);
 int fflush(FILE *fp);
 
+int snprintf(char *s, size_t size, const char *fmt, ...);
+
 enum {
 	SEEK_SET,
 	SEEK_CUR,

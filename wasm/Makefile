@@ -19,7 +19,9 @@ main.c \
 ../pc.c \
 libc/libc.c
 
+CFLAGS = -DI386_ENABLE_MMX -DI386_ENABLE_SSE -DI386_ENABLE_SSE2
+
 .PHONY: all
 
 all:
-	clang --target=wasm32 -O3 -nostdlib -fno-builtin -Wl,--no-entry -Wl,--export-all -DNOSDL -I libc -Wl,--allow-undefined -o html/tiny386.wasm ${SRCS}
+	clang --target=wasm32 -O3 -nostdlib -fno-builtin -ffunction-sections -fdata-sections -fvisibility=default -I libc ${CFLAGS} -Wl,--gc-sections -Wl,--export-dynamic -Wl,--no-entry -Wl,--strip-all -Wl,--allow-undefined -o html/tiny386.wasm ${SRCS}

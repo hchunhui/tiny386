@@ -18,6 +18,9 @@ double frexp(double x, int *e);
 #define isnan __builtin_isnan
 #define isfinite __builtin_isfinite
 #define sqrt __builtin_sqrt
+#define abs __builtin_abs
+#define nearbyint __builtin_nearbyint
+#define nearbyintf __builtin_nearbyintf
 
 // provided by js runtime
 double sin(double x);
