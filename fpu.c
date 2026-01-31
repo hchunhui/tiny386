@@ -127,7 +127,16 @@ static long double fromf80(F80 f80)
 
 typedef union {
 	uint32_t u32v[4];
+	uint64_t u64v[2];
 	float f32v[4];
+	double f64v[2];
+
+	uint16_t u16v[8];
+	uint8_t u8v[16];
+	int64_t s64v[2];
+	int32_t s32v[4];
+	int16_t s16v[8];
+	int8_t s8v[16];
 } UXMM;
 
 struct FPU {

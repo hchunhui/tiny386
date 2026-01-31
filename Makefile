@@ -9,7 +9,7 @@ SLIRP_INC =
 SLIRP_LIB = -lslirp
 
 CFLAGS = -I . -Wall -O3 -ffunction-sections -fdata-sections -g -Wl,--gc-sections ${SLIRP_INC}
-CFLAGS += -DI386_ENABLE_MMX -DI386_ENABLE_SSE
+CFLAGS += -DI386_ENABLE_MMX -DI386_ENABLE_SSE -DI386_ENABLE_SSE2
 CFLAGS_SDL = ${CFLAGS} `${SDL_CONFIG} --cflags`
 
 LDFLAGS_ =
