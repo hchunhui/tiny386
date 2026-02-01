@@ -3619,10 +3619,13 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 		REGi(0) = 0 | (0 << 4) | (cpu->gen << 8); \
 		REGi(3) = 0; \
 		REGi(2) = 0x100; \
+		REGi(1) = 0; \
 		if (cpu->fpu) REGi(2) |= 1; \
 		if (cpu->gen > 5) REGi(2) |= 0x8820; \
-		if (cpu->gen > 5 && cpu->fpu) REGi(2) |= CPUID_SIMD_FEATURE; \
-		REGi(1) = CPUID_SIMD_FEATURE2; \
+		if (cpu->gen > 5 && cpu->fpu) { \
+			REGi(2) |= CPUID_SIMD_FEATURE; \
+			REGi(1) |= CPUID_SIMD_FEATURE2; \
+		} \
 		break; \
 	default: \
 		REGi(0) = 0; \
