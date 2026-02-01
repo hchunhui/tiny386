@@ -46,7 +46,7 @@ OBJS = ${SRCS:.c=.o}
 all: libslirp.a
 
 win32:
-	make -C . CC=i686-w64-mingw32-gcc
+	make -C . CC="i686-w64-mingw32-gcc -DTARGET_WINVER=0x501"
 
 libslirp.a: ${OBJS}
 	ar rcs $@ $^$>
