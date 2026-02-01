@@ -775,6 +775,7 @@ static int32_t trunci32(double val)
 
 #define SIMD_GRP15() \
 	TRY(fetch8(cpu, &modrm)); \
+	int reg = (modrm >> 3) & 7; \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
 	if (modrm == 0xf8) { \
@@ -786,8 +787,9 @@ static int32_t trunci32(double val)
 	} else if (mod == 3) { \
 		THROW0(EX_UD); \
 	} else { \
+		if ((cpu->cr0 & 0xc) && reg < 2) THROW0(EX_NM); \
 		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
-		TRY(fpu_xmm_grp15(cpu->fpu, cpu, (modrm >> 3) & 7, curr_seg, addr)); \
+		TRY(fpu_xmm_grp15(cpu->fpu, cpu, reg, curr_seg, addr)); \
 	}
 
 #define SIMD_PREFETCH() \
