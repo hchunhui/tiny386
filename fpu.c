@@ -348,7 +348,9 @@ static double fpround(double x, int rc)
 {
 	switch (rc) {
 	case 0:
-		return round(x);
+		// XXX: we assume `fegetround() == 1` here.
+		// In C23, we can use `roundeven()` instead.
+		return nearbyint(x);
 	case 1:
 		return floor(x);
 	case 2:
