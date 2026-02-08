@@ -46,6 +46,7 @@
 #define ldebug(...)
 #endif
 
+#ifdef USE_FMOPL
 #include "fmopl.h"
 #define SHIFT 1
 
@@ -164,3 +165,32 @@ AdlibState *adlib_new()
     }
     return s;
 }
+#else
+struct AdlibState {
+};
+
+void adlib_write(void *opaque, uint32_t nport, uint32_t val)
+{
+}
+
+uint32_t adlib_read(void *opaque, uint32_t nport)
+{
+    return -1;
+}
+
+void adlib_callback (void *opaque, uint8_t *stream, int free)
+{
+    return;
+}
+
+void adlib_free(AdlibState *s)
+{
+}
+
+AdlibState *adlib_new()
+{
+    AdlibState *s = malloc(sizeof(AdlibState));
+    memset(s, 0, sizeof(AdlibState));
+    return s;
+}
+#endif

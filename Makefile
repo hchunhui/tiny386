@@ -31,6 +31,12 @@ LIBS_RAWDRAW = ${LIBS_RAWDRAW_${PLAT}}
 #USE_SDL = y/n
 USE_SDL = n
 
+#USE_FMOPL = y/n
+USE_FMOPL = y
+FMOPL_y = fmopl.c
+CFLAGS_FMOPL_y = -DUSE_FMOPL
+CFLAGS += ${CFLAGS_FMOPL_${USE_FMOPL}}
+
 SUFF_SDL_SDL_y =
 SUFF_SDL_SDL_n = _sdl
 SUFF_RAWDRAW_SDL_y = _rawdraw
@@ -42,7 +48,8 @@ PROGS_ = tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet
 PROGS_win32 = tiny386 tiny386_nosdl wifikbd
 PROGS = ${PROGS_${PLAT}}
 
-SRCS = ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c fmopl.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
+SRCS = ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
+SRCS += ${FMOPL_${USE_FMOPL}}
 SRCS += pci.c
 SRCS += win32.c
 # OSD

@@ -30,6 +30,7 @@ else()
     add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
 endif()
 
+add_definitions(-DUSE_FMOPL)
 
 set_source_files_properties("../../adlib.c" PROPERTIES COMPILE_FLAGS "-Wno-all")
 set_source_files_properties("../../fmopl.c" PROPERTIES COMPILE_FLAGS "-Wno-all -fsingle-precision-constant")

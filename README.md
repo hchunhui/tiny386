@@ -15,7 +15,7 @@ To assemble a complete PC system, we have ported many peripherals from TinyEMU a
  - NE2000 ISA Network Card
  - 8257 ISA DMA
  - PC Speaker
- - Adlib OPL2
+ - Adlib OPL2 (optional)
  - SoundBlaster 16
 
 For firmware, the BIOS/VGABIOS comes from seabios. Tiny386 also supports booting linux kernel directly, without traditional BIOS. The idea comes from JSLinux, and it uses a small stub code called linuxstart.
@@ -128,4 +128,9 @@ Use `fill_cmos = 0` in the config ini file.
 ## License
 The cpu emulator and the project as a whole are both licensed under the BSD-3-Clause license.
 
+Adlib emulation is an optional part of the project, and it requires the library fmopl which is licensed under the LGPL.
+Use `make USE_FMOPL=n` to build without adlib emulation.
+
 SeaBIOS is distributed under the GNU LGPL-3 license.
+
+Some parts ported from QEMU/TinyEMU are under the MIT license.
