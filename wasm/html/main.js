@@ -112,13 +112,13 @@ function __close(fd)
     delete fdtable[fd];
 }
 
-function drawfb(fbptr)
+function drawfb(fbptr, width, height)
 {
     const screen = document.getElementById('screen');
     const ctx = screen.getContext('2d');
 
-    screen.width = 720;
-    screen.height = 480;
+    screen.width = width;
+    screen.height = height;
 
     const data = ctx.createImageData(screen.width, screen.height);
 
@@ -471,6 +471,9 @@ function start()
             loads([inifile], 0, () => {
                 const iniptr = copy_string(inifile, instance.exports.malloc);
                 const h1 = instance.exports.wasm_prepare(iniptr);
+                // XXX
+                const width = mem8[h1 + 19 * 4] | (mem8[h1 + 19 * 4 + 1] << 8);
+                const height = mem8[h1 + 20 * 4] | (mem8[h1 + 20 * 4 + 1] << 8);
                 loads(filestore_list, 0, () => {
                     const h2 = instance.exports.wasm_init(h1);
                     const fbptr = instance.exports.wasm_getfb(h2);
@@ -532,7 +535,7 @@ function start()
                         main_loop();
 
                         function redraw_loop() {
-                            drawfb(fbptr);
+                            drawfb(fbptr, width, height);
                             setTimeout(redraw_loop, 20);
                         }
                         redraw_loop();
