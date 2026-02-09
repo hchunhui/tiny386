@@ -17,7 +17,6 @@
 #ifndef __wasm__
 #define I386_OPT2
 #endif
-#define I386_ENABLE_FPU
 
 #ifdef I386_ENABLE_FPU
 #include "fpu.h"
@@ -25,6 +24,7 @@
 #define fpu_new(...) NULL
 #define fpu_exec1(...) false
 #define fpu_exec2(...) false
+#define fpu_delete(...)
 typedef void FPU;
 #endif
 
