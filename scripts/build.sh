@@ -57,15 +57,17 @@ build_tiny386() {
 	     SLIRP_LIB="-L$PWD/build/slirp/build -lslirp" all &&
 	strip -s tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet &&
 	cp tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet out &&
-	mkdir -p out/win32 &&
-	make clean &&
-	make \
-	     SLIRP_INC="-I$PWD/build/slirp/build-mingw32 -DLIBSLIRP_STATIC" \
-	     SLIRP_LIB="-L$PWD/build/slirp/build-mingw32 -lslirp" win32 &&
-	strip -s tiny386.exe wifikbd.exe &&
-	cp tiny386.exe wifikbd.exe out/win32 &&
-	make clean &&
-	rm tiny386.exe wifikbd.exe &&
+	if command -v i686-w64-mingw32-gcc >/dev/null 2>&1; then
+		mkdir -p out/win32 &&
+		make clean &&
+		make \
+		     SLIRP_INC="-I$PWD/build/slirp/build-mingw32 -DLIBSLIRP_STATIC" \
+		     SLIRP_LIB="-L$PWD/build/slirp/build-mingw32 -lslirp" win32 &&
+		strip -s tiny386.exe wifikbd.exe &&
+		cp tiny386.exe wifikbd.exe out/win32 &&
+		make clean &&
+		rm tiny386.exe wifikbd.exe
+	fi &&
 	cd wasm && make && cd .. &&
 	mkdir -p out/wasm &&
 	cp wasm/html/tiny386.wasm out/wasm &&
