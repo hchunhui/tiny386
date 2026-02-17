@@ -33,7 +33,9 @@ build_slirp() {
 	git clone -b v4.9.1 --depth=1 https://gitlab.freedesktop.org/slirp/libslirp.git slirp &&
 	cd slirp && patch -p1 < ../patch && cd .. &&
 	make && make install DESTDIR=build && make clean &&
-	make win32 && make install DESTDIR=build-mingw32 && make clean &&
+	if command -v i686-w64-mingw32-gcc >/dev/null 2>&1; then
+		make win32 && make install DESTDIR=build-mingw32 && make clean
+	fi &&
 	cd ..
 }
 
