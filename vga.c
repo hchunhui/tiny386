@@ -32,13 +32,13 @@
 #include "vga.h"
 #include "pci.h"
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 #include "esp_attr.h"
 #else
 #define IRAM_ATTR
 #endif
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 void *pcmalloc(long size);
 #else
 #define pcmalloc malloc
@@ -1174,7 +1174,7 @@ int vga_step(VGAState *s)
         } else {
             s->st01 &= ~(ST01_V_RETRACE | ST01_DISP_ENABLE);
             s->retrace_phase = 0;
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
             s->retrace_time = now + 15000/3;
 #else
             s->retrace_time = now + 15000;

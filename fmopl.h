@@ -1,7 +1,7 @@
 #ifndef FMOPL_H
 #define FMOPL_H
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 typedef float FLOAT;
 #else
 typedef double FLOAT;

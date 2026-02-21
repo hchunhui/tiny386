@@ -32,7 +32,7 @@
 //#include "pc.h"
 //#include "net.h"
 
-#ifndef BUILD_ESP32
+#ifndef CONFIG_IDF_TARGET
 #if defined(_WIN32)
 #include <winsock2.h>
 #endif
@@ -44,7 +44,7 @@
 #include "esp_mac.h"
 #endif
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 void *pcmalloc(long size);
 #else
 #define pcmalloc malloc
@@ -353,7 +353,7 @@ static void ne2000_receive(void *opaque, const uint8_t *buf, int size)
 
     /* now we can signal we have received something */
     atomic_fetch_or_explicit(&(s->isr), ENISR_RX, memory_order_release);
-#ifndef BUILD_ESP32
+#ifndef CONFIG_IDF_TARGET
     ne2000_update_irq(s);
 #endif
 }
@@ -578,7 +578,7 @@ static void *net_open(NE2000State *s)
 
 #else
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 extern void (*_Atomic esp32_send_packet)(uint8_t *buf, int size);
 static void qemu_send_packet(void *vc, uint8_t *buf, int size)
 {
@@ -604,7 +604,7 @@ static void qemu_send_packet(void *vc, uint8_t *buf, int size)
 
 void ne2000_step(NE2000State *s)
 {
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     ne2000_update_irq(s);
 #endif
 }
@@ -959,7 +959,7 @@ typedef struct NICInfo {
     int used;
 } NICInfo;
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 void *thene2000;
 
 static inline int filter(uint8_t *buf, int size)
@@ -1034,7 +1034,7 @@ NE2000State *isa_ne2000_init(int base, int irq,
     s->irq = irq;
     s->pic = pic;
     s->set_irq = set_irq;
-#ifndef BUILD_ESP32
+#ifndef CONFIG_IDF_TARGET
     const static uint8_t macaddr[6] = {0x52, 0x54, 0x00, 0x78, 0x9a, 0xbc};
     memcpy(s->macaddr, macaddr, 6);
 #else

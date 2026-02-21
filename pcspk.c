@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 void *pcmalloc(long size);
 #else
 #define pcmalloc malloc
