@@ -1,0 +1,192 @@
+# tiny386 — Elecrow CrowPanel Advance 7" Port
+
+Board: CrowPanel Advance 7" HMI ESP32-S3, IPS, 800×480, 16-bit RGB parallel
+Reference: https://github.com/Elecrow-RD/CrowPanel-Advance-7-HMI-ESP32-S3-AI-Powered-IPS-Touch-Screen-800x480
+
+Build with: `BOARD=elecrow7` (default when BOARD is not set)
+Board header: `main/board_elecrow7.h`  (force-included at compile time via CMake)
+
+
+---
+
+## RGB LCD Interface
+
+Controller: ESP32-S3 built-in RGB parallel LCD (esp_lcd_panel_rgb)
+Resolution: 800 × 480, 16 bpp RGB565
+
+### Control signals
+
+| Signal | GPIO |
+|--------|------|
+| PCLK   | 39   |
+| HSYNC  | 40   |
+| VSYNC  | 41   |
+| DE     | 42   |
+| DISP   | NC   |
+
+### 16-bit data bus (D0=LSB .. D15=MSB)
+
+| Bit | GPIO | Bit | GPIO |
+|-----|------|-----|------|
+| D0  | 21   | D8  | 12   |
+| D1  | 47   | D9  | 13   |
+| D2  | 48   | D10 | 14   |
+| D3  | 45   | D11 | 7    |
+| D4  | 38   | D12 | 17   |
+| D5  | 9    | D13 | 18   |
+| D6  | 10   | D14 | 3    |
+| D7  | 11   | D15 | 46   |
+
+### Timing
+
+| Parameter          | Value |
+|--------------------|-------|
+| HSYNC pulse width  | 4     |
+| HSYNC back porch   | 8     |
+| HSYNC front porch  | 8     |
+| VSYNC pulse width  | 4     |
+| VSYNC back porch   | 8     |
+| VSYNC front porch  | 8     |
+| HSYNC idle         | high  |
+| VSYNC idle         | high  |
+
+### Pixel clock presets
+
+| Preset | pclk_hz | pclk_active_neg | pclk_idle_high | Notes                        |
+|--------|---------|-----------------|----------------|------------------------------|
+| 0      | 15 MHz  | false           | true           |                              |
+| **1**  | 15 MHz  | **true**        | **false**      | **Known working (default)**  |
+
+
+---
+
+## Backlight / I2C Expander
+
+Interface: I2C, legacy driver (I2C_NUM_0)
+
+| Pin | GPIO |
+|-----|------|
+| SDA | 15   |
+| SCL | 16   |
+
+Frequency: 400 kHz
+
+### Init sequence (from working Elecrow example)
+
+Primary path — CH422G I/O expander:
+
+    addr 0x30  cmd 0x18   (STC brightness)
+    addr 0x30  cmd 0x10   (STC enable)
+    addr 0x24  cmd 0x01   (CH422G: configure output mode)
+    addr 0x38  cmd 0x1E   (CH422G: backlight ON)
+
+Fallback paths (tried if CH422G does not ACK):
+
+    addr 0x30  cmd 0x10   (STC)
+    addr 0x5D  cmd 0x10   (STC variant)
+    addr 0x57  {0x03,0x00} then {0x01,0xFF}   (PCA9535)
+
+If backlight fails, check the board DIP switch (S1/S0) setting.
+
+### Pre-SD I2C command (storage init)
+
+Before SD card initialisation, `storage.c` sends one command on the same bus:
+
+    addr 0x30  cmd 0x10   (enables TF card power/mux path)
+
+A 500 ms delay follows before the first SD CMD0/CMD8 to let the power path settle.
+The I2C driver is deleted after this so the LCD init can reinstall it cleanly.
+
+
+---
+
+## SD Card (SPI mode)
+
+| Signal | GPIO |
+|--------|------|
+| MOSI   | 6    |
+| MISO   | 4    |
+| SCK    | 5    |
+| CS     | 0    |
+
+Host: SPI2_HOST (HSPI), DMA mode
+
+Board switch: set S1/S0 to TF-card mode (typically both = 1 on V1.3 boards).
+
+### Init strategy
+
+The driver tries multiple CS / frequency combinations until mount succeeds:
+
+1. CS = GPIO_0, freq = 10 000 kHz  (default `SD_SPI_FREQ_KHZ`)
+2. CS = GPIO_0, freq = 10 000 kHz  (fallback; 40 MHz often fails first cold boot)
+3. CS = NC,     freq = 400 kHz     (last resort)
+
+`format_if_mount_failed` is **false** — the card is never formatted automatically.
+
+### CMD59 workaround (`sdmmc_crc_wrap.c`)
+
+Some SD/TF cards on this board reject CMD59 (CRC on/off) with ESP_ERR_NOT_SUPPORTED,
+which causes the ESP-IDF SPI SD driver to fail the whole init.
+
+The workaround is a link-time wrap (`--wrap=sdmmc_init_spi_crc`):
+
+- `__wrap_sdmmc_init_spi_crc` calls the real function first.
+- If it returns ESP_ERR_NOT_SUPPORTED, the wrapper issues a best-effort CMD59(off)
+  directly via the host transaction callback, then returns ESP_OK.
+- This matches Arduino SD library behaviour (data CRC disabled, init continues).
+
+Linker flags added in `main/CMakeLists.txt`:
+
+    -Wl,--wrap=sdmmc_init_spi_crc
+    -Wl,--undefined=__wrap_sdmmc_init_spi_crc
+
+
+---
+
+## Memory Layout
+
+| Constant          | Value   | Purpose                                    |
+|-------------------|---------|--------------------------------------------|
+| `PSRAM_ALLOC_LEN` | 6.5 MB  | Bump-allocator pool (psmalloc / bigmalloc) |
+| `DEFAULT_MEM_SIZE`| 6 MB    | Default guest RAM passed to pc_new()       |
+
+The LCD driver allocates the panel frame buffer (800×480×2 = ~768 KB) from PSRAM
+via the IDF RGB panel allocator **before** pc_new() runs.  `pc_main()` clamps
+`conf.mem_size` to whatever PSRAM pool capacity remains so that psmalloc() cannot
+abort during phys_mem / vga_mem allocation.
+
+
+---
+
+## Frame Buffer Architecture
+
+`num_fbs = 1` (single panel frame buffer, allocated in PSRAM by IDF).
+
+    s_scan_fb  —  panel FB currently scanned by RGB DMA controller
+                  i386/VGA renders directly into this buffer (zero-copy)
+    s_render_fb — NULL in num_fbs=1 mode
+    s_back_fb   — NULL in num_fbs=1 mode
+
+`globals.panel_fb` points to `s_scan_fb`; `console_init()` binds VGA output
+directly to it, avoiding a separate render copy.
+
+---
+
+## Timing / Rate Limiting
+
+| Constant                | Value    | Effect                                             |
+|-------------------------|----------|----------------------------------------------------|
+| `LCD_FLUSH_INTERVAL_MS` | 67 ms    | Min interval between full-frame prepare calls (~15 fps cap) |
+| `LCD_VGA_STEP_DIV`      | 32       | Call pc_vga_step() every 32 pc_step() iterations   |
+| `LCD_VGA_MIN_INTERVAL_US`| 50 000 µs| Additional minimum gap between VGA steps (~20 Hz)  |
+| `LCD_VSYNC_FLIP`        | 1        | Present frames only on VSYNC boundary (reduces tearing) |
+| `LCD_RGB_RESTART_MS`    | 0        | Periodic RGB DMA restart disabled (set > 0 to enable) |
+
+
+---
+
+## Build / Flash
+
+Board-specific sdkconfig: `sdkconfig.elecrow7`
+Convenience scripts: `build_board.sh`, `flash_bios.sh`
+INI config loaded from: `/sdcard/tiny386.ini` then `/spiflash/tiny386.ini`
