@@ -16,3 +16,4 @@ dependencies:
   #   public: true
   espressif/esp_lcd_axs15231b: ==1.0.0
   espressif/esp_lcd_st7701: '*'
+  espressif/esp_lcd_touch_gt911: "^1"

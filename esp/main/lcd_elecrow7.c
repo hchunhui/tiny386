@@ -20,8 +20,14 @@
 #include "driver/gpio.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_touch_gt911.h"
 
 #include "common.h"
+
+/* From i8042.h — PS/2 mouse event injection */
+typedef struct PS2MouseState PS2MouseState;
+void ps2_mouse_event(PS2MouseState *s, int dx, int dy, int dz, int buttons_state);
 
 static const char *TAG = "lcd";
 
@@ -125,6 +131,102 @@ static void backlight_init(void)
 
 void pc_vga_step(void *o);
 
+/* ---- GT911 touch controller ---- */
+
+static esp_lcd_touch_handle_t touch_init(void)
+{
+	esp_lcd_panel_io_handle_t io_handle = NULL;
+	const esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
+
+	esp_err_t ret = esp_lcd_new_panel_io_i2c(
+		(esp_lcd_i2c_bus_handle_t)BL_I2C_PORT, &io_cfg, &io_handle);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "GT911 panel IO init failed: %s", esp_err_to_name(ret));
+		return NULL;
+	}
+
+	const esp_lcd_touch_config_t tp_cfg = {
+		.x_max = LCD_WIDTH,
+		.y_max = LCD_HEIGHT,
+		.rst_gpio_num = -1,
+		.int_gpio_num = -1,
+		.levels = { .reset = 0, .interrupt = 0 },
+		.flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 },
+	};
+
+	esp_lcd_touch_handle_t tp = NULL;
+	ret = esp_lcd_touch_new_i2c_gt911(io_handle, &tp_cfg, &tp);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "GT911 init failed: %s", esp_err_to_name(ret));
+		return NULL;
+	}
+
+	ESP_LOGI(TAG, "GT911 touch controller initialized");
+	return tp;
+}
+
+/* ---- Touch polling and gesture detection ---- */
+
+#define TAP_MAX_MS      200   /* max duration for a tap gesture */
+#define TAP_MAX_PX      10    /* max movement for a tap gesture */
+
+static void touch_poll(esp_lcd_touch_handle_t tp)
+{
+	static bool was_touching = false;
+	static uint16_t prev_x, prev_y;
+	static TickType_t touch_start_tick;
+	static uint16_t start_x, start_y;
+	static bool was_two_finger = false;
+
+	uint16_t x[2], y[2];
+	uint8_t cnt = 0;
+
+	esp_lcd_touch_read_data(tp);
+	esp_lcd_touch_get_coordinates(tp, x, y, NULL, &cnt, 2);
+
+	if (cnt >= 2)
+		was_two_finger = true;
+
+	if (cnt >= 1) {
+		if (was_touching) {
+			/* Finger still down — send relative movement */
+			int dx = (int)x[0] - (int)prev_x;
+			int dy = (int)y[0] - (int)prev_y;
+			if (dx != 0 || dy != 0)
+				ps2_mouse_event(globals.mouse, dx, dy, 0, 0);
+		} else {
+			/* Finger just went down */
+			touch_start_tick = xTaskGetTickCount();
+			start_x = x[0];
+			start_y = y[0];
+			was_two_finger = (cnt >= 2);
+		}
+		prev_x = x[0];
+		prev_y = y[0];
+		was_touching = true;
+	} else if (was_touching) {
+		/* Finger just lifted — check for tap */
+		TickType_t dur = xTaskGetTickCount() - touch_start_tick;
+		int move_x = abs((int)prev_x - (int)start_x);
+		int move_y = abs((int)prev_y - (int)start_y);
+
+		if (pdTICKS_TO_MS(dur) < TAP_MAX_MS &&
+		    move_x < TAP_MAX_PX && move_y < TAP_MAX_PX) {
+			if (was_two_finger) {
+				/* Two-finger tap → right click */
+				ps2_mouse_event(globals.mouse, 0, 0, 0, 2);
+				ps2_mouse_event(globals.mouse, 0, 0, 0, 0);
+			} else {
+				/* Single tap → left click */
+				ps2_mouse_event(globals.mouse, 0, 0, 0, 1);
+				ps2_mouse_event(globals.mouse, 0, 0, 0, 0);
+			}
+		}
+		was_touching = false;
+		was_two_finger = false;
+	}
+}
+
 /*
  * lcd_draw() — no-op for elecrow7.
  *
@@ -145,6 +247,10 @@ void vga_task(void *arg)
 	/* ------ Backlight ------ */
 	ESP_LOGI(TAG, "Init backlight");
 	backlight_init();
+
+	/* ------ Touch controller ------ */
+	ESP_LOGI(TAG, "Init touch controller");
+	esp_lcd_touch_handle_t tp = touch_init();
 
 	/* ------ RGB panel ------ */
 	ESP_LOGI(TAG, "Init RGB LCD panel");
@@ -209,9 +315,11 @@ void vga_task(void *arg)
 	                    pdFALSE,
 	                    portMAX_DELAY);
 
-	/* ------ VGA loop (~15 fps cap) ------ */
+	/* ------ VGA + touch loop (~15 fps cap) ------ */
 	while (1) {
 		pc_vga_step(globals.pc);
+		if (tp)
+			touch_poll(tp);
 		vTaskDelay(pdMS_TO_TICKS(67));
 	}
 }
