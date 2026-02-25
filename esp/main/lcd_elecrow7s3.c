@@ -1,4 +1,4 @@
-#ifdef USE_LCD_RGB_ELECROW7
+#ifdef USE_LCD_RGB_ELECROW7S3
 /*
  * LCD driver for Elecrow CrowPanel Advance 7" HMI (ESP32-S3)
  *
@@ -228,7 +228,7 @@ static void touch_poll(esp_lcd_touch_handle_t tp)
 }
 
 /*
- * lcd_draw() — no-op for elecrow7.
+ * lcd_draw() — no-op for elecrow7s3.
  *
  * The VGA renderer writes directly to globals.panel_fb which is the
  * panel's DMA frame buffer.  The RGB DMA controller scans it
@@ -324,4 +324,4 @@ void vga_task(void *arg)
 	}
 }
 
-#endif /* USE_LCD_RGB_ELECROW7 */
+#endif /* USE_LCD_RGB_ELECROW7S3 */

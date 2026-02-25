@@ -5,7 +5,7 @@
 #define BPP 16
 #define FULL_UPDATE
 // No SWAPXY — 800x480 landscape matches VGA output directly
-#define USE_LCD_RGB_ELECROW7
+#define USE_LCD_RGB_ELECROW7S3
 #define LCD_WIDTH  800
 #define LCD_HEIGHT 480
 

@@ -18,7 +18,7 @@
  * This matches Arduino SD library behaviour (data CRC disabled).
  */
 
-#ifdef USE_LCD_RGB_ELECROW7
+#ifdef USE_LCD_RGB_ELECROW7S3
 
 #include <string.h>
 #include "esp_err.h"
@@ -52,4 +52,4 @@ esp_err_t __wrap_sdmmc_init_spi_crc(sdmmc_card_t *card)
 	return ret;
 }
 
-#endif /* USE_LCD_RGB_ELECROW7 */
+#endif /* USE_LCD_RGB_ELECROW7S3 */

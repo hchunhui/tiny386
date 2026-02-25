@@ -19,7 +19,7 @@ idf_component_register(SRCS "esp_main.c"
 "wifi.c"
 "lcd_axs15231b.c"
 "lcd_st7701.c"
-"lcd_elecrow7.c"
+"lcd_elecrow7s3.c"
 "sdmmc_crc_wrap.c"
 "i2s.c"
 "storage.c"
@@ -32,12 +32,12 @@ if(BOARD STREQUAL "jc4880p433")
 elseif(BOARD STREQUAL "jc3248w535")
     add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
 else()
-    # Default: elecrow7
-    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_elecrow7.h)
+    # Default: elecrow7s3
+    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_elecrow7s3.h)
 endif()
 
-# Linker wrap for SPI SD CMD59 workaround (elecrow7 only)
-if(BOARD STREQUAL "elecrow7")
+# Linker wrap for SPI SD CMD59 workaround (elecrow7s3 only)
+if(BOARD STREQUAL "elecrow7s3")
     target_link_options(${COMPONENT_LIB} INTERFACE
         -Wl,--wrap=sdmmc_init_spi_crc
         -Wl,--undefined=__wrap_sdmmc_init_spi_crc)

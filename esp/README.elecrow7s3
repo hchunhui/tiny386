@@ -3,8 +3,8 @@
 Board: CrowPanel Advance 7" HMI ESP32-S3, IPS, 800×480, 16-bit RGB parallel
 Reference: https://github.com/Elecrow-RD/CrowPanel-Advance-7-HMI-ESP32-S3-AI-Powered-IPS-Touch-Screen-800x480
 
-Build with: `BOARD=elecrow7` (default when BOARD is not set)
-Board header: `main/board_elecrow7.h`  (force-included at compile time via CMake)
+Build with: `BOARD=elecrow7s3` (default when BOARD is not set)
+Board header: `main/board_elecrow7s3.h`  (force-included at compile time via CMake)
 
 
 ---
@@ -187,6 +187,6 @@ directly to it, avoiding a separate render copy.
 
 ## Build / Flash
 
-Board-specific sdkconfig: `sdkconfig.elecrow7`
+Board-specific sdkconfig: `sdkconfig.elecrow7s3`
 Convenience scripts: `build_board.sh`, `flash_bios.sh`
 INI config loaded from: `/sdcard/tiny386.ini` then `/spiflash/tiny386.ini`

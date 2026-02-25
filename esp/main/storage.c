@@ -114,11 +114,11 @@ void storage_init(void)
 	rawsd = card;
 #elif defined(SD_SPI_MOSI)
 	/*
-	 * elecrow7: SPI-mode SD card via SPI2_HOST.
+	 * elecrow7s3: SPI-mode SD card via SPI2_HOST.
 	 *
 	 * Before touching the SPI bus, we must enable the TF card power/mux
 	 * path through the CH422G I/O expander over I2C.  After sending the
-	 * enable command we delete the I2C driver so that lcd_elecrow7.c can
+	 * enable command we delete the I2C driver so that lcd_elecrow7s3.c can
 	 * re-initialise it cleanly for backlight control.
 	 */
 
