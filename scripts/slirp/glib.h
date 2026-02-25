@@ -7,6 +7,7 @@
 #define G_BIG_ENDIAN 4321
 
 #include <stdio.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>

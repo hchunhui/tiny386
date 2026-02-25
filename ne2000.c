@@ -429,7 +429,14 @@ static void qemu_send_packet(void *vc, uint8_t *buf, int size)
     slirp_input(s->slirp, buf, size);
 }
 
-static slirp_ssize_t cb_send_packet(const void *buf, size_t len, void *opaque)
+// Try to be compatible with old libslirp (slirp_ssize_t is not defined):
+// if we use gcc (or compatible), the type can be obtained by __typeof__.
+#if defined(__GNUC__)
+typedef __typeof__(((SlirpWriteCb) 0)(0, 0, 0)) ssize_t_compat;
+#else
+typedef slirp_ssize_t ssize_t_compat;
+#endif
+static ssize_t_compat cb_send_packet(const void *buf, size_t len, void *opaque)
 {
     struct SLIRP *s = opaque;
     if (ne2000_can_receive(s->ne2000)) {
