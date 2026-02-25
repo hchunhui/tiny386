@@ -29,7 +29,7 @@
 #include <string.h>
 #include "i8257.h"
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 void *pcmalloc(long size);
 #else
 #define pcmalloc malloc
@@ -1169,7 +1169,7 @@ static int write_audio (SB16State *s, int nchan, int dma_pos,
     IsaDma *isa_dma = nchan == s->dma ? s->isa_dma : s->isa_hdma;
 
     int temp, net;
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     uint8_t tmpbuf[512];
 #else
     uint8_t tmpbuf[4096];

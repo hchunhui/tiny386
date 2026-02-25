@@ -460,7 +460,7 @@ void pc_step(PC *pc)
 		load_bios_and_reset(pc);
 	}
 #endif
-#ifndef BUILD_ESP32
+#ifndef CONFIG_IDF_TARGET
 	int refresh = vga_step(pc->vga);
 #endif
 	i8254_update_irq(pc->pit);
@@ -471,7 +471,7 @@ void pc_step(PC *pc)
 	ne2000_step(pc->ne2000);
 	i8257_dma_run(pc->isa_dma);
 	i8257_dma_run(pc->isa_hdma);
-#ifndef BUILD_ESP32
+#ifndef CONFIG_IDF_TARGET
 	pc->poll(pc->redraw_data);
 	if (refresh) {
 		vga_refresh(pc->vga, pc->redraw, pc->redraw_data,
@@ -483,7 +483,7 @@ void pc_step(PC *pc)
 #ifdef USEKVM
 	cpukvm_step(pc->cpu, 4096);
 #else
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 	cpui386_step(pc->cpu, 512);
 #else
 	cpui386_step(pc->cpu, 10240);
@@ -623,7 +623,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	char *mem = bigmalloc(conf->mem_size);
 	CPU_CB *cb = NULL;
 	memset(mem, 0, conf->mem_size);
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 	extern char *pcram;
 	extern long pcram_len;
 	pcram = mem + 0xa0000;
@@ -751,7 +751,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	return pc;
 }
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 #define MIXER_BUF_LEN 128
 #else
 #define MIXER_BUF_LEN 2048

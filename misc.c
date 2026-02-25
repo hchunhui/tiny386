@@ -12,7 +12,7 @@
 #include <termios.h>
 #include <signal.h>
 #endif
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 #include "driver/uart.h"
 #endif
 
@@ -35,7 +35,7 @@ static void ResetKeyboardInput()
 void CaptureKeyboardInput()
 {
 	// Hook exit, because we want to re-enable keyboard.
-#ifndef BUILD_ESP32
+#ifndef CONFIG_IDF_TARGET
 	atexit(ResetKeyboardInput);
 	signal(SIGINT, CtrlC);
 #endif
@@ -48,7 +48,7 @@ void CaptureKeyboardInput()
 
 static int ReadKBByte()
 {
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 	char data;
 	if (uart_read_bytes(0, &data, 1, 20 / portTICK_PERIOD_MS) > 0) {
 		return data;
@@ -66,7 +66,7 @@ static int ReadKBByte()
 
 static int IsKBHit()
 {
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 	size_t len;
 	if (uart_get_buffered_data_len(0, &len) == ESP_OK) {
 		if (len)

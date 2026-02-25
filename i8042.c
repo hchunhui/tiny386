@@ -36,7 +36,7 @@ static int after_eq(uint32_t a, uint32_t b)
 
 #include "i8042.h"
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #endif
@@ -430,7 +430,7 @@ KBDState *i8042_init(PS2KbdState **pkbd,
 typedef struct {
     uint8_t data[PS2_QUEUE_SIZE];
     int rptr, wptr, count;
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     SemaphoreHandle_t mutex;
 #endif
 } PS2Queue;
@@ -473,7 +473,7 @@ void ps2_queue(void *opaque, int b)
     PS2State *s = (PS2State *)opaque;
     PS2Queue *q = &s->queue;
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     xSemaphoreTake(q->mutex, portMAX_DELAY);
 #endif
 
@@ -484,7 +484,7 @@ void ps2_queue(void *opaque, int b)
         q->wptr = 0;
     q->count++;
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     xSemaphoreGive(q->mutex);
 #else
     s->update_irq(s->update_arg, 1);
@@ -544,7 +544,7 @@ void kbd_step(void *opaque)
         kbd->delay = false;
         ps2_queue(&(kbd->common), kbd->delay_keycode);
     }
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     if (s->kbd->common.queue.count)
         s->kbd->common.update_irq(s->kbd->common.update_arg, 1);
     if (s->mouse->common.queue.count)
@@ -559,7 +559,7 @@ uint32_t ps2_read_data(void *opaque)
     int val, index;
 
     q = &s->queue;
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     xSemaphoreTake(q->mutex, portMAX_DELAY);
 #endif
     if (q->count == 0) {
@@ -580,7 +580,7 @@ uint32_t ps2_read_data(void *opaque)
         /* reassert IRQs if data left */
         s->update_irq(s->update_arg, q->count != 0);
     }
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     xSemaphoreGive(q->mutex);
 #endif
     return val;
@@ -874,7 +874,7 @@ static void ps2_reset(void *opaque)
     q->rptr = 0;
     q->wptr = 0;
     q->count = 0;
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     s->queue.mutex = xSemaphoreCreateMutex();
 #endif
 }

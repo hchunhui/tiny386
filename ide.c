@@ -305,7 +305,7 @@
 
 #define MAX_MULT_SECTORS 4 /* 512 * 4 == 2048 */
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 void *pcmalloc(long size);
 #else
 #define pcmalloc malloc
@@ -2069,7 +2069,7 @@ static BlockDevice *block_device_init(const char *filename,
     return bs;
 }
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 #include "sdmmc_cmd.h"
 typedef struct BlockDeviceESPSD {
     sdmmc_card_t *card;
@@ -2160,7 +2160,7 @@ IDEIFState *ide_allocate(int irq, void *pic, void (*set_irq)(void *pic, int irq,
 
 int ide_attach(IDEIFState *s, int drive, const char *filename)
 {
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
     BlockDevice *bs;
     if (strcmp(filename, "/dev/mmcblk0") == 0) {
         bs = block_device_init_espsd(0, -1);

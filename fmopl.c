@@ -45,7 +45,7 @@
 #define g_free(p) /*free(p)*/
 
 // TODO: free...
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 void *pcmalloc(long size);
 void *psmalloc(long size);
 #define FMOPL_USE_STATIC_TABLE

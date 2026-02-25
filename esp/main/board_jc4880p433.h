@@ -1,11 +1,5 @@
 // requires esp-idf v5.5.x and sdkconfig.esp32p4
-#define BUILD_ESP32
-
 #define PSRAM_ALLOC_LEN (10 * 1024 * 1024)
-
-// XXX: ld reports "error: Total discarded sections size is X bytes"
-//#define IRAM_ATTR_CPU_EXEC1 IRAM_ATTR
-#define IRAM_ATTR_CPU_EXEC1
 
 #define BPP 16
 #define FULL_UPDATE

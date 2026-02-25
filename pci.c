@@ -30,7 +30,7 @@
 
 //#include "cutils.h"
 #include "pci.h"
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 void *pcmalloc(long size);
 #else
 #define pcmalloc malloc

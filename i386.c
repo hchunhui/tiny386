@@ -5,8 +5,14 @@
 #include <unistd.h>
 #include <string.h>
 
-#ifdef BUILD_ESP32
+#ifdef CONFIG_IDF_TARGET
 #include "esp_attr.h"
+#if CONFIG_IDF_TARGET_ESP32P4
+// XXX: ld reports "error: Total discarded sections size is X bytes"
+#define IRAM_ATTR_CPU_EXEC1
+#else
+#define IRAM_ATTR_CPU_EXEC1 IRAM_ATTR
+#endif
 #else
 #define IRAM_ATTR
 #define IRAM_ATTR_CPU_EXEC1

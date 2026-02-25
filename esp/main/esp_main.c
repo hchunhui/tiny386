@@ -252,13 +252,16 @@ void app_main(void)
 
 	esp_psram_init();
 #ifndef PSRAM_ALLOC_LEN
-	// use the whole psram
-	size_t len;
-	psram = esp_psram_get(&len);
-	psram_len = len;
+	uint32_t len_mask = 0xFFFC0000;
+	psram_len = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+	while (!psram) {
+		len_mask <<= 1;
+		psram_len &= len_mask;
+		psram = malloc(psram_len);
+	}
 #else
 	psram_len = PSRAM_ALLOC_LEN;
-	psram = heap_caps_calloc(1, psram_len, MALLOC_CAP_SPIRAM);
+	psram = malloc(psram_len);
 #endif
 
 	const static char *files[] = {
