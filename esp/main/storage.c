@@ -23,7 +23,7 @@ void storage_init(void)
 	// Options for mounting the filesystem.
 	esp_vfs_fat_sdmmc_mount_config_t sdmount_config = {
 		.format_if_mount_failed = false,
-		.max_files = 3,
+		.max_files = 5,
 		.allocation_unit_size = 16 * 1024
 	};
 	sdmmc_card_t *card;

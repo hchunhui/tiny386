@@ -29,11 +29,11 @@ message(STATUS "Building for BOARD=${BOARD}")
 
 if(BOARD STREQUAL "jc4880p433")
     add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc4880p433.h)
-elseif(BOARD STREQUAL "jc3248w535")
-    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
-else()
-    # Default: elecrow7s3
+elseif(BOARD STREQUAL "elecrow7s3")
     add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_elecrow7s3.h)
+else()
+    # Default: jc3248w535
+    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
 endif()
 
 # Linker wrap for SPI SD CMD59 workaround (elecrow7s3 only)
