@@ -2,7 +2,7 @@
 # CMakeLists in this exact order for cmake to work correctly
 cmake_minimum_required(VERSION 3.16)
 
-# Board selection: -DBOARD=<name> via cmake/idf.py, or BOARD env var, or default elecrow7s3.
+# Board selection: -DBOARD=<name> via cmake/idf.py, or BOARD env var, or default jc3248w535.
 # This must be set BEFORE include(project.cmake) so ESP-IDF reads the right sdkconfig.
 if(NOT DEFINED BOARD)
     if(DEFINED ENV{BOARD})
