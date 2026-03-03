@@ -5023,11 +5023,11 @@ CPUI386 *cpui386_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	cpu->tlb.size = tlb_size;
 #ifdef BUILD_ESP32
 	{
-		extern void *bigmalloc(size_t);
+		extern void *pcmalloc(long size);
 		size_t tlb_bytes = sizeof(struct tlb_entry) * tlb_size;
 		cpu->tlb.tab = malloc(tlb_bytes);
 		if (!cpu->tlb.tab)
-			cpu->tlb.tab = bigmalloc(tlb_bytes);
+			cpu->tlb.tab = pcmalloc(tlb_bytes);
 	}
 #else
 	cpu->tlb.tab = malloc(sizeof(struct tlb_entry) * tlb_size);
