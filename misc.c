@@ -17,6 +17,7 @@
 #endif
 
 #if !defined(_WIN32) && !defined(__wasm__)
+#ifndef BUILD_ESP32
 static void CtrlC(int _)
 {
 	exit( 0 );
@@ -30,20 +31,21 @@ static void ResetKeyboardInput()
 	term.c_lflag |= ICANON | ECHO;
 	tcsetattr(0, TCSANOW, &term);
 }
+#endif /* !BUILD_ESP32 */
 
 // Override keyboard, so we can capture all keyboard input for the VM.
 void CaptureKeyboardInput()
 {
-	// Hook exit, because we want to re-enable keyboard.
 #ifndef BUILD_ESP32
+	// Hook exit, because we want to re-enable keyboard.
 	atexit(ResetKeyboardInput);
 	signal(SIGINT, CtrlC);
-#endif
 
 	struct termios term;
 	tcgetattr(0, &term);
 	term.c_lflag &= ~(ICANON | ECHO | ISIG); // Disable echo as well
 	tcsetattr(0, TCSANOW, &term);
+#endif
 }
 
 static int ReadKBByte()

@@ -178,6 +178,8 @@ void vga_task(void *arg)
 	bsp_display_brightness_set(30);
 
 	globals.panel = panel_handle;
+	/* Signal i386_task that the LCD panel is ready */
+	xEventGroupSetBits(global_event_group, BIT1);
 	xEventGroupWaitBits(global_event_group,
 			    BIT0,
 			    pdFALSE,

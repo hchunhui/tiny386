@@ -19,15 +19,28 @@ idf_component_register(SRCS "esp_main.c"
 "wifi.c"
 "lcd_axs15231b.c"
 "lcd_st7701.c"
+"lcd_elecrow7s3.c"
+"sdmmc_crc_wrap.c"
 "i2s.c"
 "storage.c"
 INCLUDE_DIRS "")
 
-# XXX
-if(CONFIG_IDF_TARGET_ESP32P4)
+message(STATUS "Building for BOARD=${BOARD}")
+
+if(BOARD STREQUAL "jc4880p433")
     add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc4880p433.h)
+elseif(BOARD STREQUAL "elecrow7s3")
+    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_elecrow7s3.h)
 else()
+    # Default: jc3248w535
     add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
+endif()
+
+# Linker wrap for SPI SD CMD59 workaround (elecrow7s3 only)
+if(BOARD STREQUAL "elecrow7s3")
+    target_link_options(${COMPONENT_LIB} INTERFACE
+        -Wl,--wrap=sdmmc_init_spi_crc
+        -Wl,--undefined=__wrap_sdmmc_init_spi_crc)
 endif()
 
 add_definitions(-DI386_ENABLE_FPU)

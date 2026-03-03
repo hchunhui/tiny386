@@ -95,7 +95,12 @@ Console *console_init(int width, int height)
 {
 	Console *c = malloc(sizeof(Console));
 	c->fb1 = fbmalloc(LCD_WIDTH * LCD_HEIGHT / NN * 2);
-	c->fb = bigmalloc(LCD_WIDTH * LCD_HEIGHT * 2);
+	if (globals.panel_fb) {
+		/* Zero-copy: VGA renders directly into the RGB DMA frame buffer */
+		c->fb = globals.panel_fb;
+	} else {
+		c->fb = bigmalloc(LCD_WIDTH * LCD_HEIGHT * 2);
+	}
 	return c;
 }
 
@@ -177,6 +182,13 @@ static void i386_task(void *arg)
 	struct esp_ini_config *config = arg;
 	int core_id = esp_cpu_get_core_id();
 	fprintf(stderr, "main runs on core %d\n", core_id);
+	/* Wait for LCD panel (and panel_fb) to be ready before starting the
+	 * PC emulator.  console_init() uses globals.panel_fb if set. */
+	xEventGroupWaitBits(global_event_group,
+	                    BIT1,
+	                    pdFALSE,
+	                    pdFALSE,
+	                    portMAX_DELAY);
 	pc_main(config->filename);
 	vTaskDelete(NULL);
 }
