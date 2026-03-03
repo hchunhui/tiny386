@@ -75,7 +75,11 @@ For rawdraw and SDL port:
 Press "Ctrl + ]" to grab/ungrab the keyboard and mouse. Press "Ctrl + [" to show/hide OSD (On Screen Display). In OSD mode, the floppy/CD-ROM disk can be changed on the fly.
 
 ## ESP32 port
-Currently the only supported target is the JC3248W535 dev board. The supported ESP-IDF version is v5.2.x.
+Supported boards:
+- JC3248W535
+- [Elecrow CrowPanel Advance 7.0" HMI](https://github.com/Elecrow-RD/CrowPanel-Advance-HMI-ESP32-AI-Display) (ESP32-S3, 800x480)
+
+The supported ESP-IDF version is v5.2.x.
 
 ### Build and Flash
 You can find the pre-built flash image `esp/flash_image_JC3248W535.bin` from [here](https://github.com/hchunhui/tiny386/releases).
@@ -88,7 +92,7 @@ To build and flash manually:
 scripts/build.sh patch_idf  # apply patches to ESP-IDF
 make prepare
 cd esp
-idf.py build
+idf.py -DBOARD=jc3248w535 build   # or -DBOARD=elecrow7s3
 idf.py flash
 ```
 
