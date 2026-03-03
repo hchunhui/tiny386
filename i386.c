@@ -487,7 +487,11 @@ static inline int get_IOPL(CPUI386 *cpu)
 /* MMU */
 #define CR0_PG (1<<31)
 #define CR0_WP (0x10000)
+#ifdef BUILD_ESP32
+#define tlb_size 256
+#else
 #define tlb_size 512
+#endif
 typedef struct {
 	enum {
 		ADDR_OK1,
