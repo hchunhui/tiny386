@@ -51,6 +51,7 @@ build_tiny386() {
 	cd linuxstart && make && cd .. && cp linuxstart/linuxstart.bin out/ &&
 	make clean &&
 	make \
+	     USE_GLIBC_FIX=y \
 	     SLIRP_INC="-I$PWD/build/slirp/build" \
 	     SLIRP_LIB="-L$PWD/build/slirp/build -lslirp" all &&
 	strip -s tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet &&

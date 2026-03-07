@@ -21,6 +21,21 @@ LIBS_ = -lm ${SLIRP_LIB}
 LIBS_win32 = -lm ${SLIRP_LIB} -lws2_32 -liphlpapi
 LIBS = ${LIBS_${PLAT}}
 
+SRCS =
+
+#USE_GLIBC_FIX = y/n
+#build with recent glibc, can run with older glibc (experimental)
+USE_GLIBC_FIX = n
+CFLAGS_GLIBC_FIX_y = -include glibc-fix/glibc-fix.h
+CFLAGS_GLIBC_FIX = ${CFLAGS_GLIBC_FIX_${USE_GLIBC_FIX}}
+SRCS_GLIBC_FIX_y = glibc-fix/glibc-fix.c
+SRCS_GLIBC_FIX = ${SRCS_GLIBC_FIX_${USE_GLIBC_FIX}}
+LIBS_GLIBC_FIX_y = -Wl,--no-as-needed -l:libdl.so.2 -l:libpthread.so.0 -Wl,--as-needed
+LIBS_GLIBC_FIX = ${LIBS_GLIBC_FIX_${USE_GLIBC_FIX}}
+SRCS += ${SRCS_GLIBC_FIX}
+CFLAGS += ${CFLAGS_GLIBC_FIX}
+LIBS += ${LIBS_GLIBC_FIX}
+
 LIBS_SDL_ = `${SDL_CONFIG} --libs` ${LIBS}
 LIBS_SDL_win32 = `${SDL_CONFIG} --libs` ${LIBS}
 LIBS_SDL = ${LIBS_SDL_${PLAT}}
@@ -49,7 +64,7 @@ PROGS_ = tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet
 PROGS_win32 = tiny386 tiny386_nosdl wifikbd
 PROGS = ${PROGS_${PLAT}}
 
-SRCS = ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
+SRCS += ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
 SRCS += ${FMOPL_${USE_FMOPL}}
 SRCS += pci.c
 SRCS += win32.c
