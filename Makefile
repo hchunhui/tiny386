@@ -112,17 +112,17 @@ tiny386_kvm${SUFF_RAWDRAW}: rawdraw/main.c kvm.c pc.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} -DUSEKVM ${LDFLAGS} ${CFLAGS} -o $@ $^$> ${LIBS_RAWDRAW}
 
-wifikbd${SUFF_SDL}: tools/wifikbd.c win32.c
+wifikbd${SUFF_SDL}: tools/wifikbd.c win32.c ${SRCS_GLIBC_FIX}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} ${LDFLAGS} ${CFLAGS_SDL} -o $@ $^$> ${LIBS_SDL}
 
-wifikbd${SUFF_RAWDRAW}: rawdraw/wifikbd.c win32.c
+wifikbd${SUFF_RAWDRAW}: rawdraw/wifikbd.c win32.c ${SRCS_GLIBC_FIX}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} ${LDFLAGS} ${CFLAGS} -o $@ $^$> ${LIBS_RAWDRAW}
 
-initnet: tools/initnet.c
+initnet: tools/initnet.c ${SRCS_GLIBC_FIX}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
-	${Q}${CC} -o $@ $^$>
+	${Q}${CC} ${CFLAGS_GLIBC_FIX} -o $@ $^$> ${LIBS_GLIBC_FIX}
 
 .depends: ${SRCS}
 	@/bin/echo -e " \e[1;32mDEP\e[0m\t\e[1;37m$^$>\e[0m \e[1;32m->\e[0m \e[1;37m$@\e[0m"
