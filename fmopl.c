@@ -41,17 +41,15 @@
 #define PI 3.14159265358979323846
 #endif
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-#define g_new(t, n) psmalloc(sizeof(t) * (n))
+#define g_new(t, n) malloc(sizeof(t) * (n))
 #define g_free(p) /*free(p)*/
 
 // TODO: free...
 #ifdef BUILD_ESP32
 void *pcmalloc(long size);
-void *psmalloc(long size);
 #define FMOPL_USE_STATIC_TABLE
 #else
 #define pcmalloc malloc
-#define psmalloc malloc
 #endif
 
 /* -------------------- for debug --------------------- */

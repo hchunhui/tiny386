@@ -31,8 +31,10 @@
 
 #ifdef BUILD_ESP32
 void *pcmalloc(long size);
+#define TMPBUF_LEN 512
 #else
 #define pcmalloc malloc
+#define TMPBUF_LEN 4096
 #endif
 
 #ifdef SB16_LOG
@@ -1169,11 +1171,7 @@ static int write_audio (SB16State *s, int nchan, int dma_pos,
     IsaDma *isa_dma = nchan == s->dma ? s->isa_dma : s->isa_hdma;
 
     int temp, net;
-#ifdef BUILD_ESP32
-    uint8_t tmpbuf[512];
-#else
-    uint8_t tmpbuf[4096];
-#endif
+    uint8_t tmpbuf[TMPBUF_LEN];
 
     temp = len;
     net = 0;

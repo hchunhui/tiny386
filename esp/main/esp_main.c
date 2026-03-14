@@ -34,9 +34,9 @@ void *bigmalloc(size_t size)
 	return psmalloc(size);
 }
 
-char *pcram;
-long pcram_off;
-long pcram_len;
+static char *pcram;
+static long pcram_off;
+static long pcram_len;
 void *pcmalloc(long size)
 {
 	void *ret = pcram + pcram_off;
@@ -48,6 +48,12 @@ void *pcmalloc(long size)
 	}
 	pcram_off += size;
 	return ret;
+}
+
+void pcmalloc_init(void *ptr, long len)
+{
+	pcram = ptr;
+	pcram_len = len;
 }
 
 int load_rom(void *phys_mem, const char *file, uword addr, int backward)

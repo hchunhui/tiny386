@@ -14,6 +14,16 @@
 #define cpu_get_cycle cpui386_get_cycle
 #endif
 
+#ifdef BUILD_ESP32
+#define MIXER_BUF_LEN 128
+#define PC_STEP_COUNT 512
+void pcmalloc_init(void *ptr, long len);
+#else
+#define MIXER_BUF_LEN 2048
+#define PC_STEP_COUNT 10240
+#define pcmalloc_init(ptr, len)
+#endif
+
 static u8 pc_io_read(void *o, int addr)
 {
 	PC *pc = o;
@@ -483,11 +493,7 @@ void pc_step(PC *pc)
 #ifdef USEKVM
 	cpukvm_step(pc->cpu, 4096);
 #else
-#ifdef BUILD_ESP32
-	cpui386_step(pc->cpu, 512);
-#else
-	cpui386_step(pc->cpu, 10240);
-#endif
+	cpui386_step(pc->cpu, PC_STEP_COUNT);
 #endif
 }
 
@@ -623,12 +629,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	char *mem = bigmalloc(conf->mem_size);
 	CPU_CB *cb = NULL;
 	memset(mem, 0, conf->mem_size);
-#ifdef BUILD_ESP32
-	extern char *pcram;
-	extern long pcram_len;
-	pcram = mem + 0xa0000;
-	pcram_len = 0xc0000 - 0xa0000;
-#endif
+	pcmalloc_init(mem + 0xa0000, 0xc0000 - 0xa0000);
 #ifdef USEKVM
 	pc->cpu = cpukvm_new(mem, conf->mem_size, &cb);
 #else
@@ -751,11 +752,6 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	return pc;
 }
 
-#ifdef BUILD_ESP32
-#define MIXER_BUF_LEN 128
-#else
-#define MIXER_BUF_LEN 2048
-#endif
 void mixer_callback (void *opaque, uint8_t *stream, int free)
 {
 	uint8_t tmpbuf[MIXER_BUF_LEN];

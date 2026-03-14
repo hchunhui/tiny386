@@ -1808,11 +1808,7 @@ static IDEState *ide_hddrive_init(IDEIFState *ide_if, BlockDevice *bs)
     uint32_t cylinders;
     uint64_t nb_sectors;
 
-#ifndef USE_RAWSD
     s = pcmalloc(sizeof(*s));
-#else
-    s = malloc(sizeof(*s));
-#endif
     memset(s, 0, sizeof(*s));
 
     s->ide_if = ide_if;
@@ -1857,11 +1853,7 @@ static IDEState *ide_cddrive_init(IDEIFState *ide_if, BlockDevice *bs)
 {
     IDEState *s;
 
-#ifndef USE_RAWSD
     s = pcmalloc(sizeof(*s));
-#else
-    s = malloc(sizeof(*s));
-#endif
     memset(s, 0, sizeof(*s));
 
     s->ide_if = ide_if;

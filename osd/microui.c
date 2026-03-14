@@ -47,9 +47,9 @@
   } while (0)
 
 
-static mu_Rect unclipped_rect = { 0, 0, 32767, 32767 };
+const static mu_Rect unclipped_rect = { 0, 0, 32767, 32767 };
 
-static mu_Style default_style = {
+const static mu_Style default_style = {
   /* font | size | padding | spacing | indent */
   NULL, { 68, 10 }, 5, 4, 24,
   /* title_height | scrollbar_size | thumb_size */

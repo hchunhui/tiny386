@@ -5,19 +5,13 @@
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
-
 #include <stdio.h>
+
+#ifndef BUILD_ESP32
 #if !defined(_WIN32) && !defined(__wasm__)
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <signal.h>
-#endif
-#ifdef BUILD_ESP32
-#include "driver/uart.h"
-#endif
-
-#if !defined(_WIN32) && !defined(__wasm__)
-#ifndef BUILD_ESP32
 static void CtrlC(int _)
 {
 	exit( 0 );
@@ -31,12 +25,10 @@ static void ResetKeyboardInput()
 	term.c_lflag |= ICANON | ECHO;
 	tcsetattr(0, TCSANOW, &term);
 }
-#endif /* !BUILD_ESP32 */
 
 // Override keyboard, so we can capture all keyboard input for the VM.
 void CaptureKeyboardInput()
 {
-#ifndef BUILD_ESP32
 	// Hook exit, because we want to re-enable keyboard.
 	atexit(ResetKeyboardInput);
 	signal(SIGINT, CtrlC);
@@ -45,41 +37,48 @@ void CaptureKeyboardInput()
 	tcgetattr(0, &term);
 	term.c_lflag &= ~(ICANON | ECHO | ISIG); // Disable echo as well
 	tcsetattr(0, TCSANOW, &term);
-#endif
 }
 
 static int ReadKBByte()
 {
-#ifdef BUILD_ESP32
-	char data;
-	if (uart_read_bytes(0, &data, 1, 20 / portTICK_PERIOD_MS) > 0) {
-		return data;
-	}
-	return -1;
-#else
 	char rxchar = 0;
 	int rread = read(fileno(stdin), (char*)&rxchar, 1);
 	if( rread > 0 ) // Tricky: getchar can't be used with arrow keys.
 		return rxchar;
 	else
 		abort();
-#endif
 }
 
 static int IsKBHit()
 {
-#ifdef BUILD_ESP32
+	int byteswaiting;
+	ioctl(0, FIONREAD, &byteswaiting);
+	return !!byteswaiting;
+}
+#endif
+#else
+#include "driver/uart.h"
+void CaptureKeyboardInput()
+{
+}
+
+static int ReadKBByte()
+{
+	char data;
+	if (uart_read_bytes(0, &data, 1, 20 / portTICK_PERIOD_MS) > 0) {
+		return data;
+	}
+	return -1;
+}
+
+static int IsKBHit()
+{
 	size_t len;
 	if (uart_get_buffered_data_len(0, &len) == ESP_OK) {
 		if (len)
 			return 1;
 	}
 	return 0;
-#else
-	int byteswaiting;
-	ioctl(0, FIONREAD, &byteswaiting);
-	return !!byteswaiting;
-#endif
 }
 #endif
 

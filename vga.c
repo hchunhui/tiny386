@@ -34,14 +34,12 @@
 
 #ifdef BUILD_ESP32
 #include "esp_attr.h"
+void *pcmalloc(long size);
+#define RETRACE_INTERVAL_US 5000
 #else
 #define IRAM_ATTR
-#endif
-
-#ifdef BUILD_ESP32
-void *pcmalloc(long size);
-#else
 #define pcmalloc malloc
+#define RETRACE_INTERVAL_US 15000
 #endif
 
 //#define DEBUG_VBE
@@ -1174,11 +1172,7 @@ int vga_step(VGAState *s)
         } else {
             s->st01 &= ~(ST01_V_RETRACE | ST01_DISP_ENABLE);
             s->retrace_phase = 0;
-#ifdef BUILD_ESP32
-            s->retrace_time = now + 15000/3;
-#else
-            s->retrace_time = now + 15000;
-#endif
+            s->retrace_time = now + RETRACE_INTERVAL_US;
         }
     }
     return ret;
