@@ -677,7 +677,7 @@ static void vga_text_refresh(VGAState *s,
     uint32_t fgcol, bgcol, cursor_offset, cursor_start, cursor_end;
     uint32_t now = get_uticks();
     if (after_eq(now, s->cursor_blink_time)) {
-        s->cursor_blink_time = now + 266666;
+        s->cursor_blink_time = now + 133333;
         s->cursor_visible_phase = !s->cursor_visible_phase;
     }
 
