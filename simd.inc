@@ -2363,6 +2363,10 @@ uint16_t *fpu_xmm_get_u16(FPU *fpu, int i)
 
 bool fpu_xmm_grp15(FPU *fpu, void *cpu, int op, int seg, uint32_t addr)
 {
+	if (!fpu) {
+		cpu_setexc(cpu, 6, 0);
+		return false;
+	}
 	switch (op) {
 	case 0: { // FXSAVE
 		uword start = addr;
