@@ -169,6 +169,14 @@ void setup(int phys_ram_size, int initrd_size, char *cmdline, int kernel_size)
     params->mount_root_rdonly = 0;
     params->cmd_line_ptr = (uintptr_t)params->commandline;
     params->alt_mem_k = (phys_ram_size / 1024) - 1024;
+    // It seems like linux 7.0+ doesn't support non-e820 system anymore...
+    params->e820map_entries = 2;
+    params->e820map[0].addr = 0;
+    params->e820map[0].size = 640 * 1024;
+    params->e820map[0].type = E820_RAM;
+    params->e820map[1].addr = 1024 * 1024;
+    params->e820map[1].size = params->alt_mem_k * 1024;
+    params->e820map[1].type = E820_RAM;
 
     strcpy((char *)params->commandline, cmdline);
 
