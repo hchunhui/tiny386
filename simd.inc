@@ -3397,8 +3397,6 @@ bool fpu_xmm_ri(FPU *fpu, void *cpu, int op, int func, int dst, int imm)
 
 bool fpu_xmm_mr(FPU *fpu, void *cpu, int op, int src, int seg, uint32_t addr)
 {
-	cpu_setexc(cpu, 6, 0);
-	return false;
 	if (op == 0x7f || op == 0xe7) { // MOVDQA/MOVNTDQ
 		UXMM v = fpu->xmm[src];
 		for (int i = 0; i < 4; i++)
