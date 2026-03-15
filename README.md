@@ -56,12 +56,15 @@ cdb = win95_cd.iso
 ; "fill_cmos" fixes "MS-DOS compatibility mode" in win9x, but it breaks winNT...
 fill_cmos = 1
 
+; force 8-dot mode (640 pixel wide in text mode) if set to 1
+vga_force_8dm = 0
+
 [display]
 width = 720
 height = 480
 
 [cpu]
-; gen = 3/4/5, for 386/486/586
+; gen = 3/4/5/6, for 386/486/586/686
 gen = 3
 ; fpu = 0/1, to disable/enable x87
 fpu = 0
