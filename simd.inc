@@ -48,8 +48,18 @@ I2(C(0xe6), _, 0, CVTDQ_PD)
 I2(C(0xd0, 0x7c, 0x7d), _, 0, SIMD_VxWx_P)
 I2(C(0xf0), _, 0, LDDQU)
 #endif /* I386_ENABLE_SSE3 */
-
 #endif /* I2 */
+
+#ifdef I386_ENABLE_SSSE3
+#ifdef I3_38
+I3_38(C(0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+	0x08, 0x09, 0x0a, 0x0b, 0x1c, 0x1d, 0x1e), _, 0, SIMD3_PqQq_VxWx)
+#endif
+#ifdef I3_3a
+I3_3a(C(0x0f), _, 0, SIMD_PALIGNR)
+#endif
+#endif /* I386_ENABLE_SSSE3 */
+
 #endif /* SIMD_i386ins_def */
 
 #if defined(SIMD_i386_c) || defined(SIMD_fpu_c)
@@ -1276,7 +1286,6 @@ static int32_t trunci32(double val)
 #define SSE2_PSHUFLW() THROW0(EX_UD)
 #define SSE2_PSHUFHW() THROW0(EX_UD)
 #endif /* I386_ENABLE_SSE2 */
-#endif /* SIMD_i386_c */
 
 #ifdef I386_ENABLE_SSE3
 #define LDDQU() \
@@ -1300,6 +1309,120 @@ static int32_t trunci32(double val)
 		} \
 	}
 #endif /* I386_ENABLE_SSE3 */
+
+#ifdef I386_ENABLE_SSSE3
+static uint64_t PALIGNR_helper(uint64_t d, uint64_t s, int i)
+{
+	if (i < 8) {
+		int sh = i * 8;
+		return (d >> sh) | (s << (64 - sh));
+	} else if (i < 16) {
+		int sh = (i - 8) * 8;
+		return d >> sh;
+	} else {
+		return 0;
+	}
+}
+
+static void XMM_PALIGNR_helper(uint64_t *d, uint64_t *s, int i)
+{
+	/* d[1] d[0] s[1] s[0] */
+	if (i < 8) {
+		int sh1 = i * 8;
+		int sh2 = (8 - i) * 8;
+		d[1] = (s[1] >> sh1) | (d[0] << sh2);
+		d[0] = (s[0] >> sh1) | (s[1] << sh2);
+	} else if (i < 16) {
+		int sh1 = (i - 8) * 8;
+		int sh2 = (16 - i) * 8;
+		d[1] = (d[0] >> sh1) | (d[1] << sh2);
+		d[0] = (s[1] >> sh1) | (d[0] << sh2);
+	} else if (i < 24) {
+		int sh1 = (i - 16) * 8;
+		int sh2 = (24 - i) * 8;
+		d[0] = (d[0] >> sh1) | (d[1] << sh2);
+		d[1] = (d[1] >> sh1);
+	} else if (i < 32) {
+		int sh1 = (i - 24) * 8;
+		d[0] = (d[1] >> sh1);
+		d[1] = 0;
+	} else {
+		d[0] = 0;
+		d[1] = 0;
+	}
+}
+
+#define SIMD3_PqQq_VxWx() \
+	if (cpu->cr0 & 0xc) THROW0(EX_NM); \
+	TRY(fetch8(cpu, &modrm)); \
+	int reg = (modrm >> 3) & 7; \
+	int mod = modrm >> 6; \
+	int rm = modrm & 7; \
+	int b2 = b1 + 0x100; \
+	if (rep) THROW0(EX_UD); \
+	if (mod == 3) { \
+		if (opsz16 == code16) /* NP */ { \
+			TRY(fpu_mmx_rr(cpu->fpu, cpu, b2, reg, rm)); \
+		} else /* 66 */ { \
+			TRY(fpu_xmm_rr(cpu->fpu, cpu, b2, reg, rm)); \
+		} \
+	} else { \
+		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
+		if (opsz16 == code16) /* NP */ { \
+			TRY(fpu_mmx_rm(cpu->fpu, cpu, b2, reg, curr_seg, addr)); \
+		} else /* 66 */ { \
+			TRY(fpu_xmm_rm(cpu->fpu, cpu, b2, reg, curr_seg, addr)); \
+		} \
+	}
+
+#define SIMD_PALIGNR() \
+	if (cpu->cr0 & 0xc) THROW0(EX_NM); \
+	TRY(fetch8(cpu, &modrm)); \
+	int reg = (modrm >> 3) & 7; \
+	int mod = modrm >> 6; \
+	int rm = modrm & 7; \
+	u8 imm8; \
+	if (mod == 3) { \
+		TRY(fetch8(cpu, &imm8)); \
+		if (rep == 0) { \
+			if (opsz16 == code16) /* NP */ { \
+				uint64_t v = fpu_mmx_get(cpu->fpu, reg); \
+				uint64_t w = fpu_mmx_get(cpu->fpu, rm); \
+				fpu_mmx_set(cpu->fpu, reg, PALIGNR_helper(v, w, imm8)); \
+			} else /* 66 */ { \
+				uint64_t *v = fpu_xmm_get_u64(cpu->fpu, reg); \
+				uint64_t *w = fpu_xmm_get_u64(cpu->fpu, rm); \
+				XMM_PALIGNR_helper(v, w, imm8); \
+			} \
+		} else { \
+			THROW0(EX_UD); \
+		} \
+	} else { \
+		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
+		TRY(fetch8(cpu, &imm8)); \
+		if (rep == 0) { \
+			if (opsz16 == code16) /* NP */ { \
+				uint64_t v = fpu_mmx_get(cpu->fpu, reg); \
+				uint32_t lo, hi; \
+				TRY(cpu_load32(cpu, curr_seg, addr, &lo)); \
+				TRY(cpu_load32(cpu, curr_seg, addr + 4, &hi)); \
+				uint64_t w = lo | (((uint64_t) hi) << 32); \
+				fpu_mmx_set(cpu->fpu, reg, PALIGNR_helper(v, w, imm8)); \
+			} else /* 66 */ { \
+				union {uint64_t v64[2]; uint32_t v[4]; } u; \
+				uint64_t *v = fpu_xmm_get_u64(cpu->fpu, reg); \
+				TRY(cpu_load32(cpu, curr_seg, addr, &(u.v[0]))); \
+				TRY(cpu_load32(cpu, curr_seg, addr + 4, &(u.v[1]))); \
+				TRY(cpu_load32(cpu, curr_seg, addr + 8, &(u.v[2]))); \
+				TRY(cpu_load32(cpu, curr_seg, addr + 12, &(u.v[3]))); \
+				XMM_PALIGNR_helper(v, u.v64, imm8); \
+			} \
+		} else { \
+			THROW0(EX_UD); \
+		} \
+	}
+#endif /* I386_ENABLE_SSSE3 */
+#endif /* SIMD_i386_c */
 
 #ifdef SIMD_fpu_c
 // MMX
@@ -1493,6 +1616,11 @@ MMX_v16_v(s, PMIN) // s16
 MMX_v16_v(u, PMULHU)
 MMX_v8_v(u, _AD)
 
+#define PSIGN_(B, a, b) a = (b == 0 ? 0 : (b < 0 ? -a : a));
+#define PABS_(B, a, b) a = (b < 0 ? -b : b);
+MMX_v_v(s, PSIGN)
+MMX_v_v(s, PABS)
+
 static uint64_t PMADDWD(uint64_t a, uint64_t b)
 {
 	UMMX v = { .v = a };
@@ -1650,6 +1778,112 @@ static uint64_t PMULUDQ(uint64_t a, uint64_t b) // SSE2
 	return (a & 0xffffffff) * (b & 0xffffffff);
 }
 
+static uint64_t PSHUFB(uint64_t a, uint64_t b)
+{
+	UMMX v = { .v = a };
+	UMMX w = { .v = b };
+	UMMX r;
+	for (int i = 0; i < 8; i++) {
+		if (w.s8v[i] < 0)
+			r.u8v[i] = 0;
+		else
+			r.u8v[i] = v.u8v[w.s8v[i] & 7];
+	}
+	return r.v;
+}
+
+static uint64_t PHADDW(uint64_t a, uint64_t b)
+{
+	UMMX v = { .v = a };
+	UMMX w = { .v = b };
+	UMMX r;
+	r.u16v[0] = v.u16v[0] + v.u16v[1];
+	r.u16v[1] = v.u16v[2] + v.u16v[3];
+	r.u16v[2] = w.u16v[0] + w.u16v[1];
+	r.u16v[3] = w.u16v[2] + w.u16v[3];
+	return r.v;
+}
+
+static uint64_t PHADDD(uint64_t a, uint64_t b)
+{
+	UMMX v = { .v = a };
+	UMMX w = { .v = b };
+	UMMX r;
+	r.u32v[0] = v.u32v[0] + v.u32v[1];
+	r.u32v[1] = w.u32v[0] + w.u32v[1];
+	return r.v;
+}
+
+static uint64_t PHADDSW(uint64_t a, uint64_t b)
+{
+	UMMX v = { .v = a };
+	UMMX w = { .v = b };
+	UMMX r;
+	r.s16v[0] = sats16((int) v.s16v[0] + (int) v.s16v[1]);
+	r.s16v[1] = sats16((int) v.s16v[2] + (int) v.s16v[3]);
+	r.s16v[2] = sats16((int) w.s16v[0] + (int) w.s16v[1]);
+	r.s16v[3] = sats16((int) w.s16v[2] + (int) w.s16v[3]);
+	return r.v;
+}
+
+static uint64_t PMADDUBSW(uint64_t a, uint64_t b)
+{
+	UMMX v = { .v = a };
+	UMMX w = { .v = b };
+	UMMX r;
+	r.s16v[0] = sats16((int) v.u8v[0] * (int) w.u8v[0] + (int) v.u8v[1] * (int) w.u8v[1]);
+	r.s16v[1] = sats16((int) v.u8v[2] * (int) w.u8v[2] + (int) v.u8v[3] * (int) w.u8v[3]);
+	r.s16v[2] = sats16((int) v.u8v[4] * (int) w.u8v[4] + (int) v.u8v[5] * (int) w.u8v[5]);
+	r.s16v[3] = sats16((int) v.u8v[6] * (int) w.u8v[6] + (int) v.u8v[7] * (int) w.u8v[7]);
+	return r.v;
+}
+
+static uint64_t PHSUBW(uint64_t a, uint64_t b)
+{
+	UMMX v = { .v = a };
+	UMMX w = { .v = b };
+	UMMX r;
+	r.u16v[0] = v.u16v[0] - v.u16v[1];
+	r.u16v[1] = v.u16v[2] - v.u16v[3];
+	r.u16v[2] = w.u16v[0] - w.u16v[1];
+	r.u16v[3] = w.u16v[2] - w.u16v[3];
+	return r.v;
+}
+
+static uint64_t PHSUBD(uint64_t a, uint64_t b)
+{
+	UMMX v = { .v = a };
+	UMMX w = { .v = b };
+	UMMX r;
+	r.u32v[0] = v.u32v[0] - v.u32v[1];
+	r.u32v[1] = w.u32v[0] - w.u32v[1];
+	return r.v;
+}
+
+static uint64_t PHSUBSW(uint64_t a, uint64_t b)
+{
+	UMMX v = { .v = a };
+	UMMX w = { .v = b };
+	UMMX r;
+	r.s16v[0] = sats16((int) v.s16v[0] - (int) v.s16v[1]);
+	r.s16v[1] = sats16((int) v.s16v[2] - (int) v.s16v[3]);
+	r.s16v[2] = sats16((int) w.s16v[0] - (int) w.s16v[1]);
+	r.s16v[3] = sats16((int) w.s16v[2] - (int) w.s16v[3]);
+	return r.v;
+}
+
+static uint64_t PMULHRSW(uint64_t a, uint64_t b)
+{
+	UMMX v = { .v = a };
+	UMMX w = { .v = b };
+	UMMX r;
+	r.s16v[0] = ((((int) v.s16v[0] * (int) w.s16v[0]) >> 14) + 1) >> 1;
+	r.s16v[1] = ((((int) v.s16v[1] * (int) w.s16v[1]) >> 14) + 1) >> 1;
+	r.s16v[2] = ((((int) v.s16v[2] * (int) w.s16v[2]) >> 14) + 1) >> 1;
+	r.s16v[3] = ((((int) v.s16v[3] * (int) w.s16v[3]) >> 14) + 1) >> 1;
+	return r.v;
+}
+
 bool fpu_mmx_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 {
 	uint64_t d = fpu_mmx_get(fpu, dst);
@@ -1713,6 +1947,24 @@ bool fpu_mmx_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 	case 0xd4: d = PADD64(d, s); break;
 	case 0xfb: d = PSUB64(d, s); break;
 	case 0xf4: d = PMULUDQ(d, s); break;
+#ifdef I386_ENABLE_SSSE3
+	/* SSSE3 */
+	case 0x100: d = PSHUFB(d, s); break;
+	case 0x101: d = PHADDW(d, s); break;
+	case 0x102: d = PHADDD(d, s); break;
+	case 0x103: d = PHADDSW(d, s); break;
+	case 0x104: d = PMADDUBSW(d, s); break;
+	case 0x105: d = PHSUBW(d, s); break;
+	case 0x106: d = PHSUBD(d, s); break;
+	case 0x107: d = PHSUBSW(d, s); break;
+	case 0x108: d = PSIGN8(d, s); break;
+	case 0x109: d = PSIGN16(d, s); break;
+	case 0x10a: d = PSIGN32(d, s); break;
+	case 0x10b: d = PMULHRSW(d, s); break;
+	case 0x11c: d = PABS8(d, s); break;
+	case 0x11d: d = PABS16(d, s); break;
+	case 0x11e: d = PABS32(d, s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -1790,6 +2042,24 @@ bool fpu_mmx_rm(FPU *fpu, void *cpu, int op, int dst, int seg, uint32_t addr)
 	case 0xd4: d = PADD64(d, s); break;
 	case 0xfb: d = PSUB64(d, s); break;
 	case 0xf4: d = PMULUDQ(d, s); break;
+#ifdef I386_ENABLE_SSSE3
+	/* SSSE3 */
+	case 0x100: d = PSHUFB(d, s); break;
+	case 0x101: d = PHADDW(d, s); break;
+	case 0x102: d = PHADDD(d, s); break;
+	case 0x103: d = PHADDSW(d, s); break;
+	case 0x104: d = PMADDUBSW(d, s); break;
+	case 0x105: d = PHSUBW(d, s); break;
+	case 0x106: d = PHSUBD(d, s); break;
+	case 0x107: d = PHSUBSW(d, s); break;
+	case 0x108: d = PSIGN8(d, s); break;
+	case 0x109: d = PSIGN16(d, s); break;
+	case 0x10a: d = PSIGN32(d, s); break;
+	case 0x10b: d = PMULHRSW(d, s); break;
+	case 0x11c: d = PABS8(d, s); break;
+	case 0x11d: d = PABS16(d, s); break;
+	case 0x11e: d = PABS32(d, s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -2958,6 +3228,9 @@ XMM_v16_v(s, PMIN) // s16
 XMM_v16_v(u, PMULHU)
 XMM_v8_v(u, _AD)
 
+XMM_v_v(s, PSIGN)
+XMM_v_v(s, PABS)
+
 static UXMM XMM_PMADDWD(UXMM v, UXMM w)
 {
 	int t[8];
@@ -3180,6 +3453,122 @@ static UXMM XMM_PMULUDQ(UXMM a, UXMM b)
 	return v;
 }
 
+static UXMM XMM_PSHUFB(UXMM v, UXMM w)
+{
+	UXMM r;
+	for (int i = 0; i < 16; i++) {
+		if (w.s8v[i] < 0)
+			r.u8v[i] = 0;
+		else
+			r.u8v[i] = v.u8v[w.s8v[i] & 15];
+	}
+	return r;
+}
+
+static UXMM XMM_PHADDW(UXMM v, UXMM w)
+{
+	UXMM r;
+	r.u16v[0] = v.u16v[0] + v.u16v[1];
+	r.u16v[1] = v.u16v[2] + v.u16v[3];
+	r.u16v[2] = v.u16v[4] + v.u16v[5];
+	r.u16v[3] = v.u16v[6] + v.u16v[7];
+	r.u16v[4] = w.u16v[0] + w.u16v[1];
+	r.u16v[5] = w.u16v[2] + w.u16v[3];
+	r.u16v[6] = w.u16v[4] + w.u16v[5];
+	r.u16v[7] = w.u16v[6] + w.u16v[7];
+	return r;
+}
+
+static UXMM XMM_PHADDD(UXMM v, UXMM w)
+{
+	UXMM r;
+	r.u32v[0] = v.u32v[0] + v.u32v[1];
+	r.u32v[1] = v.u32v[2] + v.u32v[3];
+	r.u32v[2] = w.u32v[0] + w.u32v[1];
+	r.u32v[3] = w.u32v[2] + w.u32v[3];
+	return r;
+}
+
+static UXMM XMM_PHADDSW(UXMM v, UXMM w)
+{
+	UXMM r;
+	r.u16v[0] = sats16((int) v.u16v[0] + (int) v.u16v[1]);
+	r.u16v[1] = sats16((int) v.u16v[2] + (int) v.u16v[3]);
+	r.u16v[2] = sats16((int) v.u16v[4] + (int) v.u16v[5]);
+	r.u16v[3] = sats16((int) v.u16v[6] + (int) v.u16v[7]);
+	r.u16v[4] = sats16((int) w.u16v[0] + (int) w.u16v[1]);
+	r.u16v[5] = sats16((int) w.u16v[2] + (int) w.u16v[3]);
+	r.u16v[6] = sats16((int) w.u16v[4] + (int) w.u16v[5]);
+	r.u16v[7] = sats16((int) w.u16v[6] + (int) w.u16v[7]);
+	return r;
+}
+
+static UXMM XMM_PMADDUBSW(UXMM v, UXMM w)
+{
+	UXMM r;
+	r.s16v[0] = sats16((int) v.u8v[0] * (int) w.u8v[0] + (int) v.u8v[1] * (int) w.u8v[1]);
+	r.s16v[1] = sats16((int) v.u8v[2] * (int) w.u8v[2] + (int) v.u8v[3] * (int) w.u8v[3]);
+	r.s16v[2] = sats16((int) v.u8v[4] * (int) w.u8v[4] + (int) v.u8v[5] * (int) w.u8v[5]);
+	r.s16v[3] = sats16((int) v.u8v[6] * (int) w.u8v[6] + (int) v.u8v[7] * (int) w.u8v[7]);
+	r.s16v[4] = sats16((int) v.u8v[8] * (int) w.u8v[8] + (int) v.u8v[9] * (int) w.u8v[9]);
+	r.s16v[5] = sats16((int) v.u8v[10] * (int) w.u8v[10] + (int) v.u8v[11] * (int) w.u8v[11]);
+	r.s16v[6] = sats16((int) v.u8v[12] * (int) w.u8v[12] + (int) v.u8v[13] * (int) w.u8v[13]);
+	r.s16v[7] = sats16((int) v.u8v[14] * (int) w.u8v[14] + (int) v.u8v[15] * (int) w.u8v[15]);
+	return r;
+}
+
+static UXMM XMM_PHSUBW(UXMM v, UXMM w)
+{
+	UXMM r;
+	r.u16v[0] = v.u16v[0] - v.u16v[1];
+	r.u16v[1] = v.u16v[2] - v.u16v[3];
+	r.u16v[2] = v.u16v[4] - v.u16v[5];
+	r.u16v[3] = v.u16v[6] - v.u16v[7];
+	r.u16v[4] = w.u16v[0] - w.u16v[1];
+	r.u16v[5] = w.u16v[2] - w.u16v[3];
+	r.u16v[6] = w.u16v[4] - w.u16v[5];
+	r.u16v[7] = w.u16v[6] - w.u16v[7];
+	return r;
+}
+
+static UXMM XMM_PHSUBD(UXMM v, UXMM w)
+{
+	UXMM r;
+	r.u32v[0] = v.u32v[0] - v.u32v[1];
+	r.u32v[1] = v.u32v[2] - v.u32v[3];
+	r.u32v[2] = w.u32v[0] - w.u32v[1];
+	r.u32v[3] = w.u32v[2] - w.u32v[3];
+	return r;
+}
+
+static UXMM XMM_PHSUBSW(UXMM v, UXMM w)
+{
+	UXMM r;
+	r.u16v[0] = sats16((int) v.u16v[0] - (int) v.u16v[1]);
+	r.u16v[1] = sats16((int) v.u16v[2] - (int) v.u16v[3]);
+	r.u16v[2] = sats16((int) v.u16v[4] - (int) v.u16v[5]);
+	r.u16v[3] = sats16((int) v.u16v[6] - (int) v.u16v[7]);
+	r.u16v[4] = sats16((int) w.u16v[0] - (int) w.u16v[1]);
+	r.u16v[5] = sats16((int) w.u16v[2] - (int) w.u16v[3]);
+	r.u16v[6] = sats16((int) w.u16v[4] - (int) w.u16v[5]);
+	r.u16v[7] = sats16((int) w.u16v[6] - (int) w.u16v[7]);
+	return r;
+}
+
+static UXMM XMM_PMULHRSW(UXMM v, UXMM w)
+{
+	UXMM r;
+	r.s16v[0] = ((((int) v.s16v[0] * (int) w.s16v[0]) >> 14) + 1) >> 1;
+	r.s16v[1] = ((((int) v.s16v[1] * (int) w.s16v[1]) >> 14) + 1) >> 1;
+	r.s16v[2] = ((((int) v.s16v[2] * (int) w.s16v[2]) >> 14) + 1) >> 1;
+	r.s16v[3] = ((((int) v.s16v[3] * (int) w.s16v[3]) >> 14) + 1) >> 1;
+	r.s16v[4] = ((((int) v.s16v[4] * (int) w.s16v[4]) >> 14) + 1) >> 1;
+	r.s16v[5] = ((((int) v.s16v[5] * (int) w.s16v[5]) >> 14) + 1) >> 1;
+	r.s16v[6] = ((((int) v.s16v[6] * (int) w.s16v[6]) >> 14) + 1) >> 1;
+	r.s16v[7] = ((((int) v.s16v[7] * (int) w.s16v[7]) >> 14) + 1) >> 1;
+	return r;
+}
+
 bool fpu_xmm_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 {
 	UXMM d = fpu->xmm[dst];
@@ -3243,6 +3632,24 @@ bool fpu_xmm_rr(FPU *fpu, void *cpu, int op, int dst, int src)
 	case 0xd4: d = XMM_PADD64(d, s); break;
 	case 0xfb: d = XMM_PSUB64(d, s); break;
 	case 0xf4: d = XMM_PMULUDQ(d, s); break;
+#ifdef I386_ENABLE_SSSE3
+	/* SSSE3 */
+	case 0x100: d = XMM_PSHUFB(d, s); break;
+	case 0x101: d = XMM_PHADDW(d, s); break;
+	case 0x102: d = XMM_PHADDD(d, s); break;
+	case 0x103: d = XMM_PHADDSW(d, s); break;
+	case 0x104: d = XMM_PMADDUBSW(d, s); break;
+	case 0x105: d = XMM_PHSUBW(d, s); break;
+	case 0x106: d = XMM_PHSUBD(d, s); break;
+	case 0x107: d = XMM_PHSUBSW(d, s); break;
+	case 0x108: d = XMM_PSIGN8(d, s); break;
+	case 0x109: d = XMM_PSIGN16(d, s); break;
+	case 0x10a: d = XMM_PSIGN32(d, s); break;
+	case 0x10b: d = XMM_PMULHRSW(d, s); break;
+	case 0x11c: d = XMM_PABS8(d, s); break;
+	case 0x11d: d = XMM_PABS16(d, s); break;
+	case 0x11e: d = XMM_PABS32(d, s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
@@ -3318,6 +3725,24 @@ bool fpu_xmm_rm(FPU *fpu, void *cpu, int op, int dst, int seg, uint32_t addr)
 	case 0xd4: d = XMM_PADD64(d, s); break;
 	case 0xfb: d = XMM_PSUB64(d, s); break;
 	case 0xf4: d = XMM_PMULUDQ(d, s); break;
+#ifdef I386_ENABLE_SSSE3
+	/* SSSE3 */
+	case 0x100: d = XMM_PSHUFB(d, s); break;
+	case 0x101: d = XMM_PHADDW(d, s); break;
+	case 0x102: d = XMM_PHADDD(d, s); break;
+	case 0x103: d = XMM_PHADDSW(d, s); break;
+	case 0x104: d = XMM_PMADDUBSW(d, s); break;
+	case 0x105: d = XMM_PHSUBW(d, s); break;
+	case 0x106: d = XMM_PHSUBD(d, s); break;
+	case 0x107: d = XMM_PHSUBSW(d, s); break;
+	case 0x108: d = XMM_PSIGN8(d, s); break;
+	case 0x109: d = XMM_PSIGN16(d, s); break;
+	case 0x10a: d = XMM_PSIGN32(d, s); break;
+	case 0x10b: d = XMM_PMULHRSW(d, s); break;
+	case 0x11c: d = XMM_PABS8(d, s); break;
+	case 0x11d: d = XMM_PABS16(d, s); break;
+	case 0x11e: d = XMM_PABS32(d, s); break;
+#endif
 	default:
 		cpu_setexc(cpu, 6, 0);
 		return false;
