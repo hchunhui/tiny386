@@ -80,11 +80,21 @@ static void event_handler(void* arg, esp_event_base_t event_base,
 	}
 }
 
+#ifdef USE_HOSTED_WIFI
+#include "esp_hosted.h"
+#endif
+
 void wifi_init_sta(const char *ssid, const char *pass)
 {
 	s_wifi_event_group = xEventGroupCreate();
 
 	ESP_ERROR_CHECK(esp_netif_init());
+
+#ifdef USE_HOSTED_WIFI
+	ESP_LOGI(TAG, "init ESP-Hosted");
+	esp_hosted_init();
+	esp_hosted_connect_to_slave();
+#endif
 
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
 	esp_netif_create_default_wifi_sta();

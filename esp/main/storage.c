@@ -18,6 +18,18 @@ static const char *TAG = "storage";
 void *rawsd;
 static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
 
+#ifdef USE_HOSTED_WIFI
+static esp_err_t sdmmc_host_init_dummy(void)
+{
+	return ESP_OK;
+}
+
+static esp_err_t sdmmc_host_deinit_dummy(void)
+{
+	return ESP_OK;
+}
+#endif
+
 void storage_init(void)
 {
 	bool sd_mount_ok = false;
@@ -44,6 +56,11 @@ void storage_init(void)
 	// Example: for fixed frequency of 10MHz, use host.max_freq_khz = 10000;
 	sdmmc_host_t host = SDMMC_HOST_DEFAULT();
 	host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
+#ifdef USE_HOSTED_WIFI
+	host.slot = SDMMC_HOST_SLOT_0;
+	host.init = &sdmmc_host_init_dummy;
+	host.deinit = &sdmmc_host_deinit_dummy;
+#endif
 
 	// For SoCs where the SD power can be supplied both via an internal or external (e.g. on-board LDO) power supply.
 	// When using specific IO pins (which can be used for ultra high-speed SDMMC) to connect to the SD card
@@ -105,6 +122,11 @@ void storage_init(void)
 	ESP_LOGI(TAG, "Using SDMMC peripheral");
 	sdmmc_host_t host = SDMMC_HOST_DEFAULT();
 	host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
+#ifdef USE_HOSTED_WIFI
+	host.slot = SDMMC_HOST_SLOT_0;
+	host.init = &sdmmc_host_init_dummy;
+	host.deinit = &sdmmc_host_deinit_dummy;
+#endif
 
 #ifdef SD_PWR_CTRL_LDO_IO_ID
 	sd_pwr_ctrl_ldo_config_t ldo_config = {

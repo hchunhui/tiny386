@@ -22,4 +22,6 @@
 #define SD_D3 42
 #define SD_PWR_CTRL_LDO_IO_ID 4
 
+#define USE_HOSTED_WIFI
+
 // TODO: I2S
