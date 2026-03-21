@@ -140,8 +140,6 @@ static int pc_main(const char *file)
 	conf.vga_bios = "vgabios.bin";
 	conf.mem_size = 8 * 1024 * 1024;
 	conf.vga_mem_size = 256 * 1024;
-	conf.width = 720;
-	conf.height = 480;
 	conf.cpu_gen = 4;
 	conf.fpu = 0;
 
@@ -149,6 +147,13 @@ static int pc_main(const char *file)
 	if (err) {
 		printf("error %d\n", err);
 		return err;
+	}
+
+	if (conf.width != LCD_WIDTH || conf.height != LCD_HEIGHT) {
+		fprintf(stderr, "fixing width/height mismatch %dx%d => %dx%d\n",
+			conf.width, conf.height, LCD_WIDTH, LCD_HEIGHT);
+		conf.width = LCD_WIDTH;
+		conf.height = LCD_HEIGHT;
 	}
 
 	Console *console = console_init(conf.width, conf.height);

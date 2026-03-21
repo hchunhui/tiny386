@@ -49,6 +49,9 @@ static const char *TAG = "simple wifi";
 
 void (*_Atomic esp32_send_packet)(uint8_t *buf, int size);
 
+#ifndef ESP_IF_WIFI_STA
+#define ESP_IF_WIFI_STA WIFI_IF_STA
+#endif
 static void send_packet(uint8_t *buf, int size)
 {
 	esp_wifi_internal_tx(ESP_IF_WIFI_STA, buf, size);

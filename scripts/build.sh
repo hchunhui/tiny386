@@ -79,6 +79,13 @@ patch_idf() {
     cd "$PDIR"
 }
 
+patch_idf_60() {
+    PDIR="$PWD"
+    cd "$IDF_PATH" &&
+    patch -p1 < "$PDIR/esp/esp-idf-6.0.patch" &&
+    cd "$PDIR"
+}
+
 build_esp() {
     mkdir -p out/esp &&
 	cd esp && idf.py build &&
@@ -101,6 +108,8 @@ elif [ "$1" == "tiny386" ]; then
     build_tiny386
 elif [ "$1" == "patch_idf" ]; then
     patch_idf
+elif [ "$1" == "patch_idf_60" ]; then
+    patch_idf_60
 elif [ "$1" == "esp" ]; then
     build_esp
 elif [ "$1" == "bundle" ]; then

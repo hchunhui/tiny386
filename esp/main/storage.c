@@ -10,6 +10,9 @@
 #include "esp_system.h"
 #include "sdmmc_cmd.h"
 #include "common.h"
+#ifdef SD_PWR_CTRL_LDO_IO_ID
+#include "sd_pwr_ctrl_by_on_chip_ldo.h"
+#endif
 
 static const char *TAG = "storage";
 void *rawsd;
@@ -27,6 +30,7 @@ void storage_init(void)
 		.allocation_unit_size = 16 * 1024
 	};
 	sdmmc_card_t *card;
+	esp_err_t ret;
 	ESP_LOGI(TAG, "Initializing SD card");
 
 	// Use settings defined above to initialize SD card and mount FAT filesystem.
@@ -40,6 +44,23 @@ void storage_init(void)
 	// Example: for fixed frequency of 10MHz, use host.max_freq_khz = 10000;
 	sdmmc_host_t host = SDMMC_HOST_DEFAULT();
 	host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
+
+	// For SoCs where the SD power can be supplied both via an internal or external (e.g. on-board LDO) power supply.
+	// When using specific IO pins (which can be used for ultra high-speed SDMMC) to connect to the SD card
+	// and the internal LDO power supply, we need to initialize the power supply first.
+#ifdef SD_PWR_CTRL_LDO_IO_ID
+	sd_pwr_ctrl_ldo_config_t ldo_config = {
+		.ldo_chan_id = SD_PWR_CTRL_LDO_IO_ID,
+	};
+	sd_pwr_ctrl_handle_t pwr_ctrl_handle = NULL;
+
+	ret = sd_pwr_ctrl_new_on_chip_ldo(&ldo_config, &pwr_ctrl_handle);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to create a new on-chip LDO power control driver");
+		return;
+	}
+	host.pwr_ctrl_handle = pwr_ctrl_handle;
+#endif
 
 	// This initializes the slot without card detect (CD) and write protect (WP) signals.
 	// Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
@@ -62,7 +83,6 @@ void storage_init(void)
 	slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
 	ESP_LOGI(TAG, "Mounting filesystem");
-	esp_err_t ret;
 	ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &sdmount_config, &card);
 
 	if (ret != ESP_OK) {
@@ -78,6 +98,7 @@ void storage_init(void)
 		sd_mount_ok = true;
 	}
 #else
+	esp_err_t ret;
 	sdmmc_card_t *card = malloc(sizeof(sdmmc_card_t));
 	memset(card, 0, sizeof(sdmmc_card_t));
 	ESP_LOGI(TAG, "Initializing SD card");
@@ -85,6 +106,19 @@ void storage_init(void)
 	sdmmc_host_t host = SDMMC_HOST_DEFAULT();
 	host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
 
+#ifdef SD_PWR_CTRL_LDO_IO_ID
+	sd_pwr_ctrl_ldo_config_t ldo_config = {
+		.ldo_chan_id = SD_PWR_CTRL_LDO_IO_ID,
+	};
+	sd_pwr_ctrl_handle_t pwr_ctrl_handle = NULL;
+
+	ret = sd_pwr_ctrl_new_on_chip_ldo(&ldo_config, &pwr_ctrl_handle);
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to create a new on-chip LDO power control driver");
+		return;
+	}
+	host.pwr_ctrl_handle = pwr_ctrl_handle;
+#endif
 	sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
 #ifdef SD_D3
 	slot_config.width = 4;
@@ -102,7 +136,6 @@ void storage_init(void)
 #endif
 	slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
-	esp_err_t ret;
 	ret = host.init();
 	assert(ret == 0);
 	ret = sdmmc_host_init_slot(host.slot, &slot_config);

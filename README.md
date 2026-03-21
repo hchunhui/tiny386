@@ -79,10 +79,13 @@ Press "Ctrl + ]" to grab/ungrab the keyboard and mouse. Press "Ctrl + [" to show
 
 ## ESP32 port
 Supported boards:
-- JC3248W535
+
+With ESP-IDF 5.2.x:
+- JC3248W535 (ESP32-S3, 480x320)
 - [Elecrow CrowPanel Advance 7.0" HMI](https://github.com/Elecrow-RD/CrowPanel-Advance-HMI-ESP32-AI-Display) (ESP32-S3, 800x480)
 
-The supported ESP-IDF version is v5.2.x.
+With ESP-IDF 6.0.x (experimental):
+- JC4880P433 (ESP32-P4 Rev1.3 360MHz, 800x480)
 
 ### Build and Flash
 You can find the pre-built flash image `esp/flash_image_JC3248W535.bin` from [here](https://github.com/hchunhui/tiny386/releases).
@@ -92,10 +95,11 @@ Online flasher for esp chips: https://espressif.github.io/esptool-js
 
 To build and flash manually:
 ```sh
-scripts/build.sh patch_idf  # apply patches to ESP-IDF
+scripts/build.sh patch_idf  # apply patches to ESP-IDF 5.2.x
+#scripts/build.sh patch_idf_60  # apply patches to ESP-IDF 6.0.x
 make prepare
 cd esp
-idf.py -DBOARD=jc3248w535 build   # or -DBOARD=elecrow7s3
+idf.py -DBOARD=jc3248w535 update-dependencies build  # or -DBOARD=elecrow7s3
 idf.py flash
 ```
 

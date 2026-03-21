@@ -1,0 +1,80 @@
+diff --git a/components/esp_netif/lwip/netif/wlanif.c b/components/esp_netif/lwip/netif/wlanif.c
+index c42c3f03de..b926dccb52 100644
+--- a/components/esp_netif/lwip/netif/wlanif.c
++++ b/components/esp_netif/lwip/netif/wlanif.c
+@@ -131,6 +131,11 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
+     return ret;
+ }
+ 
++__attribute__((weak)) int wlanif_l2_input_hook(uint8_t *buf, int size)
++{
++    return 0;
++}
++
+ /**
+  * This function should be called when a packet is ready to be read
+  * from the interface. It uses the function low_level_input() that
+@@ -156,6 +161,11 @@ esp_err_t wlanif_input(void *h, void *buffer, size_t len, void* l2_buff)
+         return ESP_FAIL;
+     }
+ 
++    if (wlanif_l2_input_hook(buffer, len)) {
++        esp_netif_free_rx_buffer(esp_netif, l2_buff);
++        return ESP_OK;
++    }
++
+ #ifdef CONFIG_LWIP_L2_TO_L3_COPY
+     p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
+     if (p == NULL) {
+diff --git a/components/esp_psram/system_layer/esp_psram.c b/components/esp_psram/system_layer/esp_psram.c
+index 34d5a10c23..f2fe926c4a 100644
+--- a/components/esp_psram/system_layer/esp_psram.c
++++ b/components/esp_psram/system_layer/esp_psram.c
+@@ -464,6 +464,12 @@ esp_err_t esp_psram_init(void)
+     return ESP_OK;
+ }
+ 
++void *esp_psram_get(size_t *size)
++{
++    *size = s_psram_ctx.regions_to_heap[PSRAM_MEM_8BIT_ALIGNED].size;
++    return (void *) s_psram_ctx.regions_to_heap[PSRAM_MEM_8BIT_ALIGNED].vaddr_start;
++}
++
+ esp_err_t esp_psram_extram_add_to_heap_allocator(void)
+ {
+     esp_err_t ret = ESP_FAIL;
+diff --git a/components/fatfs/src/ffconf.h b/components/fatfs/src/ffconf.h
+index 3b7f02e005..9223bf2dc1 100644
+--- a/components/fatfs/src/ffconf.h
++++ b/components/fatfs/src/ffconf.h
+@@ -52,7 +52,7 @@
+ /  (0:Disable or 1:Enable) Also FF_FS_READONLY needs to be 0 to enable this option. */
+ 
+ 
+-#define FF_USE_LABEL	CONFIG_FATFS_USE_LABEL
++#define FF_USE_LABEL	0
+ /* This option switches volume label functions, f_getlabel() and f_setlabel().
+ /  (0:Disable or 1:Enable) */
+ 
+@@ -279,7 +279,7 @@
+ /  buffer in the filesystem object (FATFS) is used for the file data transfer. */
+ 
+ 
+-#define FF_FS_EXFAT		0
++#define FF_FS_EXFAT		1
+ /* This option switches support for exFAT filesystem. (0:Disable or 1:Enable)
+ /  To enable exFAT, also LFN needs to be enabled. (FF_USE_LFN >= 1)
+ /  Note that enabling exFAT discards ANSI C (C89) compatibility. */
+diff --git a/components/xtensa/esp32s3/include/xtensa/config/core-isa.h b/components/xtensa/esp32s3/include/xtensa/config/core-isa.h
+index 6c8fc963c0..6f04a2d2fd 100644
+--- a/components/xtensa/esp32s3/include/xtensa/config/core-isa.h
++++ b/components/xtensa/esp32s3/include/xtensa/config/core-isa.h
+@@ -51,7 +51,7 @@
+ #define XCHAL_NUM_AREGS			64	/* num of physical addr regs */
+ #define XCHAL_NUM_AREGS_LOG2		6	/* log2(XCHAL_NUM_AREGS) */
+ #define XCHAL_MAX_INSTRUCTION_SIZE	4	/* max instr bytes (3..8) */
+-#define XCHAL_HAVE_DEBUG		1	/* debug option */
++#define XCHAL_HAVE_DEBUG		0	/* debug option */
+ #define XCHAL_HAVE_DENSITY		1	/* 16-bit instructions */
+ #define XCHAL_HAVE_LOOPS		1	/* zero-overhead loops */
+ #define XCHAL_LOOP_BUFFER_SIZE		256	/* zero-ov. loop instr buffer size */

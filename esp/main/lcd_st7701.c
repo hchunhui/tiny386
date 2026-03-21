@@ -235,7 +235,11 @@ void vga_task(void *arg)
 		.dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT,
 		.dpi_clock_freq_mhz = CONFIG_BSP_JC4880P443C_DPI_CLOCK_MHZ,
 		.virtual_channel = 0,
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+		.in_color_format = LCD_COLOR_FMT_RGB565,
+#else
 		.pixel_format = LCD_COLOR_PIXEL_FORMAT_RGB565,
+#endif
 		.num_fbs = CONFIG_BSP_JC4880P443C_NUM_FB,
 		.video_timing = {
 			.h_size = CONFIG_BSP_JC4880P443C_LCD_H_RES,
@@ -247,7 +251,9 @@ void vga_task(void *arg)
 			.vsync_back_porch = 8,
 			.vsync_front_porch = 166,
 		},
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)
 		.flags = { .use_dma2d = true },
+#endif
 	};
 
 	st7701_vendor_config_t vendor_config = {
@@ -270,6 +276,9 @@ void vga_task(void *arg)
 	ESP_ERROR_CHECK(esp_lcd_new_panel_st7701(io, &lcd_dev_config, &panel));
 	ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
 	ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+	ESP_ERROR_CHECK(esp_lcd_dpi_panel_enable_dma2d(panel));
+#endif
 	ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, true, false));
 
 	// Ensure panel display is turned on (some sequences rely on explicit ON)
