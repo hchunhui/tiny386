@@ -24,4 +24,15 @@
 
 #define USE_HOSTED_WIFI
 
-// TODO: I2S
+#define MIXER_BUF_LEN 512
+#define I2S_MCLK 13
+#define I2S_BCLK 12
+#define I2S_WS   10
+#define I2S_DOUT 9
+#define I2S_NUM  0
+
+#define USE_ES8311
+#define ES8311_PA 11
+#define ES8311_I2C_NUM 0
+#define ES8311_I2C_SDA 7
+#define ES8311_I2C_SCL 8

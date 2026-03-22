@@ -15,7 +15,9 @@
 #endif
 
 #ifdef BUILD_ESP32
+#ifndef MIXER_BUF_LEN
 #define MIXER_BUF_LEN 128
+#endif
 #define PC_STEP_COUNT 512
 void pcmalloc_init(void *ptr, long len);
 #else
