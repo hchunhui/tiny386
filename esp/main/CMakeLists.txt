@@ -27,8 +27,8 @@ INCLUDE_DIRS "")
 
 message(STATUS "Building for BOARD=${BOARD}")
 
-if(BOARD STREQUAL "jc4880p433")
-    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc4880p433.h)
+if(BOARD STREQUAL "jc4880p443")
+    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc4880p443.h)
 elseif(BOARD STREQUAL "elecrow7s3")
     add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_elecrow7s3.h)
 else()

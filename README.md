@@ -85,7 +85,7 @@ With ESP-IDF 5.2.x:
 - [Elecrow CrowPanel Advance 7.0" HMI](https://github.com/Elecrow-RD/CrowPanel-Advance-HMI-ESP32-AI-Display) (ESP32-S3, 800x480)
 
 With ESP-IDF 6.0.x (experimental):
-- JC4880P433 (ESP32-P4 Rev1.3 360MHz, 800x480)
+- JC4880P443 (ESP32-P4 Rev1.3 360MHz, 800x480)
 
 ### Build and Flash
 You can find the pre-built flash image `esp/flash_image_JC3248W535.bin` from [here](https://github.com/hchunhui/tiny386/releases).
