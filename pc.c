@@ -9,9 +9,17 @@
 #ifdef USEKVM
 #define cpu_raise_irq cpukvm_raise_irq
 #define cpu_get_cycle cpukvm_get_cycle
+#define cpu_reset cpukvm_reset
+#define cpu_reset_pm cpukvm_reset_pm
+#define cpu_set_gpr cpukvm_set_gpr
+#define cpu_step cpukvm_step
 #else
 #define cpu_raise_irq cpui386_raise_irq
 #define cpu_get_cycle cpui386_get_cycle
+#define cpu_reset cpui386_reset
+#define cpu_reset_pm cpui386_reset_pm
+#define cpu_set_gpr cpui386_set_gpr
+#define cpu_step cpui386_step
 #endif
 
 #ifdef BUILD_ESP32
@@ -466,12 +474,11 @@ void pc_vga_step(void *o)
 
 void pc_step(PC *pc)
 {
-#ifndef USEKVM
 	if (pc->reset_request) {
 		pc->reset_request = 0;
 		load_bios_and_reset(pc);
 	}
-#endif
+
 #ifndef BUILD_ESP32
 	int refresh = vga_step(pc->vga);
 #endif
@@ -492,11 +499,7 @@ void pc_step(PC *pc)
 			pc->full_update = 0;
 	}
 #endif
-#ifdef USEKVM
-	cpukvm_step(pc->cpu, 4096);
-#else
-	cpui386_step(pc->cpu, PC_STEP_COUNT);
-#endif
+	cpu_step(pc->cpu, PC_STEP_COUNT);
 }
 
 static void raise_irq(void *o, PicState2 *s)
@@ -791,7 +794,6 @@ void load_bios_and_reset(PC *pc)
 		load_rom(pc->phys_mem, pc->bios, 0x100000, 1);
 	if (pc->vga_bios && pc->vga_bios[0])
 		load_rom(pc->phys_mem, pc->vga_bios, 0xc0000, 0);
-#ifndef USEKVM
 	if (pc->kernel && pc->kernel[0]) {
 		int start_addr = 0x10000;
 		int cmdline_addr = 0xf800;
@@ -805,15 +807,14 @@ void load_bios_and_reset(PC *pc)
 			strcpy(pc->phys_mem + cmdline_addr, "");
 
 		load_rom(pc->phys_mem, pc->linuxstart, start_addr, 0);
-		cpui386_reset_pm(pc->cpu, 0x10000);
-		cpui386_set_gpr(pc->cpu, 0, pc->phys_mem_size);
-		cpui386_set_gpr(pc->cpu, 3, initrd_size);
-		cpui386_set_gpr(pc->cpu, 1, cmdline_addr);
-		cpui386_set_gpr(pc->cpu, 2, kernel_size);
+		cpu_reset_pm(pc->cpu, 0x10000);
+		cpu_set_gpr(pc->cpu, 0, pc->phys_mem_size);
+		cpu_set_gpr(pc->cpu, 3, initrd_size);
+		cpu_set_gpr(pc->cpu, 1, cmdline_addr);
+		cpu_set_gpr(pc->cpu, 2, kernel_size);
 	} else {
-		cpui386_reset(pc->cpu);
+		cpu_reset(pc->cpu);
 	}
-#endif
 }
 
 static long parse_mem_size(const char *value)

@@ -66,6 +66,95 @@ void cpukvm_register_mem(CPUKVM *cpu, int slot, uint32_t addr, uint32_t len,
 	}
 }
 
+static struct kvm_sregs sregs_rm;
+static struct kvm_regs regs_rm;
+void cpukvm_reset(CPUKVM *cpu)
+{
+	if (ioctl(cpu->vcpu_fd, KVM_SET_SREGS, &sregs_rm) < 0) {
+		perror("KVM_SET_SREGS");
+		exit(1);
+	}
+
+	if (ioctl(cpu->vcpu_fd, KVM_SET_REGS, &regs_rm) < 0) {
+		perror("KVM_SET_REGS");
+		exit(1);
+	}
+}
+
+void cpukvm_reset_pm(CPUKVM *cpu, uint32_t start_addr)
+{
+	struct kvm_sregs sregs;
+	struct kvm_regs regs;
+
+	cpukvm_reset(cpu);
+
+	if (ioctl(cpu->vcpu_fd, KVM_GET_SREGS, &sregs) < 0) {
+		perror("KVM_GET_SREGS");
+		exit(1);
+	}
+
+	struct kvm_segment seg = {
+		.base = 0,
+		.limit = 0xffffffff,
+		.selector = 1 << 3,
+		.present = 1,
+		.type = 11,
+		.dpl = 0,
+		.db = 1,
+		.s = 1,
+		.l = 0,
+		.g = 1,
+	};
+
+	sregs.cs = seg;
+	seg.type = 3;
+	seg.selector = 2 << 3;
+	sregs.ds = sregs.es = sregs.fs = sregs.gs = sregs.ss = seg;
+
+	sregs.cr0 |= 0x1;
+
+	if (ioctl(cpu->vcpu_fd, KVM_SET_SREGS, &sregs) < 0) {
+		perror("KVM_SET_SREGS");
+		exit(1);
+	}
+
+	if (ioctl(cpu->vcpu_fd, KVM_GET_REGS, &regs) < 0) {
+		perror("KVM_GET_REGS");
+		exit(1);
+	}
+
+	regs.rip = 0x1000;
+	regs.rflags = 0x2;
+
+	if (ioctl(cpu->vcpu_fd, KVM_SET_REGS, &regs) < 0) {
+		perror("KVM_SET_REGS");
+		exit(1);
+	}
+}
+
+void cpukvm_set_gpr(CPUKVM *cpu, int i, u32 val)
+{
+	struct kvm_regs regs;
+	if (ioctl(cpu->vcpu_fd, KVM_GET_REGS, &regs) < 0) {
+		perror("KVM_GET_REGS");
+		exit(1);
+	}
+	switch (i) {
+	case 0: regs.rax = val; break;
+	case 1: regs.rcx = val; break;
+	case 2: regs.rdx = val; break;
+	case 3: regs.rbx = val; break;
+	case 4: regs.rsp = val; break;
+	case 5: regs.rbp = val; break;
+	case 6: regs.rsi = val; break;
+	case 7: regs.rdi = val; break;
+	}
+	if (ioctl(cpu->vcpu_fd, KVM_SET_REGS, &regs) < 0) {
+		perror("KVM_SET_REGS");
+		exit(1);
+	}
+}
+
 CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 {
 	CPUKVM *cpu = malloc(sizeof(CPUKVM));
@@ -162,6 +251,22 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	}
 	cpu->coalesced_mmio_ring = (void *)cpu->kvm_run + off * PAGE_SIZE;
 
+	struct kvm_cpuid2 *cpuid;
+	int nent = 50;
+	int size = sizeof(*cpuid) + nent * sizeof(*cpuid->entries);
+	cpuid = malloc(size);
+	memset(cpuid, 0, size);
+	cpuid->nent = nent;
+	if (ioctl(cpu->kvm_fd, KVM_GET_SUPPORTED_CPUID, cpuid) < 0) {
+		perror("KVM_GET_SUPPORTED_CPUID");
+		abort();
+	}
+
+	if (ioctl(cpu->vcpu_fd, KVM_SET_CPUID2, cpuid) < 0) {
+		perror("KVM_SET_CPUID2");
+		abort();
+	}
+
 	act.sa_handler = sigalrm_handler;
 	sigemptyset(&act.sa_mask);
 	act.sa_flags = 0;
@@ -191,6 +296,9 @@ CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb)
 		perror("KVM_SET_REGS");
 		exit(1);
 	}
+
+	sregs_rm = sregs;
+	regs_rm = regs;
 
 	if (cb)
 		*cb = &(cpu->cb);

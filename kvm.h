@@ -5,6 +5,9 @@
 typedef struct CPUKVM CPUKVM;
 
 CPUKVM *cpukvm_new(char *phys_mem, long phys_mem_size, CPU_CB **cb);
+void cpukvm_reset(CPUKVM *cpu);
+void cpukvm_reset_pm(CPUKVM *cpu, uint32_t start_addr);
+void cpukvm_set_gpr(CPUKVM *cpu, int i, u32 val);
 void cpukvm_step(CPUKVM *cpu, int stepcount);
 void cpukvm_raise_irq(CPUKVM *cpu);
 long cpukvm_get_cycle(CPUKVM *cpu);
