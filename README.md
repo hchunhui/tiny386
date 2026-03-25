@@ -72,6 +72,7 @@ fpu = 0
 - Run
 ```sh
 ./tiny386 config.ini
+./tiny386 -kvm config.ini  # run with KVM (build with `make USE_CPUABS=y`)
 ```
 
 For rawdraw and SDL port:

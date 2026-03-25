@@ -54,6 +54,12 @@ FMOPL_y = fmopl.c
 CFLAGS_FMOPL_y = -DUSE_FMOPL
 CFLAGS += ${CFLAGS_FMOPL_${USE_FMOPL}}
 
+#USE_CPUABS = y/n
+USE_CPUABS = n
+CPUABS_y = kvm.c
+CFLAGS_CPUABS_y = -DUSE_CPUABS
+CFLAGS += ${CFLAGS_CPUABS_${USE_CPUABS}}
+
 SUFF_SDL_SDL_y =
 SUFF_SDL_SDL_n = _sdl
 SUFF_RAWDRAW_SDL_y = _rawdraw
@@ -61,12 +67,14 @@ SUFF_RAWDRAW_SDL_n =
 SUFF_SDL = ${SUFF_SDL_SDL_${USE_SDL}}
 SUFF_RAWDRAW = ${SUFF_RAWDRAW_SDL_${USE_SDL}}
 
-PROGS_ = tiny386 tiny386_nosdl tiny386_kvm wifikbd initnet
-PROGS_win32 = tiny386 tiny386_nosdl wifikbd
+PROGS_ = tiny386 tiny386_headless wifikbd initnet
+PROGS_win32 = tiny386 tiny386_headless wifikbd
 PROGS = ${PROGS_${PLAT}}
 
 SRCS += ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
 SRCS += ${FMOPL_${USE_FMOPL}}
+SRCS += ${CPUABS_${USE_CPUABS}}
+SRCS += pc.c
 SRCS += pci.c
 SRCS += win32.c
 # OSD
@@ -93,25 +101,17 @@ prepare: fmopl.inc
 fmopl.inc: fmopl.c
 	${HOSTCC} -DGENTABLE $^$> -o fmoplgen -lm && ./fmoplgen > $@ && rm -f ./fmoplgen
 
-tiny386${SUFF_SDL}: sdl/main.c pc.c ${OBJS}
+tiny386${SUFF_SDL}: sdl/main.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} ${LDFLAGS} ${CFLAGS_SDL} -o $@ $^$> ${LIBS_SDL}
 
-tiny386${SUFF_RAWDRAW}: rawdraw/main.c pc.c ${OBJS}
+tiny386${SUFF_RAWDRAW}: rawdraw/main.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} ${LDFLAGS} ${CFLAGS} -o $@ $^$> ${LIBS_RAWDRAW}
 
-tiny386_nosdl: main.c pc.c ${OBJS}
+tiny386_headless: main.c ${OBJS}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} ${LDFLAGS} ${CFLAGS} -o $@ $^$> ${LIBS}
-
-tiny386_kvm${SUFF_SDL}: sdl/main.c kvm.c pc.c ${OBJS}
-	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
-	${Q}${CC} -DUSEKVM ${LDFLAGS} ${CFLAGS_SDL} -o $@ $^$> ${LIBS_SDL}
-
-tiny386_kvm${SUFF_RAWDRAW}: rawdraw/main.c kvm.c pc.c ${OBJS}
-	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
-	${Q}${CC} -DUSEKVM ${LDFLAGS} ${CFLAGS} -o $@ $^$> ${LIBS_RAWDRAW}
 
 wifikbd${SUFF_SDL}: tools/wifikbd.c win32.c ${SRCS_GLIBC_FIX}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"

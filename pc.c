@@ -6,20 +6,99 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#ifdef USEKVM
-#define cpu_raise_irq cpukvm_raise_irq
-#define cpu_get_cycle cpukvm_get_cycle
-#define cpu_reset cpukvm_reset
-#define cpu_reset_pm cpukvm_reset_pm
-#define cpu_set_gpr cpukvm_set_gpr
-#define cpu_step cpukvm_step
+static void raise_irq_i386(void *o, PicState2 *s)
+{
+	cpui386_raise_irq(o);
+}
+
+#if defined(USE_CPUABS)
+static void raise_irq_kvm(void *o, PicState2 *s)
+{
+	cpukvm_raise_irq(o);
+}
+
+typedef struct CPUABS {
+	void *cpu;
+	void (*reset)(void *cpu);
+	void (*reset_pm)(void *cpu, uint32_t start_addr);
+	void (*set_gpr)(void *cpu, int i, uint32_t val);
+	void (*step)(void *cpu, int stepcount);
+	void (*register_mem)(void *cpu, int slot, uint32_t addr, uint32_t len,
+			     void *ptr);
+	void (*enable_fpu)(void *cpu);
+	void (*_raise_irq)(void *, PicState2 *);
+} CPUABS;
+
+static CPUABS *cpu_new(int gen, char *phys_mem, long phys_mem_size, CPU_CB **cb)
+{
+	CPUABS *cpu = malloc(sizeof(CPUABS));
+	if (gen < 0) {
+		cpu->cpu = cpukvm_new(phys_mem, phys_mem_size, cb);
+		cpu->reset = (void *) cpukvm_reset;
+		cpu->reset_pm = (void *) cpukvm_reset_pm;
+		cpu->set_gpr = (void *) cpukvm_set_gpr;
+		cpu->step = (void *) cpukvm_step;
+		cpu->register_mem = (void *) cpukvm_register_mem;
+		cpu->enable_fpu = NULL;
+		cpu->_raise_irq = raise_irq_kvm;
+	} else {
+		cpu->cpu = cpui386_new(gen, phys_mem, phys_mem_size, cb);
+		cpu->reset = (void *) cpui386_reset;
+		cpu->reset_pm = (void *) cpui386_reset_pm;
+		cpu->set_gpr = (void *) cpui386_set_gpr;
+		cpu->step = (void *) cpui386_step;
+		cpu->register_mem = NULL;
+		cpu->enable_fpu = (void *) cpui386_enable_fpu;
+		cpu->_raise_irq = raise_irq_i386;
+	}
+	return cpu;
+}
+
+static void cpu_reset(CPUABS *cpu)
+{
+	cpu->reset(cpu->cpu);
+}
+
+static void cpu_reset_pm(CPUABS *cpu, uint32_t start_addr)
+{
+	cpu->reset_pm(cpu->cpu, start_addr);
+}
+
+static void cpu_set_gpr(CPUABS *cpu, int i, uint32_t val)
+{
+	cpu->set_gpr(cpu->cpu, i, val);
+}
+
+static void cpu_step(CPUABS *cpu, int stepcount)
+{
+	cpu->step(cpu->cpu, stepcount);
+}
+
+static void cpu_register_mem(CPUABS *cpu, int slot, uint32_t addr, uint32_t len,
+			     void *ptr)
+{
+	if (cpu->register_mem)
+		cpu->register_mem(cpu->cpu, slot, addr, len, ptr);
+}
+
+static void cpu_enable_fpu(CPUABS *cpu)
+{
+	if (cpu->enable_fpu)
+		cpu->enable_fpu(cpu->cpu);
+}
+
+#define raise_irq(o) ((o)->_raise_irq)
+#define raise_irq_param(o) ((o)->cpu)
 #else
-#define cpu_raise_irq cpui386_raise_irq
-#define cpu_get_cycle cpui386_get_cycle
 #define cpu_reset cpui386_reset
 #define cpu_reset_pm cpui386_reset_pm
 #define cpu_set_gpr cpui386_set_gpr
 #define cpu_step cpui386_step
+#define cpu_register_mem(...)
+#define cpu_enable_fpu cpui386_enable_fpu
+#define cpu_new cpui386_new
+#define raise_irq(...) raise_irq_i386
+#define raise_irq_param(o) (o)
 #endif
 
 #ifdef BUILD_ESP32
@@ -502,11 +581,6 @@ void pc_step(PC *pc)
 	cpu_step(pc->cpu, PC_STEP_COUNT);
 }
 
-static void raise_irq(void *o, PicState2 *s)
-{
-	cpu_raise_irq(o);
-}
-
 static int read_irq(void *o)
 {
 	PicState2 *s = o;
@@ -526,14 +600,13 @@ static void set_pci_vga_bar(void *opaque, int bar_num, uint32_t addr, bool enabl
 		pc->pci_vga_ram_addr = addr;
 	else
 		pc->pci_vga_ram_addr = -1;
-#ifdef USEKVM
+
 	if (enabled)
-		cpukvm_register_mem(pc->cpu, 2, addr, pc->vga_mem_size,
-				    pc->vga_mem);
+		cpu_register_mem(pc->cpu, 2, addr, pc->vga_mem_size,
+				 pc->vga_mem);
 	else
-		cpukvm_register_mem(pc->cpu, 2, addr, 0,
-				    NULL);
-#endif
+		cpu_register_mem(pc->cpu, 2, addr, 0,
+				 NULL);
 }
 
 static u8 iomem_read8(void *iomem, uword addr)
@@ -635,13 +708,9 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	CPU_CB *cb = NULL;
 	memset(mem, 0, conf->mem_size);
 	pcmalloc_init(mem + 0xa0000, 0xc0000 - 0xa0000);
-#ifdef USEKVM
-	pc->cpu = cpukvm_new(mem, conf->mem_size, &cb);
-#else
-	pc->cpu = cpui386_new(conf->cpu_gen, mem, conf->mem_size, &cb);
+	pc->cpu = cpu_new(conf->cpu_gen, mem, conf->mem_size, &cb);
 	if (conf->fpu)
-		cpui386_enable_fpu(pc->cpu);
-#endif
+		cpu_enable_fpu(pc->cpu);
 	pc->bios = conf->bios;
 	pc->vga_bios = conf->vga_bios;
 	pc->linuxstart = conf->linuxstart;
@@ -655,7 +724,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 #endif
 	pc->full_update = 0;
 
-	pc->pic = i8259_init(raise_irq, pc->cpu);
+	pc->pic = i8259_init(raise_irq(pc->cpu), raise_irq_param(pc->cpu));
 	cb->pic = pc->pic;
 	cb->pic_read_irq = read_irq;
 

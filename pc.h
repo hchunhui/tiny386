@@ -27,9 +27,9 @@ void *bigmalloc(size_t size);
 int load_rom(void *phys_mem, const char *file, uword addr, int backward);
 
 /// PC
-#ifdef USEKVM
+#if defined(USE_CPUABS)
 #include "kvm.h"
-typedef CPUKVM CPU;
+typedef struct CPUABS CPU;
 #else
 typedef CPUI386 CPU;
 #endif

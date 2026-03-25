@@ -16,7 +16,7 @@ uint32_t get_uticks()
 		(uint32_t) ts.tv_nsec / 1000);
 }
 
-#ifdef USEKVM
+#ifndef _WIN32
 #include <sys/mman.h>
 void *bigmalloc(size_t size)
 {
@@ -74,14 +74,25 @@ int main(int argc, char *argv[])
 	conf.cpu_gen = 4;
 	conf.fpu = 0;
 
-	if (argc != 2)
+	const char *argv1;
+	bool enable_kvm = false;
+	if (argc == 2) {
+		argv1 = argv[1];
+	} else if (argc == 3) {
+		if (strcmp(argv[1], "-kvm") == 0)
+			enable_kvm = true;
+		argv1 = argv[2];
+	} else {
 		return 1;
+	}
 
-	int err = ini_parse(argv[1], parse_conf_ini, &conf);
+	int err = ini_parse(argv1, parse_conf_ini, &conf);
 	if (err) {
 		fprintf(stderr, "error %d\n", err);
 		return err;
 	}
+	if (enable_kvm)
+		conf.cpu_gen = -1;
 
 	void *fb = bigmalloc(conf.width * conf.height * 4);
 	PC *pc = pc_new(redraw, poll, NULL, fb, &conf);
