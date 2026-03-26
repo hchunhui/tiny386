@@ -94,7 +94,7 @@ static void cpu_enable_fpu(CPUABS *cpu)
 #define cpu_reset_pm cpui386_reset_pm
 #define cpu_set_gpr cpui386_set_gpr
 #define cpu_step cpui386_step
-#define cpu_register_mem(...)
+#define cpu_register_mem(...) do {} while (0) //noop
 #define cpu_enable_fpu cpui386_enable_fpu
 #define cpu_new cpui386_new
 #define raise_irq(...) raise_irq_i386
