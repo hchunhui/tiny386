@@ -56,9 +56,6 @@ PCConfig *wasm_prepare(const char *inifile)
 {
 	PCConfig *conf = malloc(sizeof(PCConfig));
 	memset(conf, 0, sizeof(PCConfig));
-	conf->linuxstart = "linuxstart.bin";
-	conf->bios = "bios.bin";
-	conf->vga_bios = "vgabios.bin";
 	conf->mem_size = 8 * 1024 * 1024;
 	conf->vga_mem_size = 256 * 1024;
 	conf->width = 720;

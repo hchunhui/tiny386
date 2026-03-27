@@ -269,9 +269,6 @@ int main(int argc, char *argv[])
 {
 	PCConfig conf;
 	memset(&conf, 0, sizeof(conf));
-	conf.linuxstart = "linuxstart.bin";
-	conf.bios = "bios.bin";
-	conf.vga_bios = "vgabios.bin";
 	conf.mem_size = 8 * 1024 * 1024;
 	conf.vga_mem_size = 256 * 1024;
 	conf.width = 720;

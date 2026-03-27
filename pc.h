@@ -69,6 +69,7 @@ typedef struct {
 
 	EMULINK *emulink;
 
+	// non-owning strings
 	const char *bios;
 	const char *vga_bios;
 
@@ -76,6 +77,7 @@ typedef struct {
 	int shutdown_state;
 	int reset_request;
 
+	// non-owning strings
 	const char *linuxstart;
 	const char *kernel;
 	const char *initrd;
@@ -84,6 +86,7 @@ typedef struct {
 	int full_update;
 } PC;
 
+// if filled by ini_parse(), all strings are malloc'd
 typedef struct {
 	const char *linuxstart;
 	const char *kernel;

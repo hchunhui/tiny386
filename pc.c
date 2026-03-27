@@ -714,6 +714,9 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 	pc->bios = conf->bios;
 	pc->vga_bios = conf->vga_bios;
 	pc->linuxstart = conf->linuxstart;
+	if (!pc->bios) pc->bios = "bios.bin";
+	if (!pc->vga_bios) pc->vga_bios = "vgabios.bin";
+	if (!pc->linuxstart) pc->linuxstart = "linuxstart.bin";
 	pc->kernel = conf->kernel;
 	pc->initrd = conf->initrd;
 	pc->cmdline = conf->cmdline;
