@@ -43,7 +43,7 @@ void *pcmalloc(long size)
 
 	size = (size + 31) / 32 * 32;
 	if (pcram_off + size > pcram_len) {
-		printf("pcram error %ld %ld %ld\n", size, pcram_off, pcram_len);
+		fprintf(stderr, "pcram error %ld %ld %ld\n", size, pcram_off, pcram_len);
 		abort();
 	}
 	pcram_off += size;
@@ -145,7 +145,7 @@ static int pc_main(const char *file)
 
 	int err = ini_parse(file, parse_conf_ini, &conf);
 	if (err) {
-		printf("error %d\n", err);
+		fprintf(stderr, "error %d\n", err);
 		return err;
 	}
 
@@ -174,7 +174,6 @@ static int pc_main(const char *file)
 }
 
 //
-static const char *TAG = "esp_main";
 
 void *esp_psram_get(size_t *size);
 void vga_task(void *arg);
