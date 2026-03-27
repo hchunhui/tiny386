@@ -2,7 +2,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/sdmmc_host.h"
+#ifdef SD_SPI_MOSI
 #include "driver/i2c.h"
+#endif
 #include "driver/spi_common.h"
 #include "driver/sdspi_host.h"
 #include "esp_vfs.h"
