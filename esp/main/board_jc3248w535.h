@@ -1,6 +1,7 @@
 #define BUILD_ESP32
 
 #define IRAM_ATTR_CPU_EXEC1 IRAM_ATTR
+#define I386_REDUCE_SIZE
 
 #define BPP 16
 #define SCALE_3_2

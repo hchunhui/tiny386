@@ -96,7 +96,11 @@ typedef struct {
 	u8 *fb;
 } Console;
 
+#ifdef USE_LCD_ST7701
 #define NN 32
+#else
+#define NN 48
+#endif
 Console *console_init(int width, int height)
 {
 	Console *c = malloc(sizeof(Console));

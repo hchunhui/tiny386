@@ -67,6 +67,7 @@ struct CPUI386 {
 	struct {
 		unsigned long laddr;
 		uword xaddr;
+		uword paddr;
 	} ifetch;
 
 	struct {
@@ -507,6 +508,7 @@ static void tlb_clear(CPUI386 *cpu)
 		cpu->tlb.tab[i].lpgno = -1;
 	}
 	cpu->ifetch.laddr = -1;
+	cpu->ifetch.paddr = 0;
 }
 
 static int pte_lookup[2][4][2][2] = { //[wp != 0][(pte >> 1) & 3][cpl > 0][rwm > 1]
@@ -846,8 +848,40 @@ static bool IRAM_ATTR peek8(CPUI386 *cpu, u8 *val)
 	return true;
 }
 
+static bool IRAM_ATTR peek8a(CPUI386 *cpu, u8 *val)
+{
+	if (likely(cpu->ifetch.paddr)) {
+		*val = pload8(cpu, cpu->ifetch.paddr);
+		return true;
+	}
+	TRY(peek8(cpu, val));
+	return true;
+}
+
 static bool IRAM_ATTR fetch8(CPUI386 *cpu, u8 *val)
 {
+	if (likely(cpu->ifetch.paddr)) {
+		*val = pload8(cpu, cpu->ifetch.paddr);
+		cpu->ifetch.paddr++;
+		cpu->next_ip++;
+		return true;
+	}
+	TRY(peek8(cpu, val));
+	cpu->next_ip++;
+	return true;
+}
+
+static bool IRAM_ATTR fetch8pf(CPUI386 *cpu, u8 *val)
+{
+	uword laddr = cpu->seg[SEG_CS].base + cpu->next_ip;
+	if (likely((laddr ^ cpu->ifetch.laddr) < 4096 - 16)) {
+		uword paddr = cpu->ifetch.xaddr ^ laddr;
+		*val = pload8(cpu, paddr);
+		cpu->ifetch.paddr = paddr + 1;
+		cpu->next_ip++;
+		return true;
+	}
+	cpu->ifetch.paddr = 0;
 	TRY(peek8(cpu, val));
 	cpu->next_ip++;
 	return true;
@@ -855,6 +889,12 @@ static bool IRAM_ATTR fetch8(CPUI386 *cpu, u8 *val)
 
 static bool IRAM_ATTR fetch16(CPUI386 *cpu, u16 *val)
 {
+	if (likely(cpu->ifetch.paddr)) {
+		*val = pload16(cpu, cpu->ifetch.paddr);
+		cpu->ifetch.paddr += 2;
+		cpu->next_ip += 2;
+		return true;
+	}
 	uword laddr = cpu->seg[SEG_CS].base + cpu->next_ip;
 	if (likely((laddr ^ cpu->ifetch.laddr) < 4095)) {
 		*val = pload16(cpu, cpu->ifetch.xaddr ^ laddr);
@@ -869,6 +909,12 @@ static bool IRAM_ATTR fetch16(CPUI386 *cpu, u16 *val)
 
 static bool IRAM_ATTR fetch32(CPUI386 *cpu, u32 *val)
 {
+	if (likely(cpu->ifetch.paddr)) {
+		*val = pload32(cpu, cpu->ifetch.paddr);
+		cpu->ifetch.paddr += 4;
+		cpu->next_ip += 4;
+		return true;
+	}
 	uword laddr = cpu->seg[SEG_CS].base + cpu->next_ip;
 	if (likely((laddr ^ cpu->ifetch.laddr) < 4093)) {
 		*val = pload32(cpu, cpu->ifetch.xaddr ^ laddr);
@@ -3734,7 +3780,7 @@ static void __sysenter(CPUI386 *cpu, int pl, int cs)
 #endif
 
 static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp);
-static bool IRAM_ATTR pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret);
+static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret);
 
 static bool verbose;
 
@@ -3790,7 +3836,7 @@ static bool IRAM_ATTR_CPU_EXEC1 cpu_exec1(CPUI386 *cpu, int stepcount)
 
 	if (code16) cpu->next_ip &= 0xffff;
 	cpu->ip = cpu->next_ip;
-	TRY(fetch8(cpu, &b1));
+	TRY(fetch8pf(cpu, &b1));
 	cpu->cycle++;
 
 #ifndef I386_OPT1
@@ -3888,7 +3934,7 @@ static bool IRAM_ATTR_CPU_EXEC1 cpu_exec1(CPUI386 *cpu, int stepcount)
 
 #undef CX
 #define CX(_1) case _1:
-#define GRPBEG TRY(peek8(cpu, &modrm)); switch((modrm >> 3) & 7) {
+#define GRPBEG TRY(peek8a(cpu, &modrm)); switch((modrm >> 3) & 7) {
 #define GRPCASE(_case, _rm, _rwm, _op) _case { _rm(_rwm, _op); ebreak; }
 #define GRPEND default: default_ud; } ebreak;
 
@@ -4905,7 +4951,9 @@ void cpui386_step(CPUI386 *cpu, int stepcount)
 		return;
 	}
 
-	if (!cpu_exec1(cpu, stepcount)) {
+	int ret = cpu_exec1(cpu, stepcount);
+	cpu->ifetch.paddr = 0;
+	if (!ret) {
 		bool pusherr = false;
 		switch (cpu->excno) {
 		case EX_DF: case EX_TS: case EX_NP: case EX_SS: case EX_GP:

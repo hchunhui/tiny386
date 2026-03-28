@@ -424,6 +424,7 @@ IG7(C(0x07), Ms,     0, INVLPG)
 I2(C(0xa2), _,       0, CPUID) // CPUID
 #endif
 
+#ifndef I386_REDUCE_SIZE
 //used by winXP
 #ifdef IG9
 IG9(C(0x01), Mq,     0, CMPXCH8B)
@@ -445,4 +446,5 @@ I2(C(0x35), _,       0, SYSEXIT)
 #define SIMD_i386ins_def
 #include "simd.inc"
 #undef SIMD_i386ins_def
+#endif
 #endif
