@@ -7,10 +7,12 @@
 
 #ifdef BUILD_ESP32
 #include "esp_attr.h"
+#define noinline __attribute__((noinline))
 #else
 #define IRAM_ATTR
 #define IRAM_ATTR_CPU_EXEC1
 #define DRAM_ATTR
+#define noinline
 #endif
 
 #define I386_OPT1
@@ -3238,26 +3240,34 @@ static bool enter_helper(CPUI386 *cpu, bool opsz16, uword sp_mask,
 	if (cpu->cpl != 0) THROW(EX_GP, 0); \
 	cpu->cr0 = (cpu->cr0 & ((~0xf) | 1)) | (laddr(addr) & 0xf);
 
-#define LSEGd(NAME, reg, addr, lreg32, sreg32, laddr32, saddr32) \
+noinline static bool __LSEGd_helper(CPUI386 *cpu, int adsz16, int seg, int reg, int curr_seg, uword addr)
+{
 	OptAddr meml1, meml2; \
 	if (adsz16) addr = addr & 0xffff; \
 	TRY(translate32(cpu, &meml1, 1, curr_seg, addr)); \
 	TRY(translate16(cpu, &meml2, 1, curr_seg, addr + 4)); \
 	u32 r = load32(cpu, &meml1); \
 	u32 s = load16(cpu, &meml2); \
-	TRY(set_seg(cpu, SEG_ ## NAME, s)); \
+	TRY(set_seg(cpu, seg, s)); \
 	sreg32(reg, r);
+	return true;
+}
 
-#define LSEGw(NAME, reg, addr, lreg16, sreg16, laddr16, saddr16) \
+noinline static bool __LSEGw_helper(CPUI386 *cpu, int adsz16, int seg, int reg, int curr_seg, uword addr)
+{
 	OptAddr meml1, meml2; \
 	if (adsz16) addr = addr & 0xffff; \
 	TRY(translate16(cpu, &meml1, 1, curr_seg, addr)); \
 	TRY(translate16(cpu, &meml2, 1, curr_seg, addr + 2)); \
 	u32 r = load16(cpu, &meml1); \
 	u32 s = load16(cpu, &meml2); \
-	TRY(set_seg(cpu, SEG_ ## NAME, s)); \
+	TRY(set_seg(cpu, seg, s)); \
 	sreg16(reg, r);
+	return true;
+}
 
+#define LSEGd(NAME, reg, addr, lreg32, sreg32, laddr32, saddr32) TRY(__LSEGd_helper(cpu, adsz16, SEG_ ## NAME, reg, curr_seg, addr));
+#define LSEGw(NAME, reg, addr, lreg16, sreg16, laddr16, saddr16) TRY(__LSEGw_helper(cpu, adsz16, SEG_ ## NAME, reg, curr_seg, addr));
 #define LESd(...) LSEGd(ES, __VA_ARGS__)
 #define LSSd(...) LSEGd(SS, __VA_ARGS__)
 #define LDSd(...) LSEGd(DS, __VA_ARGS__)
@@ -3352,31 +3362,40 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 	if ((cpu->cr0 & 0xa) == 0xa) THROW0(EX_NM);
 
 // ...
-#define AAD(i, li, _) \
+noinline static void __AAD_helper(CPUI386 *cpu, u8 i)
+{
 	u8 al = lreg8(0); \
 	u8 ah = lreg8(4); \
-	u8 imm = li(i); \
+	u8 imm = i; \
 	u8 res = al + ah * imm; \
 	sreg8(0, res); \
 	sreg8(4, 0); \
 	cpu->flags &= ~(OF | AF | CF); /* undocumented */ \
 	cpu->cc.dst = sext8(res); \
 	cpu->cc.mask = ZF | SF | PF;
+}
+#define AAD(i, li, _) __AAD_helper(cpu, li(i));
 
-#define AAM(i, li, _) \
+noinline static void __AAM_helper(CPUI386 *cpu, u8 i)
+{
 	u8 al = lreg8(0); \
-	u8 imm = li(i); \
+	u8 imm = i; \
 	u8 res = al % imm; \
 	sreg8(4, al / imm); \
 	sreg8(0, res); \
 	cpu->flags &= ~(OF | AF | CF); /* undocumented */ \
 	cpu->cc.dst = sext8(res); \
 	cpu->cc.mask = ZF | SF | PF;
+}
+#define AAM(i, li, _) __AAM_helper(cpu, li(i));
 
 #define SALC() \
 	if (get_CF(cpu)) sreg8(0, 0xff); else sreg8(0, 0x00);
 
-#define XLAT() \
+noinline static bool __XLAT_helper(CPUI386 *cpu, int adsz16, int curr_seg)
+{
+	OptAddr meml;
+	uword addr;
 	if (curr_seg == -1) curr_seg = SEG_DS; \
 	if (adsz16) { \
 		addr = lreg16(3) + lreg8(0); \
@@ -3388,8 +3407,12 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 		TRY(translate8(cpu, &meml, 1, curr_seg, addr)); \
 		sreg8(0, laddr8(&meml)); \
 	}
+	return true;
+}
+#define XLAT() TRY(__XLAT_helper(cpu, adsz16, curr_seg));
 
-#define DAA() \
+noinline static void __DAA_helper(CPUI386 *cpu)
+{
 	u8 al = lreg8(0); \
 	int cf = get_CF(cpu); \
 	cpu->flags &= ~CF; \
@@ -3406,9 +3429,12 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 	} \
 	cpu->cc.dst = sext8(lreg8(0)); \
 	cpu->cc.mask = ZF | SF | PF;
+}
+#define DAA() __DAA_helper(cpu);
 
-#define DAS() \
-	u8 al = lreg8(0); \
+noinline static void __DAS_helper(CPUI386 *cpu)
+{
+	u8 al = lreg8(0);     \
 	int cf = get_CF(cpu); \
 	cpu->flags &= ~CF; \
 	if ((al & 0xf) > 9 || get_AF(cpu)) { \
@@ -3424,8 +3450,11 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 	} \
 	cpu->cc.dst = sext8(lreg8(0)); \
 	cpu->cc.mask = ZF | SF | PF;
+}
+#define DAS() __DAS_helper(cpu);
 
-#define AAA() \
+noinline static void __AAA_helper(CPUI386 *cpu)
+{
 	if ((lreg8(0) & 0xf) > 9 || get_AF(cpu)) { \
 		sreg16(0, lreg16(0) + 0x106); \
 		cpu->flags |= AF | CF; \
@@ -3434,8 +3463,11 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 	} \
 	cpu->cc.mask = ZF | SF | PF; \
 	sreg8(0, lreg8(0) & 0xf);
+}
+#define AAA() __AAA_helper(cpu);
 
-#define AAS() \
+noinline static void __AAS_helper(CPUI386 *cpu)
+{
 	if ((lreg8(0) & 0xf) > 9 || get_AF(cpu)) { \
 		sreg16(0, lreg16(0) - 6); \
 		sreg8(4, lreg8(4) - 1); \
@@ -3445,6 +3477,8 @@ static bool check_ioperm(CPUI386 *cpu, int port, int bit)
 	} \
 	cpu->cc.mask = ZF | SF | PF; \
 	sreg8(0, lreg8(0) & 0xf);
+}
+#define AAS() __AAS_helper(cpu);
 
 static bool larsl_helper(CPUI386 *cpu, int sel, uword *ar, uword *sl, int *zf)
 {
