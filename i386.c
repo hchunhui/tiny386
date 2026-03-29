@@ -1258,17 +1258,10 @@ static inline void clear_segs(CPUI386 *cpu)
 #define EvCL(...) if (opsz16) { ECL_helper(16, w, __VA_ARGS__) } else { ECL_helper(32, d, __VA_ARGS__) }
 
 #define GE_helper(BIT, SUFFIX, rwm, INST) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		INST ## SUFFIX(reg, rm, lreg ## BIT, sreg ## BIT, lreg ## BIT, sreg ## BIT) \
-	} else { \
-		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
-		TRY(translate ## BIT(cpu, &meml, rwm, curr_seg, addr)); \
-		INST ## SUFFIX(reg, &meml, lreg ## BIT, sreg ## BIT, laddr ## BIT, saddr ## BIT) \
-	}
+	int reg; \
+	u ## BIT opr; \
+	TRY(__GE_helper ## BIT(cpu, adsz16, curr_seg, &reg, &opr)); \
+	INST ## SUFFIX(reg, opr, lreg ## BIT, sreg ## BIT, limm, 0)
 
 #define GbEb(...) GE_helper(8, , __VA_ARGS__)
 #define GvEv(...) if (opsz16) { GE_helper(16, w, __VA_ARGS__) } else { GE_helper(32, d, __VA_ARGS__) }
@@ -1299,17 +1292,10 @@ static inline void clear_segs(CPUI386 *cpu)
 #define GvMp(...) if (opsz16) { GvMp_helper(16, w, __VA_ARGS__) } else { GvMp_helper(32, d, __VA_ARGS__) }
 
 #define GE_helper2(BIT, SUFFIX, BIT2, SUFFIX2, rwm, INST) \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (mod == 3) { \
-		INST ## SUFFIX ## SUFFIX2(reg, rm, lreg ## BIT, sreg ## BIT, lreg ## BIT2, sreg ## BIT2) \
-	} else { \
-		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
-		TRY(translate ## BIT2(cpu, &meml, rwm, curr_seg, addr)); \
-		INST ## SUFFIX ## SUFFIX2(reg, &meml, lreg ## BIT, sreg ## BIT, laddr ## BIT2, saddr ## BIT2) \
-	}
+	int reg; \
+	u ## BIT2 opr; \
+	TRY(__GE_helper ## BIT2(cpu, adsz16, curr_seg, &reg, &opr)); \
+	INST ## SUFFIX ## SUFFIX2(reg, opr, lreg ## BIT, sreg ## BIT, limm, 0)
 
 #define GvEb(...) if (opsz16) { GE_helper2(16, w, 8, b, __VA_ARGS__) } else { GE_helper2(32, d, 8, b, __VA_ARGS__) }
 #define GvEw(...) if (opsz16) { GE_helper2(16, w, 16, w, __VA_ARGS__) } else { GE_helper2(32, d, 16, w, __VA_ARGS__) }
@@ -1637,6 +1623,30 @@ static inline void clear_segs(CPUI386 *cpu)
 #define saddr32(addr, v) store32(cpu, addr, v)
 #define lseg(i) ((u16) SEGi((i)))
 #define set_sp(v, mask) (sreg32(4, ((v) & mask) | (lreg32(4) & ~mask)))
+
+#define GEN___GE_helper(BIT) \
+static bool IRAM_ATTR __GE_helper ## BIT \
+(CPUI386 *cpu, int adsz16, int curr_seg, int *reg, u ## BIT *opr) \
+{ \
+	uword addr; \
+	OptAddr meml; \
+	u8 modrm; \
+	TRY(fetch8(cpu, &modrm)); \
+	*reg = (modrm >> 3) & 7; \
+	int mod = modrm >> 6; \
+	int rm = modrm & 7; \
+	if (mod == 3) { \
+		*opr = lreg ## BIT(rm); \
+	} else { \
+		TRY(modsib(cpu, adsz16, mod, rm, &addr, &curr_seg)); \
+		TRY(translate ## BIT(cpu, &meml, 1, curr_seg, addr)); \
+		*opr = laddr ## BIT(&meml); \
+	} \
+	return true; \
+}
+GEN___GE_helper(8)
+GEN___GE_helper(16)
+GEN___GE_helper(32)
 
 /*
  * instructions
