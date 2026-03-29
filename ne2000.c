@@ -37,7 +37,9 @@
 #include <winsock2.h>
 #endif
 #if !defined(__wasm__)
-//#define USE_TUNTAP
+#if !defined(_WIN32)
+#define USE_TUNTAP
+#endif
 #define USE_SLIRP
 #endif
 #else
@@ -155,6 +157,8 @@ static uint16_t cpu_to_le16(uint16_t x)
 #define NE2000_PMEM_END     (NE2000_PMEM_SIZE+NE2000_PMEM_START)
 #define NE2000_MEM_SIZE     NE2000_PMEM_END
 
+typedef struct VC VC;
+
 struct NE2000State {
     uint8_t cmd;
     uint32_t start;
@@ -177,9 +181,14 @@ struct NE2000State {
     void *pic;
     void (*set_irq)(void *pic, int irq, int level);
     int isa_io_base;
-    void *vc;
+    VC *vc;
     uint8_t macaddr[6];
     uint8_t mem[NE2000_MEM_SIZE];
+};
+
+struct VC {
+    void (*send_packet)(void *vc, uint8_t *buf, int size);
+    void (*step)(NE2000State *s);
 };
 
 static void ne2000_reset(NE2000State *s)
@@ -367,11 +376,12 @@ static int after_eq(uint32_t a, uint32_t b)
 
 #if defined(USE_TUNTAP)
 struct TUN {
+    VC header;
     int fd;
     uint32_t nextts;
 };
 
-static void qemu_send_packet(void *vc, uint8_t *buf, int size)
+static void qemu_send_packet_tuntap(void *vc, uint8_t *buf, int size)
 {
     struct TUN *tun = vc;
     if (tun->fd < 0)
@@ -379,9 +389,9 @@ static void qemu_send_packet(void *vc, uint8_t *buf, int size)
     write(tun->fd, buf, size);
 }
 
-void ne2000_step(NE2000State *s)
+static void ne2000_step_tuntap(NE2000State *s)
 {
-    struct TUN *tun = s->vc;
+    struct TUN *tun = (struct TUN *) s->vc;
     uint8_t buf[2048];
 
     if (tun->fd < 0)
@@ -400,22 +410,30 @@ void ne2000_step(NE2000State *s)
     }
 }
 
-static void *net_open(NE2000State *s)
+static void *net_open_tuntap(NE2000State *s)
 {
-    struct TUN *tun = malloc(sizeof(struct TUN));
-    tun->fd = -1;
+    int tunfd = -1;
     if (getenv("TAPFD"))
-        tun->fd = atoi(getenv("TAPFD"));
+        tunfd = atoi(getenv("TAPFD"));
+    if (tunfd < 0)
+        return NULL;
+
+    struct TUN *tun = malloc(sizeof(struct TUN));
+    tun->fd = tunfd;
     if (tun->fd >= 0)
         fcntl(tun->fd, F_SETFL, O_NONBLOCK);
     tun->nextts = get_uticks();
+    tun->header.send_packet = qemu_send_packet_tuntap;
+    tun->header.step = ne2000_step_tuntap;
     return tun;
 }
+#endif
 
-#elif defined(USE_SLIRP)
+#if defined(USE_SLIRP)
 #include <slirp/libslirp.h>
 #include <stdio.h>
 struct SLIRP {
+    VC header;
     void *slirp;
     void *ne2000;
     uint32_t nextts;
@@ -423,7 +441,7 @@ struct SLIRP {
     unsigned int maxfd;
 };
 
-static void qemu_send_packet(void *vc, uint8_t *buf, int size)
+static void qemu_send_packet_slirp(void *vc, uint8_t *buf, int size)
 {
     struct SLIRP *s = vc;
     slirp_input(s->slirp, buf, size);
@@ -526,9 +544,9 @@ static int get_revents_cb(int idx, void *opaque)
     return event;
 }
 
-void ne2000_step(NE2000State *ne2000)
+static void ne2000_step_slirp(NE2000State *ne2000)
 {
-    struct SLIRP *s = ne2000->vc;
+    struct SLIRP *s = (struct SLIRP *) ne2000->vc;
     uint32_t now = get_uticks();
     if (!after_eq(now, s->nextts))
         return;
@@ -551,7 +569,7 @@ void ne2000_step(NE2000State *ne2000)
     slirp_pollfds_poll(s->slirp, ret < 0, get_revents_cb, s);
 }
 
-static void *net_open(NE2000State *s)
+static void *net_open_slirp(NE2000State *s)
 {
     struct in_addr net_addr  = { .s_addr = htonl(0x0a000200) }; /* 10.0.2.0 */
     struct in_addr mask = { .s_addr = htonl(0xffffff00) }; /* 255.255.255.0 */
@@ -580,14 +598,15 @@ static void *net_open(NE2000State *s)
     slirp->slirp = slirp_new(&cfg, &cb, slirp);
     slirp->ne2000 = s;
     slirp->nextts = get_uticks();
+    slirp->header.send_packet = qemu_send_packet_slirp;
+    slirp->header.step = ne2000_step_slirp;
     return slirp;
 }
-
-#else
+#endif
 
 #ifdef BUILD_ESP32
 extern void (*_Atomic esp32_send_packet)(uint8_t *buf, int size);
-static void qemu_send_packet(void *vc, uint8_t *buf, int size)
+static void qemu_send_packet_null(void *vc, uint8_t *buf, int size)
 {
     void (*send_packet)(uint8_t *buf, int size);
     send_packet = atomic_load_explicit(&esp32_send_packet,
@@ -597,7 +616,7 @@ static void qemu_send_packet(void *vc, uint8_t *buf, int size)
 }
 #else
 #include <stdio.h>
-static void qemu_send_packet(void *vc, uint8_t *buf, int size)
+static void qemu_send_packet_null(void *vc, uint8_t *buf, int size)
 {
     fprintf(stderr, "recv packet %d bytes:\n", size);
     for (int i = 0; i < size; i++) {
@@ -609,19 +628,50 @@ static void qemu_send_packet(void *vc, uint8_t *buf, int size)
 }
 #endif
 
-void ne2000_step(NE2000State *s)
+static void ne2000_step_null(NE2000State *s)
 {
 #ifdef BUILD_ESP32
     ne2000_update_irq(s);
 #endif
 }
 
-static void *net_open(NE2000State *s)
+static void qemu_send_packet(void *o, uint8_t *buf, int size)
 {
-    return NULL;
+    VC *vc = o;
+    if (vc)
+        vc->send_packet(o, buf, size);
+    else
+        qemu_send_packet_null(o, buf, size);
 }
 
+void ne2000_step(NE2000State *s)
+{
+    if (s->vc)
+        s->vc->step(s);
+    else
+        ne2000_step_null(s);
+}
+
+static void *net_open(NE2000State *s)
+{
+    VC *vc = NULL;
+#if defined(USE_TUNTAP)
+    vc = net_open_tuntap(s);
+    if (vc) {
+        fprintf(stderr, "ne2000: use tuntap\n");
+        return vc;
+    }
 #endif
+#if defined(USE_SLIRP)
+    vc = net_open_slirp(s);
+    if (vc) {
+        fprintf(stderr, "ne2000: use slirp\n");
+        return vc;
+    }
+#endif
+    fprintf(stderr, "ne2000: use null\n");
+    return vc;
+}
 
 void ne2000_ioport_write(void *opaque, uint32_t addr, uint32_t val)
 {
