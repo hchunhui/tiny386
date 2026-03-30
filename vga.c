@@ -126,6 +126,8 @@ struct VGAState {
     int32_t bank_offset;
 
     uint32_t latch;
+
+    int comp_ntsc;
     
     /* text mode state */
     uint32_t last_palette[16];
@@ -372,6 +374,31 @@ static const uint8_t cursor_glyph[32] = {
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 };
+
+#if BPP == 32
+#define COLOR(a) a
+#elif BPP == 16
+#define COLOR(a) (((a & 0xff) >> 3) | ((((a >> 8) & 0xff) >> 2) << 5) | ((((a >> 16) & 0xff) >> 3) << 11))
+#endif
+const static uint32_t ntsc_color_lut[16] = {
+    COLOR(0x000000),
+    COLOR(0x006E2D),
+    COLOR(0x2D02FF),
+    COLOR(0x008BFF),
+    COLOR(0xA9002D),
+    COLOR(0x777677),
+    COLOR(0xEC09FF),
+    COLOR(0xBB92FD),
+    COLOR(0x2D5A00),
+    COLOR(0x00DC00),
+    COLOR(0x767777),
+    COLOR(0x45F4B9),
+    COLOR(0xEA6502),
+    COLOR(0xBCE500),
+    COLOR(0xFF80BC),
+    COLOR(0xFFFFFF),
+};
+#undef COLOR
 
 #if BPP == 32
 static inline int c6_to_8(int v)
@@ -1077,8 +1104,19 @@ static void vga_graphic_refresh(VGAState *s,
             uint32_t color;
             if (shift_control == 0) {
                 if (plane_mask == 1) {
-                    int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1);
-                    color = palette[k];
+                    if (s->comp_ntsc) {
+                        // TODO: optimize
+                        int k = 0;
+                        for (int i = 0; i < 4; i++) {
+                            int xx = (x1 & ~3) + i;
+                            k <<= 1;
+                            k |= ((vram[addr + 4 * (xx >> 3)] >> (7 - (xx & 7))) & 1);
+                        }
+                        color = ntsc_color_lut[k];
+                    } else {
+                        int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1);
+                        color = palette[k];
+                    }
                 } else {
                     int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1) << 0;
                     k |= ((vram[addr + 4 * (x1 >> 3) + 1] >> (7 - (x1 & 7))) & 1) << 1;
@@ -1526,6 +1564,10 @@ void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val)
     case 0x3ba:
     case 0x3da:
         s->fcr = val & 0x10;
+        break;
+    case 0x3d8:
+        s->comp_ntsc = !(val & 4);
+        fprintf(stderr, "comp_ntsc = %d\n", s->comp_ntsc);
         break;
     }
 }
