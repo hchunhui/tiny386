@@ -949,7 +949,7 @@ static void vga_graphic_refresh(VGAState *s,
     int shift_control = (s->gr[0x05] >> 5) & 3;
     int double_scan = (s->cr[0x09] >> 7);
     int multi_scan, multi_run;
-    if (shift_control != 1) {
+    if (!double_scan) {
         multi_scan = (((s->cr[0x09] & 0x1f) + 1) << double_scan) - 1;
     } else {
         /* in CGA modes, multi_scan is ignored */
@@ -1060,6 +1060,7 @@ static void vga_graphic_refresh(VGAState *s,
     else
         w = wx;
 #endif
+    uint32_t plane_mask = s->ar[0x12];
     for (int y = 0; y < h; y++) {
         uint32_t addr = addr1;
         if (!(s->cr[0x17] & 1)) {
@@ -1075,11 +1076,16 @@ static void vga_graphic_refresh(VGAState *s,
             int x1 = x / xdiv;
             uint32_t color;
             if (shift_control == 0) {
-                int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1) << 0;
-                k |= ((vram[addr + 4 * (x1 >> 3) + 1] >> (7 - (x1 & 7))) & 1) << 1;
-                k |= ((vram[addr + 4 * (x1 >> 3) + 2] >> (7 - (x1 & 7))) & 1) << 2;
-                k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x1 & 7))) & 1) << 3;
-                color = palette[k];
+                if (plane_mask == 1) {
+                    int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1);
+                    color = palette[k];
+                } else {
+                    int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1) << 0;
+                    k |= ((vram[addr + 4 * (x1 >> 3) + 1] >> (7 - (x1 & 7))) & 1) << 1;
+                    k |= ((vram[addr + 4 * (x1 >> 3) + 2] >> (7 - (x1 & 7))) & 1) << 2;
+                    k |= ((vram[addr + 4 * (x1 >> 3) + 3] >> (7 - (x1 & 7))) & 1) << 3;
+                    color = palette[k];
+                }
             } else if (shift_control == 1) {
                 int k = ((vram[addr + 4 * (x1 >> 3) + ((x1 & 4) >> 2)] >>
                           (6 - 2 * (x1 & 3))) & 3);
