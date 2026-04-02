@@ -1099,20 +1099,21 @@ static void vga_graphic_refresh(VGAState *s,
         if (!(s->cr[0x17] & 2)) {
             addr = (addr & ~0x8000) | ((y1 & 2) << 14);
         }
+
+        uint32_t color_comp = 0;
         for (int x = 0; x < w; x++) {
             int x1 = x / xdiv;
             uint32_t color;
             if (shift_control == 0) {
                 if (plane_mask == 1) {
                     if (s->comp_ntsc) {
-                        // TODO: optimize
-                        int k = 0;
-                        for (int i = 0; i < 4; i++) {
-                            int xx = (x1 & ~3) + i;
-                            k <<= 1;
-                            k |= ((vram[addr + 4 * (xx >> 3)] >> (7 - (xx & 7))) & 1);
+                        if (!(x1 & 3)) {
+                            int k = vram[addr + 4 * (x1 >> 3)];
+                            if (!(x1 & 4))
+                                k >>= 4;
+                            color_comp = ntsc_color_lut[k & 0xf];
                         }
-                        color = ntsc_color_lut[k];
+                        color = color_comp;
                     } else {
                         int k = ((vram[addr + 4 * (x1 >> 3)] >> (7 - (x1 & 7))) & 1);
                         color = palette[k];
