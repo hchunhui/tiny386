@@ -25,16 +25,13 @@ idf_component_register(SRCS "esp_main.c"
 "storage.c"
 INCLUDE_DIRS "")
 
+if(NOT DEFINED BOARD)
+    set(BOARD "jc3248w535")
+endif()
+
 message(STATUS "Building for BOARD=${BOARD}")
 
-if(BOARD STREQUAL "jc4880p443")
-    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc4880p443.h)
-elseif(BOARD STREQUAL "elecrow7s3")
-    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_elecrow7s3.h)
-else()
-    # Default: jc3248w535
-    add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_jc3248w535.h)
-endif()
+add_definitions(-include ${CMAKE_CURRENT_SOURCE_DIR}/board_${BOARD}.h)
 
 # Linker wrap for SPI SD CMD59 workaround (elecrow7s3 only)
 if(BOARD STREQUAL "elecrow7s3")
