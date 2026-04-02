@@ -1530,6 +1530,8 @@ void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val)
 #ifdef DEBUG_VGA_REG
         printf("vga: write GR%x = 0x%02x\n", s->gr_index, val);
 #endif
+        if (s->gr_index == 0x06)
+            s->comp_ntsc = 0;
         s->gr[s->gr_index] = val & gr_mask[s->gr_index];
         break;
     case 0x3b4:
