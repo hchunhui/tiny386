@@ -36,12 +36,6 @@
 #if defined(_WIN32)
 #include <winsock2.h>
 #endif
-#if !defined(__wasm__)
-#if !defined(_WIN32)
-#define USE_TUNTAP
-#endif
-#define USE_SLIRP
-#endif
 #else
 #include "esp_mac.h"
 #endif

@@ -8,7 +8,7 @@ SDL_CONFIG = sdl-config
 SLIRP_INC =
 SLIRP_LIB = -lslirp
 
-CFLAGS = -I . -Wall -O3 -ffunction-sections -fdata-sections -g -Wl,--gc-sections ${SLIRP_INC}
+CFLAGS = -I . -Wall -O3 -ffunction-sections -fdata-sections -g -Wl,--gc-sections
 CFLAGS += -DI386_ENABLE_FPU
 CFLAGS += -DI386_ENABLE_MMX -DI386_ENABLE_SSE -DI386_ENABLE_SSE2 -DI386_ENABLE_SSE3
 CFLAGS += -DI386_ENABLE_SSSE3
@@ -18,9 +18,7 @@ LDFLAGS_ =
 LDFLAGS_win32 = -mconsole
 LDFLAGS = ${LDFLAGS_${PLAT}}
 
-LIBS_ = -lm ${SLIRP_LIB}
-LIBS_win32 = -lm ${SLIRP_LIB} -lws2_32 -liphlpapi
-LIBS = ${LIBS_${PLAT}}
+LIBS = -lm
 
 SRCS =
 
@@ -59,6 +57,21 @@ USE_CPUABS = n
 CPUABS_y = kvm.c
 CFLAGS_CPUABS_y = -DUSE_CPUABS
 CFLAGS += ${CFLAGS_CPUABS_${USE_CPUABS}}
+
+#USE_SLIRP = y/n
+USE_SLIRP = y
+CFLAGS_SLIRP_y = -DUSE_SLIRP ${SLIRP_INC}
+LIBS_SLIRP_y_ = ${SLIRP_LIB}
+LIBS_SLIRP_y_win32 = ${SLIRP_LIB} -lws2_32 -liphlpapi
+CFLAGS += ${CFLAGS_SLIRP_${USE_SLIRP}}
+LIBS += ${LIBS_SLIRP_${USE_SLIRP}_${PLAT}}
+
+#USE_TUNTAP = y/n
+USE_TUNTAP_ = y
+USE_TUNTAP_win32 = n
+USE_TUNTAP = ${USE_TUNTAP_${PLAT}}
+CFLAGS_TUNTAP_y = -DUSE_TUNTAP
+CFLAGS += ${CFLAGS_TUNTAP_${USE_TUNTAP}}
 
 SUFF_SDL_SDL_y =
 SUFF_SDL_SDL_n = _sdl
