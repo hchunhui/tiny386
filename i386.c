@@ -4338,6 +4338,7 @@ static bool pmcall(CPUI386 *cpu, bool opsz16, uword addr, int sel, bool isjmp)
 
 		bool conforming = (neww2 >> 8) & 0x4;
 		bool gate16 = (gt == 4);
+		if (gate16) newip &= 0xffff;
 		if (!conforming && newdpl < cpu->cpl) {
 			// more privilege
 			OptAddr msp0, mss0;
@@ -4575,6 +4576,7 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	int newcs = w1 >> 16;
 	uword newip = (w1 & 0xffff) | (w2 & 0xffff0000);
 	bool gate16 = gt == 6 || gt == 7;
+	if (gate16) newip &= 0xffff;
 
 	int csdpl;
 	switch(__call_isr_check_cs(cpu, newcs, ext, &csdpl)) {
@@ -4964,6 +4966,8 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 				newsp = laddr32(&meml4);
 				newss = laddr32(&meml5);
 			}
+			if (!isiret)
+				newsp += off;
 
 			if (isiret)
 				cpu->flags = newflags;
