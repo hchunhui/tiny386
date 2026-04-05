@@ -89,7 +89,7 @@ patch_idf_60() {
 
 build_esp() {
     mkdir -p out/esp &&
-	cd esp && rm -rf build && idf.py update-dependencies build &&
+	cd esp && rm -rf build sdkconfig && idf.py update-dependencies build &&
 	cd build &&
 	esptool.py --chip esp32s3 merge_bin -o flash_image_JC3248W535.bin '@flash_args' &&
 	cd .. &&
@@ -100,7 +100,7 @@ build_esp() {
 
 build_esp_p4() {
     mkdir -p out/esp &&
-	cd esp && rm -rf build && idf.py -DBOARD=jc4880p443 update-dependencies build &&
+	cd esp && rm -rf build sdkconfig && idf.py -DBOARD=jc4880p443 update-dependencies build &&
 	cd build &&
 	esptool.py --chip esp32p4 merge_bin -o flash_image_JC4880P443.bin '@flash_args' &&
 	cd .. &&
