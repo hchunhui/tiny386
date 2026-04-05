@@ -864,9 +864,20 @@ static bool IRAM_ATTR peek8(CPUI386 *cpu, u8 *val)
 	}
 	OptAddr res;
 	TRY(translate8r(cpu, &res, SEG_CS, cpu->next_ip));
-	*val = load8(cpu, &res);
-	cpu->ifetch.laddr = laddr & (~4095ul);
-	cpu->ifetch.xaddr = res.addr1 ^ laddr;
+	uword paddr = res.addr1;
+	if (in_iomem(paddr) && cpu->cb.iomem_read8) {
+		*val = cpu->cb.iomem_read8(cpu->cb.iomem, paddr);
+		return true;
+	}
+	if (unlikely(paddr >= cpu->phys_mem_size)) {
+		*val = 0;
+		return true;
+	}
+	*val = pload8(cpu, paddr);
+	if (likely(paddr < cpu->phys_mem_size - 4096 && !in_iomem(paddr + 16))) {
+		cpu->ifetch.laddr = laddr & (~4095ul);
+		cpu->ifetch.xaddr = paddr ^ laddr;
+	}
 	return true;
 }
 
