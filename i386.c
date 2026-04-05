@@ -1728,6 +1728,28 @@ GEN___GE_helper(32)
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
 	sa(a, cpu->cc.dst);
 
+noinline void IRAM_ATTR try_jcc8(CPUI386 *cpu)
+{
+	if (likely(cpu->ifetch.paddr)) {
+		u8 op = pload8(cpu, cpu->ifetch.paddr);
+		// catches ~60%
+		if ((op & ~1) == 0x74) {
+			if ((cpu->cc.dst == 0) ^ (op & 1)) {
+				sword d = sext8(pload8(cpu, cpu->ifetch.paddr + 1));
+				cpu->next_ip += d + 2;
+			}
+		}
+	}
+}
+
+#define CMP_helper(NAME, BIT, OP, a, b, la, sa, lb, sb) \
+	AOP0_helper(NAME, BIT, OP, a, b, la, sa, lb, sb) \
+	try_jcc8(cpu);
+
+#define TEST_helper(NAME, BIT, OP, a, b, la, sa, lb, sb) \
+	LOP0_helper(NAME, BIT, OP, a, b, la, sa, lb, sb) \
+	try_jcc8(cpu);
+
 #define ADCb(...) ACOP_helper(ADC, ADD,  8, +, __VA_ARGS__)
 #define ADCw(...) ACOP_helper(ADC, ADD, 16, +, __VA_ARGS__)
 #define ADCd(...) ACOP_helper(ADC, ADD, 32, +, __VA_ARGS__)
@@ -1749,12 +1771,12 @@ GEN___GE_helper(32)
 #define XORb(...) LOP_helper(XOR,  8, ^, __VA_ARGS__)
 #define XORw(...) LOP_helper(XOR, 16, ^, __VA_ARGS__)
 #define XORd(...) LOP_helper(XOR, 32, ^, __VA_ARGS__)
-#define CMPb(...)  AOP0_helper(SUB,  8, -, __VA_ARGS__)
-#define CMPw(...)  AOP0_helper(SUB, 16, -, __VA_ARGS__)
-#define CMPd(...)  AOP0_helper(SUB, 32, -, __VA_ARGS__)
-#define TESTb(...) LOP0_helper(AND,  8, &, __VA_ARGS__)
-#define TESTw(...) LOP0_helper(AND, 16, &, __VA_ARGS__)
-#define TESTd(...) LOP0_helper(AND, 32, &, __VA_ARGS__)
+#define CMPb(...)  CMP_helper(SUB,  8, -, __VA_ARGS__)
+#define CMPw(...)  CMP_helper(SUB, 16, -, __VA_ARGS__)
+#define CMPd(...)  CMP_helper(SUB, 32, -, __VA_ARGS__)
+#define TESTb(...) TEST_helper(AND,  8, &, __VA_ARGS__)
+#define TESTw(...) TEST_helper(AND, 16, &, __VA_ARGS__)
+#define TESTd(...) TEST_helper(AND, 32, &, __VA_ARGS__)
 #define INCb(...) INCDEC_helper(INC,  8, +, __VA_ARGS__)
 #define INCw(...) INCDEC_helper(INC, 16, +, __VA_ARGS__)
 #define INCd(...) INCDEC_helper(INC, 32, +, __VA_ARGS__)
