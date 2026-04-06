@@ -30,7 +30,7 @@ void RegCNFADriver( int priority, const char * name, CNFAInitFn * fn )
 		return;
 	}
 
-	printf("[CNFA] Registering Driver: %s\n", name);
+	fprintf(stderr, "[CNFA] Registering Driver: %s\n", name);
 
 	for( j = MAX_CNFA_DRIVERS-1; j >= 0; j-- )
 	{
@@ -103,7 +103,7 @@ struct CNFADriver * CNFAInit( const char * driver_name, const char * your_name, 
 			}
 		}
 	}
-	printf( "CNFA Driver not found.\n" );
+	fprintf(stderr, "CNFA Driver not found.\n" );
 	return 0;
 }
 

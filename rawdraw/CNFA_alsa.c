@@ -154,7 +154,7 @@ static int SetSWParams( struct CNFADriverAlsa * d, snd_pcm_t * handle, int isrec
 
 		int buffer_size = d->bufsize*3;
 		int period_size = d->bufsize;
-		printf( ALSA_PRINT_PREFIX"PERIOD: %d  BUFFER: %d\n", period_size, buffer_size );
+		fprintf(stderr, ALSA_PRINT_PREFIX"PERIOD: %d  BUFFER: %d\n", period_size, buffer_size );
 
 		if ((err = snd_pcm_sw_params_set_avail_min (handle, sw_params, period_size )) < 0) {
 			fprintf (stderr, ALSA_PRINT_PREFIX"cannot set minimum available count (%s)\n",
@@ -236,7 +236,7 @@ void * PlayThread( void * v )
 	while( err >= 0 )
 	{
 	//	int avail = snd_pcm_avail(r->playback_handle);
-	//	printf( ALSA_PRINT_PREFIX"avail: %d\n", avail );
+	//	fprintf(stderr, ALSA_PRINT_PREFIX"avail: %d\n", avail );
 		r->callback( (struct CNFADriver *)r, samples, 0, r->bufsize, 0 );
 		err = snd_pcm_writei(r->playback_handle, samples, r->bufsize);
 		if( err != r->bufsize )
@@ -252,7 +252,7 @@ void * PlayThread( void * v )
 
 static struct CNFADriverAlsa * InitALSA( struct CNFADriverAlsa * r )
 {
-	printf( ALSA_PRINT_PREFIX"initialized %p %p  (%d %d) %d %d\n", r->playback_handle, r->record_handle, r->spsPlay, r->spsRec, r->channelsPlay, r->channelsRec );
+	fprintf(stderr, ALSA_PRINT_PREFIX"initialized %p %p  (%d %d) %d %d\n", r->playback_handle, r->record_handle, r->spsPlay, r->spsRec, r->channelsPlay, r->channelsRec );
 
 	int err;
 	if( r->channelsPlay )
@@ -297,7 +297,7 @@ static struct CNFADriverAlsa * InitALSA( struct CNFADriverAlsa * r )
 		err = snd_async_add_pcm_handler(&pcm_callback, r->playback_handle, playback_callback, r);
 		if(err < 0)
 		{
-			printf(ALSA_PRINT_PREFIX"Playback callback handler error: %s\n", snd_strerror(err));
+			fprintf(stderr, ALSA_PRINT_PREFIX"Playback callback handler error: %s\n", snd_strerror(err));
 		}
 	}
 
@@ -308,7 +308,7 @@ static struct CNFADriverAlsa * InitALSA( struct CNFADriverAlsa * r )
 		err = snd_async_add_pcm_handler(&pcm_callback, r->record_handle, record_callback, r);
 		if(err < 0)
 		{
-			printf(ALSA_PRINT_PREFIX"Record callback handler error: %s\n", snd_strerror(err));
+			fprintf(stderr, ALSA_PRINT_PREFIX"Record callback handler error: %s\n", snd_strerror(err));
 		}
 	}
 #endif
@@ -318,7 +318,7 @@ static struct CNFADriverAlsa * InitALSA( struct CNFADriverAlsa * r )
 		err = snd_pcm_link ( r->playback_handle, r->record_handle );
 		if(err < 0)
 		{
-			printf(ALSA_PRINT_PREFIX"snd_pcm_link error: %s\n", snd_strerror(err));
+			fprintf(stderr, ALSA_PRINT_PREFIX"snd_pcm_link error: %s\n", snd_strerror(err));
 		}
 	}
 
@@ -332,7 +332,7 @@ static struct CNFADriverAlsa * InitALSA( struct CNFADriverAlsa * r )
 		r->threadRec = OGCreateThread( RecThread, r );
 	}
 
-	printf( ALSA_PRINT_PREFIX"Init Out -> %p %p  (%d %d) %d %d\n", r->playback_handle, r->record_handle, r->spsPlay, r->spsRec, r->channelsPlay, r->channelsRec );
+	fprintf(stderr, ALSA_PRINT_PREFIX"Init Out -> %p %p  (%d %d) %d %d\n", r->playback_handle, r->record_handle, r->spsPlay, r->spsRec, r->channelsPlay, r->channelsRec );
 
 	return r;
 

@@ -356,7 +356,7 @@ char *fgets(char *s, int size, FILE *fp)
 
 void perror(const char *s)
 {
-	printf("%s: internal error\n", s);
+	fprintf(stderr, "%s: internal error\n", s);
 }
 
 // the following are taken from musl libc

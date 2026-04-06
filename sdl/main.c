@@ -337,7 +337,7 @@ int main(int argc, char *argv[])
 
 	int err = ini_parse(argv1, parse_conf_ini, &conf);
 	if (err) {
-		printf("error %d\n", err);
+		fprintf(stderr, "error %d\n", err);
 		return err;
 	}
 	if (enable_kvm)

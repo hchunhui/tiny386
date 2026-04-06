@@ -108,7 +108,7 @@ void CALLBACK HANDLEMIC(HWAVEIN hwi, UINT umsg, DWORD dwi, DWORD hdr, DWORD dwpa
 	switch (umsg)
 	{
 	case MM_WIM_OPEN:
-		printf( "Mic Open.\n" );
+		fprintf(stderr, "Mic Open.\n" );
 		w->recording = 1;
 		break;
 
@@ -131,7 +131,7 @@ void CALLBACK HANDLESINK(HWAVEIN hwi, UINT umsg, DWORD dwi, DWORD hdr, DWORD dwp
 	switch (umsg)
 	{
 	case MM_WOM_OPEN:
-		printf( "Sink Open.\n" );
+		fprintf(stderr, "Sink Open.\n" );
 		w->playing = 1;
 		break;
 
@@ -151,7 +151,7 @@ static struct CNFADriverWin * InitWinCNFA( struct CNFADriverWin * r )
 	long dwdeviceR, dwdeviceP;
 	memset( &wfmt, 0, sizeof(wfmt) );
 	printf ("WFMT Size (debugging temp for TCC): %zu\n", sizeof(wfmt) );
-	printf( "WFMT: %d %d %d\n", r->channelsRec, r->spsRec, r->spsRec * r->channelsRec );
+	fprintf(stderr, "WFMT: %d %d %d\n", r->channelsRec, r->spsRec, r->spsRec * r->channelsRec );
 	w = r;
 	
 	wfmt.wFormatTag = WAVE_FORMAT_PCM;
@@ -168,24 +168,24 @@ static struct CNFADriverWin * InitWinCNFA( struct CNFADriverWin * r )
 	if( r->channelsRec )
 	{
 		int p;
-		printf( "In Wave Devs: %d; WAVE_MAPPER: %d; Selected Input: %ld\n", waveInGetNumDevs(), WAVE_MAPPER, dwdeviceR );
+		fprintf(stderr, "In Wave Devs: %d; WAVE_MAPPER: %d; Selected Input: %ld\n", waveInGetNumDevs(), WAVE_MAPPER, dwdeviceR );
 		p = waveInOpen(&r->hMyWaveIn, dwdeviceR, &wfmt, (intptr_t)(&HANDLEMIC), 0, CALLBACK_FUNCTION);
 		if( p )
 		{
 			fprintf( stderr, "Error performing waveInOpen.  Received code: %d\n", p );
 		}
-		printf( "waveInOpen: %d\n", p );
+		fprintf(stderr, "waveInOpen: %d\n", p );
 		for ( i=0;i<BUFFS;i++)
 		{
 			memset( &(r->WavBuffIn[i]), 0, sizeof(r->WavBuffIn[i]) );
 			(r->WavBuffIn[i]).dwBufferLength = r->buffer*2*r->channelsRec;
 			(r->WavBuffIn[i]).dwLoops = 1;
 			(r->WavBuffIn[i]).lpData=(char*) malloc(r->buffer*r->channelsRec*2);
-			printf( "buffer gen size: %d: %p\n", r->buffer*r->channelsRec*2, (r->WavBuffIn[i]).lpData );
+			fprintf(stderr, "buffer gen size: %d: %p\n", r->buffer*r->channelsRec*2, (r->WavBuffIn[i]).lpData );
 			p = waveInPrepareHeader(r->hMyWaveIn,&(r->WavBuffIn[i]),sizeof(WAVEHDR));
-			printf( "WIPr: %d\n", p );
+			fprintf(stderr, "WIPr: %d\n", p );
 			waveInAddBuffer(r->hMyWaveIn,&(r->WavBuffIn[i]),sizeof(WAVEHDR));
-			printf( "WIAr: %d\n", p );
+			fprintf(stderr, "WIAr: %d\n", p );
 		}
 		p = waveInStart(r->hMyWaveIn);
 		if( p )
@@ -202,13 +202,13 @@ static struct CNFADriverWin * InitWinCNFA( struct CNFADriverWin * r )
 	if( r->channelsPlay )
 	{
 		int p;
-		printf( "Out Wave Devs: %d; WAVE_MAPPER: %d; Selected Input: %ld\n", waveOutGetNumDevs(), WAVE_MAPPER, dwdeviceP );
+		fprintf(stderr, "Out Wave Devs: %d; WAVE_MAPPER: %d; Selected Input: %ld\n", waveOutGetNumDevs(), WAVE_MAPPER, dwdeviceP );
 		p = waveOutOpen( &r->hMyWaveOut, dwdeviceP, &wfmt, (intptr_t)(void*)(&HANDLESINK), (intptr_t)r, CALLBACK_FUNCTION);
 		if( p )
 		{
 			fprintf( stderr, "Error performing waveOutOpen. Received code: %d\n", p );
 		}
-		printf( "waveOutOpen: %d\n", p );
+		fprintf(stderr, "waveOutOpen: %d\n", p );
 		for ( i=0;i<BUFFS;i++)
 		{
 			int size;

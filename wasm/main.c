@@ -65,7 +65,7 @@ PCConfig *wasm_prepare(const char *inifile)
 
 	int err = ini_parse(inifile, parse_conf_ini, conf);
 	if (err) {
-		printf("error %d\n", err);
+		fprintf(stderr, "error %d\n", err);
 		return NULL;
 	}
 
