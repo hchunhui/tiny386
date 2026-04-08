@@ -50,7 +50,6 @@ typedef struct {
 
 	SimpleFBDrawFunc *redraw;
 	void *redraw_data;
-	void (*poll)(void *);
 
 	KBDState *i8042;
 	PS2KbdState *kbd;
@@ -108,10 +107,9 @@ typedef struct {
 	int vga_force_8dm;
 } PCConfig;
 
-PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
+PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data,
 	   u8 *fb, PCConfig *conf);
 
-// XXX: still contains ESP32-specific logic
 void pc_vga_step(void *o);
 void pc_step(PC *pc);
 

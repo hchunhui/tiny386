@@ -56,10 +56,6 @@ static void redraw(void *opaque,
 {
 }
 
-static void poll(void *opaque)
-{
-}
-
 int main(int argc, char *argv[])
 {
 	PCConfig conf;
@@ -92,12 +88,13 @@ int main(int argc, char *argv[])
 		conf.cpu_gen = -1;
 
 	void *fb = bigmalloc(conf.width * conf.height * 4);
-	PC *pc = pc_new(redraw, poll, NULL, fb, &conf);
+	PC *pc = pc_new(redraw, NULL, fb, &conf);
 	load_bios_and_reset(pc);
 
 	pc->boot_start_time = get_uticks();
 	for (; pc->shutdown_state != 8;) {
 		pc_step(pc);
+		pc_vga_step(pc);
 	}
 	return 0;
 }

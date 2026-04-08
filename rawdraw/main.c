@@ -297,7 +297,7 @@ int main(int argc, char *argv[])
 		conf.cpu_gen = -1;
 
 	Console *console = console_init(conf.width, conf.height);
-	PC *pc = pc_new(redraw, cnfgpoll, console, console->fb, &conf);
+	PC *pc = pc_new(redraw, console, console->fb, &conf);
 	console->pc = pc;
 	console_set_audio(console);
 	load_bios_and_reset(pc);
@@ -305,6 +305,8 @@ int main(int argc, char *argv[])
 	pc->boot_start_time = get_uticks();
 	for (; pc->shutdown_state != 8 && console->cnfgret;) {
 		pc_step(pc);
+		cnfgpoll(console);
+		pc_vga_step(pc);
 	}
 	return 0;
 }

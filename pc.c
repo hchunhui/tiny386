@@ -547,7 +547,10 @@ void pc_vga_step(void *o)
 	PC *pc = o;
 	int refresh = vga_step(pc->vga);
 	if (refresh) {
-		vga_refresh(pc->vga, pc->redraw, pc->redraw_data, 0);
+		vga_refresh(pc->vga, pc->redraw, pc->redraw_data,
+			    pc->full_update != 0);
+		if (pc->full_update == 2)
+			pc->full_update = 0;
 	}
 }
 
@@ -558,9 +561,6 @@ void pc_step(PC *pc)
 		load_bios_and_reset(pc);
 	}
 
-#ifndef BUILD_ESP32
-	int refresh = vga_step(pc->vga);
-#endif
 	i8254_update_irq(pc->pit);
 	cmos_update_irq(pc->cmos);
 	if (pc->enable_serial)
@@ -569,15 +569,6 @@ void pc_step(PC *pc)
 	ne2000_step(pc->ne2000);
 	i8257_dma_run(pc->isa_dma);
 	i8257_dma_run(pc->isa_hdma);
-#ifndef BUILD_ESP32
-	pc->poll(pc->redraw_data);
-	if (refresh) {
-		vga_refresh(pc->vga, pc->redraw, pc->redraw_data,
-			    pc->full_update != 0);
-		if (pc->full_update == 2)
-			pc->full_update = 0;
-	}
-#endif
 	cpu_step(pc->cpu, PC_STEP_COUNT);
 }
 
@@ -700,7 +691,7 @@ static void pc_reset_request(void *p)
 	pc->reset_request = 1;
 }
 
-PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
+PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data,
 	   u8 *fb, PCConfig *conf)
 {
 	PC *pc = malloc(sizeof(PC));
@@ -808,7 +799,6 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void (*poll)(void *), void *redraw_data,
 
 	pc->redraw = redraw;
 	pc->redraw_data = redraw_data;
-	pc->poll = poll;
 
 	pc->i8042 = i8042_init(&(pc->kbd), &(pc->mouse),
 			       1, 12, pc->pic, set_irq,

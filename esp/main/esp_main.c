@@ -127,10 +127,6 @@ static void redraw(void *opaque,
 	}
 }
 
-static void stub(void *opaque)
-{
-}
-
 static int pc_main(const char *file)
 {
 	PCConfig conf;
@@ -154,7 +150,7 @@ static int pc_main(const char *file)
 	}
 
 	Console *console = console_init(conf.width, conf.height);
-	PC *pc = pc_new(redraw, stub, console, console->fb, &conf);
+	PC *pc = pc_new(redraw, console, console->fb, &conf);
 	console->pc = pc;
 	globals.pc = pc;
 	globals.kbd = pc->kbd;

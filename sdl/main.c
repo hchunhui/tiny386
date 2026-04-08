@@ -345,7 +345,7 @@ int main(int argc, char *argv[])
 
 	Console *console = console_init(conf.width, conf.height);
 	u8 *fb = console_get_fb(console);
-	PC *pc = pc_new(redraw, poll, console, fb, &conf);
+	PC *pc = pc_new(redraw, console, fb, &conf);
 	console->pc = pc;
 	console_set_audio(console);
 	load_bios_and_reset(pc);
@@ -353,6 +353,8 @@ int main(int argc, char *argv[])
 	pc->boot_start_time = get_uticks();
 	for (; pc->shutdown_state != 8;) {
 		pc_step(pc);
+		poll(console);
+		pc_vga_step(pc);
 	}
 	return 0;
 }

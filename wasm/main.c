@@ -48,10 +48,6 @@ static void redraw(void *opaque,
 {
 }
 
-static void poll(void *opaque)
-{
-}
-
 PCConfig *wasm_prepare(const char *inifile)
 {
 	PCConfig *conf = malloc(sizeof(PCConfig));
@@ -88,7 +84,7 @@ PCConfig *wasm_prepare(const char *inifile)
 Console *wasm_init(PCConfig *conf)
 {
 	Console *console = console_init(conf->width, conf->height);
-	PC *pc = pc_new(redraw, poll, console, console->fb, conf);
+	PC *pc = pc_new(redraw, console, console->fb, conf);
 	console->pc = pc;
 
 	load_bios_and_reset(pc);
@@ -103,6 +99,7 @@ int wasm_loop(Console *console)
 
 	for (int i = 0; i < 64 && pc->shutdown_state != 8; i++) {
 		pc_step(pc);
+		pc_vga_step(pc);
 	}
 
 	if (pc->shutdown_state != 8) {
