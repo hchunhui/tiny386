@@ -1,6 +1,13 @@
 'use strict';
 
+function get_tiny386(screen) {
+
 let mem8;
+let logger = null;
+let running = false;
+let audctx;
+let instance;
+let h2;
 
 function get_string(ptr)
 {
@@ -36,13 +43,8 @@ function __get_mticks()
 
 function dolog(s)
 {
-    const o = document.getElementById('logarea');
-    const len = o.value.length;
-    if (len > 40960)
-        o.value = o.value.substring(len - 40960, len) + s;
-    else
-        o.value += s;
-    o.scrollTop = o.scrollHeight;
+    if (logger !== null)
+        logger(s);
 }
 
 function __console_print(ptr)
@@ -114,7 +116,6 @@ function __close(fd)
 
 function drawfb(fbptr, width, height)
 {
-    const screen = document.getElementById('screen');
     const ctx = screen.getContext('2d');
 
     screen.width = width;
@@ -322,26 +323,8 @@ var codemap = {
     "ContextMenu": 0xe05d,
 };
 
-function request_pointer_lock()
-{
-    const screen = document.getElementById('screen');
-    screen.tabIndex = 1;
-    screen.focus();
-    screen.requestPointerLock();
-}
-
-function request_fullscreen()
-{
-    const screen = document.getElementById('screen');
-    screen.tabIndex = 1;
-    screen.focus();
-    screen.requestFullscreen();
-    screen.style.cursor = 'none';
-}
-
 function register_kbdmouse(h, exports)
 {
-    const screen = document.getElementById('screen');
     function mousehandler(event) {
         const x = event.movementX;
         const y = event.movementY;
@@ -410,6 +393,10 @@ function register_kbdmouse(h, exports)
             screen.style.cursor = 'default';
         } else {
             screen.requestPointerLock();
+            if ('keyboard' in navigator &&
+                typeof navigator.keyboard.lock === 'function') {
+                navigator.keyboard.lock();
+            }
         }
     });
 }
@@ -453,20 +440,16 @@ function loads(files, i, cont) {
     }
 }
 
-let sendCAD;
-let sendMR;
-
-function start()
+function start(inifile)
 {
-    document.getElementById('startkey').disabled = true;
     fetch('tiny386.wasm', fetchopt)
         .then(response => response.arrayBuffer())
         .then(bytes => WebAssembly.compile(bytes))
         .then(module => new WebAssembly.Instance(module, imports))
-        .then(instance => {
+        .then(instance1 => {
+            instance = instance1;
             instance.exports.memory.grow(1024 * 10); // 64K * 10K
             mem8 = new Uint8Array(instance.exports.memory.buffer);
-            const inifile = document.getElementById('configname').value;
             dolog('ini file ' + inifile + '\n');
             loads([inifile], 0, () => {
                 const iniptr = copy_string(inifile, instance.exports.malloc);
@@ -475,17 +458,16 @@ function start()
                 const width = mem8[h1 + 19 * 4] | (mem8[h1 + 19 * 4 + 1] << 8);
                 const height = mem8[h1 + 20 * 4] | (mem8[h1 + 20 * 4 + 1] << 8);
                 loads(filestore_list, 0, () => {
-                    const h2 = instance.exports.wasm_init(h1);
+                    h2 = instance.exports.wasm_init(h1);
                     const fbptr = instance.exports.wasm_getfb(h2);
                     if (h2 != 0) {
                         register_kbdmouse(h2, instance.exports);
-                        const screen = document.getElementById('screen');
                         screen.focus();
 
                         // web audio
-                        const audctx = new window.AudioContext;
+                        audctx = new window.AudioContext({sampleRate: 44100});
                         const audlen = instance.exports.wasm_getaudiolen(h2);
-                        const mf64 = new Float64Array(instance.exports.memory.buffer);
+                        const mf32 = new Float32Array(instance.exports.memory.buffer);
 
                         const n = 8;
                         const dummybuf = audctx.createBuffer(1, audlen * n, 44100);
@@ -497,12 +479,13 @@ function start()
                             (ev) => {
                                 const out = ev.outputBuffer;
                                 for (let j = 0; j < n; j++) {
-                                    const ap = instance.exports.wasm_getaudio(h2) / 8;
+                                    const ap =
+                                          instance.exports.wasm_getaudio_f32(h2) / 4;
                                     for (let ch = 0; ch < 2; ch++) {
                                         const buf = out.getChannelData(ch);
                                         const off = audlen * ch;
                                         for (let i = 0; i < audlen; i++) {
-                                            buf[audlen * j + i] = mf64[ap + off + i];
+                                            buf[audlen * j + i] = mf32[ap + off + i];
                                         }
                                     }
                                 }
@@ -514,33 +497,39 @@ function start()
                         dummysrc.connect(audcb);
                         dummysrc.start();
 
-                        sendCAD = function () {
-                            instance.exports.wasm_send_kbd(h2, 1, 0x1d);
-                            instance.exports.wasm_send_kbd(h2, 1, 0x38);
-                            instance.exports.wasm_send_kbd(h2, 1, 0x53);
-                            instance.exports.wasm_send_kbd(h2, 0, 0x53);
-                            instance.exports.wasm_send_kbd(h2, 0, 0x38);
-                            instance.exports.wasm_send_kbd(h2, 0, 0x1d);
-                        };
-
-                        sendMR = function () {
-                            instance.exports.wasm_send_mouse(h2, 0, 0, 0, 2);
-                            instance.exports.wasm_send_mouse(h2, 0, 0, 0, 0);
-                        };
-
+                        running = true;
                         function main_loop() {
                             instance.exports.wasm_loop(h2);
-                            setTimeout(main_loop, 0);
+                            if (running)
+                                setTimeout(main_loop, 0);
                         }
                         main_loop();
 
                         function redraw_loop() {
                             drawfb(fbptr, width, height);
-                            setTimeout(redraw_loop, 20);
+                            if (running)
+                                setTimeout(redraw_loop, 20);
                         }
                         redraw_loop();
                     }
                 });
             });
         });
+}
+
+function stop()
+{
+    running = false;
+    audctx.close();
+}
+
+return {
+    start,
+    stop,
+    set_logger: function (o) { logger = o; },
+    send_kbd: function(down, key) { instance.exports.wasm_send_kbd(h2, down, key); },
+    send_mouse: function(x, y, z, btn) {
+        instance.exports.wasm_send_mouse(h2, x, y, z, btn);
+    },
+}
 }

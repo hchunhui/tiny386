@@ -124,14 +124,14 @@ void wasm_send_kbd(Console *console, int keypress, int keycode)
 }
 
 #define SAMPLE_NUM 256
-static double audiobuf[SAMPLE_NUM * 2];
+static float audiobuf[SAMPLE_NUM * 2];
 static int16_t buf[SAMPLE_NUM * 2];
 int wasm_getaudiolen(Console *console) // sample num
 {
 	return SAMPLE_NUM;
 }
 
-double *wasm_getaudio(Console *console)
+float *wasm_getaudio_f32(Console *console)
 {
 	memset(buf, 0, SAMPLE_NUM * 2 * 2);
 	mixer_callback(console->pc, (void *) buf, SAMPLE_NUM * 2 * 2);
