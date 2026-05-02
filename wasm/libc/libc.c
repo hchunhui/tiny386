@@ -405,8 +405,8 @@ static int __secs_to_tm(long long t, struct tm *tm)
 	static const char days_in_month[] = {31,30,31,30,31,31,30,31,30,31,31,29};
 
 	/* Reject time_t values whose year would overflow int */
-//	if (t < INT_MIN * 31622400LL || t > INT_MAX * 31622400LL)
-//		return -1;
+	if (t < INT_MIN * 31622400LL || t > INT_MAX * 31622400LL)
+		return -1;
 
 	secs = t - LEAPOCH;
 	days = secs / 86400;
