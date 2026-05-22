@@ -37,6 +37,8 @@ static int after_eq(uint32_t a, uint32_t b)
 #include "i8042.h"
 
 #ifdef BUILD_ESP32
+#define THREAD_SAFE
+#include <stdatomic.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #endif
@@ -430,7 +432,7 @@ KBDState *i8042_init(PS2KbdState **pkbd,
 typedef struct {
     uint8_t data[PS2_QUEUE_SIZE];
     int rptr, wptr, count;
-#ifdef BUILD_ESP32
+#ifdef THREAD_SAFE
     SemaphoreHandle_t mutex;
 #endif
 } PS2Queue;
@@ -452,6 +454,9 @@ struct  PS2KbdState {
     bool delay;
     uint32_t delay_time;
     int delay_keycode;
+#ifdef THREAD_SAFE
+    atomic_flag delay_flag;
+#endif
 };
 
 struct PS2MouseState {
@@ -473,7 +478,7 @@ void ps2_queue(void *opaque, int b)
     PS2State *s = (PS2State *)opaque;
     PS2Queue *q = &s->queue;
 
-#ifdef BUILD_ESP32
+#ifdef THREAD_SAFE
     xSemaphoreTake(q->mutex, portMAX_DELAY);
 #endif
 
@@ -484,7 +489,7 @@ void ps2_queue(void *opaque, int b)
         q->wptr = 0;
     q->count++;
 
-#ifdef BUILD_ESP32
+#ifdef THREAD_SAFE
     xSemaphoreGive(q->mutex);
 #else
     s->update_irq(s->update_arg, 1);
@@ -505,6 +510,11 @@ static const uint8_t linux_input_to_keycode_set1[INPUT_MAKE_KEY_MAX - INPUT_MAKE
    keycode set 1 */
 void ps2_put_keycode(PS2KbdState *s, int is_down, int keycode)
 {
+#ifdef THREAD_SAFE
+    while (atomic_flag_test_and_set_explicit(&(s->delay_flag),
+                                             memory_order_acquire)) {}
+#endif
+
     if (s->delay) {
         s->delay = false;
         ps2_queue(&s->common, s->delay_keycode);
@@ -517,10 +527,10 @@ void ps2_put_keycode(PS2KbdState *s, int is_down, int keycode)
         s->delay_keycode = (keycode & 0xff) | ((!is_down) << 7);
     } else if (keycode >= INPUT_MAKE_KEY_MIN) {
         if (keycode > INPUT_MAKE_KEY_MAX)
-            return;
+            goto out;
         keycode = linux_input_to_keycode_set1[keycode - INPUT_MAKE_KEY_MIN];
         if (keycode == 0)
-            return;
+            goto out;
         ps2_queue(&s->common, 0xe0);
         /* XXX: currently the ps2 queue is driven by data reading,
            however the "e0" prefix may be read by some old DOS
@@ -533,6 +543,11 @@ void ps2_put_keycode(PS2KbdState *s, int is_down, int keycode)
     } else {
         ps2_queue(&s->common, keycode | ((!is_down) << 7));
     }
+
+out:;
+#ifdef THREAD_SAFE
+    atomic_flag_clear_explicit(&(s->delay_flag), memory_order_release);
+#endif
 }
 
 /* to be called in main loop */
@@ -540,11 +555,21 @@ void kbd_step(void *opaque)
 {
     KBDState *s = opaque;
     PS2KbdState *kbd = s->kbd;
+#ifdef THREAD_SAFE
+    if (!atomic_flag_test_and_set_explicit(&(kbd->delay_flag),
+                                           memory_order_acquire)) {
+#endif
+
     if (kbd->delay && after_eq(get_uticks(), kbd->delay_time)) {
         kbd->delay = false;
         ps2_queue(&(kbd->common), kbd->delay_keycode);
     }
-#ifdef BUILD_ESP32
+
+#ifdef THREAD_SAFE
+    atomic_flag_clear_explicit(&(kbd->delay_flag), memory_order_release);
+    }
+#endif
+#ifdef THREAD_SAFE
     if (s->kbd->common.queue.count)
         s->kbd->common.update_irq(s->kbd->common.update_arg, 1);
     if (s->mouse->common.queue.count)
@@ -559,7 +584,7 @@ uint32_t ps2_read_data(void *opaque)
     int val, index;
 
     q = &s->queue;
-#ifdef BUILD_ESP32
+#ifdef THREAD_SAFE
     xSemaphoreTake(q->mutex, portMAX_DELAY);
 #endif
     if (q->count == 0) {
@@ -580,7 +605,7 @@ uint32_t ps2_read_data(void *opaque)
         /* reassert IRQs if data left */
         s->update_irq(s->update_arg, q->count != 0);
     }
-#ifdef BUILD_ESP32
+#ifdef THREAD_SAFE
     xSemaphoreGive(q->mutex);
 #endif
     return val;
@@ -874,7 +899,7 @@ static void ps2_reset(void *opaque)
     q->rptr = 0;
     q->wptr = 0;
     q->count = 0;
-#ifdef BUILD_ESP32
+#ifdef THREAD_SAFE
     s->queue.mutex = xSemaphoreCreateMutex();
 #endif
 }
@@ -883,6 +908,9 @@ PS2KbdState *ps2_kbd_init(void (*update_irq)(void *, int), void *update_arg)
 {
     PS2KbdState *s = (PS2KbdState *)malloc(sizeof(PS2KbdState));
     memset(s, 0, sizeof(PS2KbdState));
+#ifdef THREAD_SAFE
+    atomic_flag_clear(&(s->delay_flag));
+#endif
 
     s->common.update_irq = update_irq;
     s->common.update_arg = update_arg;
