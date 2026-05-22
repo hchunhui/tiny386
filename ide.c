@@ -2135,6 +2135,153 @@ static BlockDevice *block_device_init_espsd(int64_t start_sector, int64_t nb_sec
 }
 #endif
 
+#ifdef IDE_ENABLE_CISO
+//#include <zlib.h>
+//#include "miniz.h"
+#define CISO_MAGIC 0x4F534943 // "CISO"
+#define CISO_SECTOR_SIZE 2048
+
+typedef struct {
+	uint32_t magic;
+	uint32_t header_size;
+	uint64_t total_bytes;
+	uint32_t block_size;
+	uint8_t  ver;
+	uint8_t  align;
+	uint8_t  reserved[2];
+} CISO_Header;
+
+typedef struct BlockDeviceCISO {
+    FILE *fp;
+    CISO_Header header;
+    uint32_t *index;
+    int64_t nb_sectors;
+    uint8_t cmp_buf[CISO_SECTOR_SIZE + 128];
+} BlockDeviceCISO;
+
+static int64_t ciso_get_sector_count(BlockDevice *bs)
+{
+    BlockDeviceCISO *bf = bs->opaque;
+    return bf->nb_sectors;
+}
+
+static int __ciso_read_sector(BlockDeviceCISO *handle,
+                             uint32_t sector_idx, void *buffer)
+{
+    uint32_t pos = handle->index[sector_idx];
+    uint32_t next_pos = handle->index[sector_idx + 1];
+
+    int is_uncompressed = pos & 0x80000000;
+    uint64_t real_pos = (uint64_t)(pos & 0x7FFFFFFF) << handle->header.align;
+    uint64_t next_real_pos = (uint64_t)(next_pos & 0x7FFFFFFF) << handle->header.align;
+    uint32_t cmp_size = next_real_pos - real_pos;
+    if (cmp_size > CISO_SECTOR_SIZE + 128)
+        return -1;
+
+    fseeko(handle->fp, real_pos, SEEK_SET);
+
+    if (is_uncompressed) {
+        fread(buffer, 1, CISO_SECTOR_SIZE, handle->fp);
+    } else {
+        fread(handle->cmp_buf, 1, cmp_size, handle->fp);
+
+        z_stream strm = {0};
+        strm.next_in = handle->cmp_buf;
+        strm.avail_in = cmp_size;
+        strm.next_out = buffer;
+        strm.avail_out = CISO_SECTOR_SIZE;
+
+        inflateInit2(&strm, -15);
+        inflate(&strm, Z_FINISH);
+        inflateEnd(&strm);
+    }
+    return 0;
+}
+
+static int ciso_read_async(BlockDevice *bs,
+                          uint64_t sector_num, uint8_t *buf, int n,
+                          BlockDeviceCompletionFunc *cb, void *opaque)
+{
+    BlockDeviceCISO *bf = bs->opaque;
+    if (!bf->fp)
+        return -1;
+    if (sector_num + n > bf->nb_sectors)
+        return -1;
+
+    if (bf->index) {
+        sector_num >>= 2;
+        n >>= 2;
+        for (int i = 0; i < n; i++)
+            if (__ciso_read_sector(bf, sector_num + i, buf + CISO_SECTOR_SIZE * i))
+                return -1;
+    } else {
+        fseeko(bf->fp, sector_num * SECTOR_SIZE, SEEK_SET);
+        fread(buf, 1, n * SECTOR_SIZE, bf->fp);
+    }
+    /* synchronous read */
+    return 0;
+}
+
+static int ciso_write_async(BlockDevice *bs,
+                          uint64_t sector_num, const uint8_t *buf, int n,
+                          BlockDeviceCompletionFunc *cb, void *opaque)
+{
+    return -1;
+}
+
+static int __ciso_open(BlockDeviceCISO *handle, const char *path)
+{
+    memset(handle, 0, sizeof(*handle));
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return 0;
+
+    CISO_Header header;
+    fread(&header, 1, sizeof(header), fp);
+    if (header.magic != CISO_MAGIC) {
+        handle->fp = fp;
+        handle->index = NULL;
+        fseeko(fp, 0, SEEK_END);
+        int64_t file_size = ftello(fp);
+        handle->nb_sectors = file_size / SECTOR_SIZE;
+        return 1;
+    }
+
+    handle->fp = fp;
+    handle->header = header;
+    int num_blocks = (header.total_bytes + header.block_size - 1) / header.block_size;
+    handle->nb_sectors = num_blocks << 2;
+    handle->index = malloc((num_blocks + 1) * sizeof(uint32_t));
+    fread(handle->index, sizeof(uint32_t), num_blocks + 1, fp);
+    return 1;
+}
+
+static void __ciso_close(BlockDeviceCISO *handle)
+{
+    if (handle->fp) fclose(handle->fp);
+    if (handle->index) free(handle->index);
+}
+
+static BlockDevice *block_device_init_ciso(const char *filename)
+{
+    BlockDevice *bs;
+    BlockDeviceCISO *bf;
+
+    bs = pcmalloc(sizeof(*bs));
+    bf = pcmalloc(sizeof(*bf));
+    memset(bs, 0, sizeof(*bs));
+
+    int ok = __ciso_open(bf, filename);
+    assert(ok);
+
+    bs->opaque = bf;
+    bs->get_sector_count = ciso_get_sector_count;
+    bs->get_chs = NULL;
+    bs->read_async = ciso_read_async;
+    bs->write_async = ciso_write_async;
+    return bs;
+}
+#endif
+
 IDEIFState *ide_allocate(int irq, void *pic, void (*set_irq)(void *pic, int irq, int level))
 {
     IDEIFState *s;
@@ -2169,13 +2316,25 @@ int ide_attach(IDEIFState *s, int drive, const char *filename)
 int ide_attach_cd(IDEIFState *s, int drive, const char *filename)
 {
     assert(MAX_MULT_SECTORS >= 4);
-    BlockDevice *bs = block_device_init(filename, BF_MODE_RO);
+#ifdef IDE_ENABLE_CISO
+    BlockDevice *bs = block_device_init_ciso(filename);
+#else
+    BlockDevice *bs = block_device_init(filename, BF_MODE_RW);
+#endif
     s->drives[drive] = ide_cddrive_init(s, bs);
     return 0;
 }
 
 static void block_device_reinit(BlockDevice *bs, const char *filename)
 {
+#ifdef IDE_ENABLE_CISO
+    if (bs->get_sector_count == ciso_get_sector_count) {
+        BlockDeviceCISO *bf = bs->opaque;
+        __ciso_close(bf);
+        __ciso_open(bf, filename);
+        return;
+    }
+#endif
     if (bs->get_sector_count != bf_get_sector_count) {
         fprintf(stderr, "block_device_reinit: not supported device\n");
         return;

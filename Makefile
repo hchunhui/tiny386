@@ -80,6 +80,17 @@ SUFF_RAWDRAW_SDL_n =
 SUFF_SDL = ${SUFF_SDL_SDL_${USE_SDL}}
 SUFF_RAWDRAW = ${SUFF_RAWDRAW_SDL_${USE_SDL}}
 
+#ENABLE_CISO = n/zlib/miniz
+ENABLE_CISO = n
+CFLAGS_zlib = -DIDE_ENABLE_CISO -include zlib.h
+LIBS_zlib = -lz
+MINIZ_PATH = build/miniz
+CFLAGS_miniz = -DIDE_ENABLE_CISO -include ${MINIZ_PATH}/miniz.h
+SRCS_miniz = ${MINIZ_PATH}/miniz.c
+CFLAGS += ${CFLAGS_${ENABLE_CISO}}
+LIBS += ${LIBS_${ENABLE_CISO}}
+SRCS += ${SRCS_${ENABLE_CISO}}
+
 PROGS_ = tiny386 tiny386_headless wifikbd initnet
 PROGS_win32 = tiny386 tiny386_headless wifikbd
 PROGS = ${PROGS_${PLAT}}
