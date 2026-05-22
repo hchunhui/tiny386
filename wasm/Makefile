@@ -28,4 +28,4 @@ CFLAGS += -DUSE_FMOPL
 .PHONY: all
 
 all:
-	clang --target=wasm32 -O3 -nostdlib -fno-builtin -ffunction-sections -fdata-sections -fvisibility=default -I libc ${CFLAGS} -Wl,--gc-sections -Wl,--export-dynamic -Wl,--no-entry -Wl,--strip-all -Wl,--allow-undefined -o html/tiny386.wasm ${SRCS}
+	clang --target=wasm32 -O3 -nostdlib -fno-builtin -ffunction-sections -fdata-sections -I libc ${CFLAGS} -Wl,--gc-sections -Wl,--export-dynamic -Wl,--no-entry -Wl,--strip-all -Wl,--allow-undefined -o html/tiny386.wasm ${SRCS}

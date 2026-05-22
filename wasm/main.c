@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../pc.h"
+#define WASM_EXPORT __attribute__ ((visibility ("default")))
 
 #include <time.h>
 uint32_t get_uticks()
@@ -36,6 +37,7 @@ typedef struct {
 	u8 *fb;
 } Console;
 
+WASM_EXPORT
 Console *console_init(int width, int height)
 {
 	Console *c = malloc(sizeof(Console));
@@ -48,6 +50,7 @@ static void redraw(void *opaque,
 {
 }
 
+WASM_EXPORT
 PCConfig *wasm_prepare(const char *inifile)
 {
 	PCConfig *conf = malloc(sizeof(PCConfig));
@@ -81,6 +84,7 @@ PCConfig *wasm_prepare(const char *inifile)
 	return conf;
 }
 
+WASM_EXPORT
 Console *wasm_init(PCConfig *conf)
 {
 	Console *console = console_init(conf->width, conf->height);
@@ -92,7 +96,7 @@ Console *wasm_init(PCConfig *conf)
 	return console;
 }
 
-extern int fake_nsecs;
+WASM_EXPORT
 int wasm_loop(Console *console)
 {
 	PC *pc = console->pc;
@@ -108,16 +112,19 @@ int wasm_loop(Console *console)
 	return 0;
 }
 
+WASM_EXPORT
 u8 *wasm_getfb(Console *console)
 {
 	return console->fb;
 }
 
+WASM_EXPORT
 void wasm_send_mouse(Console *console, int x, int y, int z, int btn)
 {
 	ps2_mouse_event(console->pc->mouse, x, y, z, btn);
 }
 
+WASM_EXPORT
 void wasm_send_kbd(Console *console, int keypress, int keycode)
 {
 	ps2_put_keycode(console->pc->kbd, keypress, keycode);
@@ -126,11 +133,13 @@ void wasm_send_kbd(Console *console, int keypress, int keycode)
 #define SAMPLE_NUM 256
 static float audiobuf[SAMPLE_NUM * 2];
 static int16_t buf[SAMPLE_NUM * 2];
+WASM_EXPORT
 int wasm_getaudiolen(Console *console) // sample num
 {
 	return SAMPLE_NUM;
 }
 
+WASM_EXPORT
 float *wasm_getaudio_f32(Console *console)
 {
 	memset(buf, 0, SAMPLE_NUM * 2 * 2);
