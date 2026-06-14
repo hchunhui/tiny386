@@ -39,7 +39,7 @@ LIBS_SDL_ = `${SDL_CONFIG} --libs` ${LIBS}
 LIBS_SDL_win32 = `${SDL_CONFIG} --libs` ${LIBS}
 LIBS_SDL = ${LIBS_SDL_${PLAT}}
 
-LIBS_RAWDRAW_ = -lX11 -lasound ${LIBS}
+LIBS_RAWDRAW_ = -ldl ${LIBS}
 LIBS_RAWDRAW_win32 = -lgdi32 -lwinmm ${LIBS}
 LIBS_RAWDRAW = ${LIBS_RAWDRAW_${PLAT}}
 

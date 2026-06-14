@@ -250,8 +250,21 @@ void * PlayThread( void * v )
 	return 0;
 }
 
+#include <dlfcn.h>
+#define __handle __libasound_handle
+#include "alsa_wrapper.c"
+int init_alsa(void)
+{
+    __handle = dlopen("libasound.so.2", RTLD_NOW);
+    return !!__handle;
+}
+#undef __handle
+
 static struct CNFADriverAlsa * InitALSA( struct CNFADriverAlsa * r )
 {
+	if (!init_alsa())
+		goto fail;
+
 	fprintf(stderr, ALSA_PRINT_PREFIX"initialized %p %p  (%d %d) %d %d\n", r->playback_handle, r->record_handle, r->spsPlay, r->spsRec, r->channelsPlay, r->channelsRec );
 
 	int err;

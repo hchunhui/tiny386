@@ -390,8 +390,20 @@ int CNFGSetupWMClass( const char * WindowName, int w, int h , char * wm_res_name
 	return CNFGSetup( WindowName, w, h);
 }
 
+#include <dlfcn.h>
+#define __handle __libx11_handle
+#include "xlib_wrapper.c"
+static int init_xlib(void)
+{
+    __handle = dlopen("libX11.so.6", RTLD_NOW);
+    return !!__handle;
+}
+#undef __handle
+
 int CNFGSetup( const char * WindowName, int w, int h )
 {
+	if (!init_xlib())
+		return 1;
 	CNFGDisplay = XOpenDisplay(NULL);
 	if ( !CNFGDisplay ) {
 		fprintf( stderr, "Could not get an X Display.\n%s", 
