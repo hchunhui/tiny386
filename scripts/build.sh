@@ -49,19 +49,17 @@ build_thirdparty() {
 build_tiny386() {
     mkdir -p out &&
 	cd linuxstart && make && cd .. && cp linuxstart/linuxstart.bin out/ &&
-	make clean &&
 	make \
 	     USE_GLIBC_FIX=y \
 	     USE_CPUABS=y \
 	     SLIRP_INC="-I$PWD/build/slirp/build" \
-	     SLIRP_LIB="-L$PWD/build/slirp/build -lslirp" all &&
-	strip -s tiny386 tiny386_headless wifikbd initnet &&
-	cp tiny386 tiny386_headless wifikbd initnet out &&
+	     SLIRP_LIB="-L$PWD/build/slirp/build -lslirp" clean all &&
+	strip -s tiny386 wifikbd initnet &&
+	cp tiny386 wifikbd initnet out &&
 	mkdir -p out/win32 &&
-	make clean &&
 	make \
 	     SLIRP_INC="-I$PWD/build/slirp/build-mingw32 -DLIBSLIRP_STATIC" \
-	     SLIRP_LIB="-L$PWD/build/slirp/build-mingw32 -lslirp" win32 &&
+	     SLIRP_LIB="-L$PWD/build/slirp/build-mingw32 -lslirp" clean win32 &&
 	strip -s tiny386.exe wifikbd.exe &&
 	cp tiny386.exe wifikbd.exe out/win32 &&
 	make clean &&

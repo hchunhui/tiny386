@@ -99,14 +99,17 @@ Console *console_init(int width, int height)
 }
 
 //
-static void redraw(void *opaque,
-		   int x, int y, int w, int h)
+static void redraw(void *opaque, int x, int y, int w, int h)
 {
 	Console *s = opaque;
 	if (s->osd_enabled)
 		osd_render(s->osd, s->fb,
 			   s->width, s->height, s->width * 4);
 	CNFGUpdateScreenWithBitmap(s->fb, s->width, s->height);
+}
+
+static void dummy(void *opaque, int x, int y, int w, int h)
+{
 }
 
 static void *g_opaque;
@@ -264,7 +267,13 @@ void console_set_audio(Console *console)
 		abort();
 }
 
-#undef main
+static void usage(const char *argv0)
+{
+	fprintf(stderr,
+		"Usage: %s [-kvm] [-headless] inifile\n",
+		argv0);
+}
+
 int main(int argc, char *argv[])
 {
 	PCConfig conf;
@@ -278,13 +287,21 @@ int main(int argc, char *argv[])
 
 	const char *argv1;
 	bool enable_kvm = false;
-	if (argc == 2) {
-		argv1 = argv[1];
-	} else if (argc == 3) {
-		if (strcmp(argv[1], "-kvm") == 0)
-			enable_kvm = true;
-		argv1 = argv[2];
+	bool headless = false;
+	if (argc > 1) {
+		for (int i = 1; i < argc - 1; i++) {
+			if (strcmp(argv[i], "-kvm") == 0)
+				enable_kvm = true;
+			else if (strcmp(argv[i], "-headless") == 0)
+				headless = true;
+			else {
+				usage(argv[0]);
+				return 1;
+			}
+		}
+		argv1 = argv[argc - 1];
 	} else {
+		usage(argv[0]);
 		return 1;
 	}
 
@@ -295,6 +312,19 @@ int main(int argc, char *argv[])
 	}
 	if (enable_kvm)
 		conf.cpu_gen = -1;
+
+	if (headless) {
+		void *fb = bigmalloc(conf.width * conf.height * 4);
+		PC *pc = pc_new(dummy, NULL, fb, &conf);
+		load_bios_and_reset(pc);
+
+		pc->boot_start_time = get_uticks();
+		for (; pc->shutdown_state != 8;) {
+			pc_step(pc);
+			pc_vga_step(pc);
+		}
+		return 0;
+	}
 
 	Console *console = console_init(conf.width, conf.height);
 	PC *pc = pc_new(redraw, console, console->fb, &conf);
