@@ -6,10 +6,17 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#if defined(USE_AMD64)
+static void raise_irq_amd64(void *o, PicState2 *s)
+{
+	cpuamd64_raise_irq(o);
+}
+#else
 static void raise_irq_i386(void *o, PicState2 *s)
 {
 	cpui386_raise_irq(o);
 }
+#endif
 
 #if defined(USE_CPUABS)
 static void raise_irq_kvm(void *o, PicState2 *s)
@@ -90,6 +97,7 @@ static void cpu_enable_fpu(CPUABS *cpu)
 #define raise_irq(o) ((o)->_raise_irq)
 #define raise_irq_param(o) ((o)->cpu)
 #else
+#if !defined(USE_AMD64)
 #define cpu_reset cpui386_reset
 #define cpu_reset_pm cpui386_reset_pm
 #define cpu_set_gpr cpui386_set_gpr
@@ -99,6 +107,17 @@ static void cpu_enable_fpu(CPUABS *cpu)
 #define cpu_new cpui386_new
 #define raise_irq(...) raise_irq_i386
 #define raise_irq_param(o) (o)
+#else
+#define cpu_reset cpuamd64_reset
+#define cpu_reset_pm cpuamd64_reset_pm
+#define cpu_set_gpr cpuamd64_set_gpr
+#define cpu_step cpuamd64_step
+#define cpu_register_mem(...) do {} while (0) //noop
+#define cpu_enable_fpu(...) do {} while (0) //noop
+#define cpu_new cpuamd64_new
+#define raise_irq(...) raise_irq_amd64
+#define raise_irq_param(o) (o)
+#endif
 #endif
 
 #ifdef BUILD_ESP32

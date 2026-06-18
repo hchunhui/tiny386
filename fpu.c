@@ -1,7 +1,11 @@
 // incomplete x87 emulation, use at your own risk!
 // no exception, no tag word, no float80
 #include "fpu.h"
+#if defined(USE_AMD64)
+#include "amd64.h"
+#else
 #include "i386.h"
+#endif
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>

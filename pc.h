@@ -5,7 +5,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#if defined(USE_AMD64)
+#include "amd64.h"
+#else
 #include "i386.h"
+#endif
 #include "i8259.h"
 #include "i8254.h"
 #include "ide.h"
@@ -31,7 +35,11 @@ int load_rom(void *phys_mem, const char *file, uword addr, int backward);
 #include "kvm.h"
 typedef struct CPUABS CPU;
 #else
+#if defined(USE_AMD64)
+typedef CPUAMD64 CPU;
+#else
 typedef CPUI386 CPU;
+#endif
 #endif
 
 typedef struct {

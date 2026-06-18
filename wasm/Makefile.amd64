@@ -1,0 +1,27 @@
+SRCS = \
+main.c \
+../ini.c \
+../amd64.c \
+../fpu.c \
+../i8259.c \
+../i8254.c \
+../ide.c \
+../vga.c \
+../i8042.c \
+../misc.c \
+../fmopl.c \
+../adlib.c \
+../ne2000.c \
+../i8257.c \
+../sb16.c \
+../pcspk.c \
+../pci.c \
+../pc.c \
+libc/libc.c libc/compiler-rt.c
+
+CFLAGS = -DUSE_AMD64
+
+.PHONY: all
+
+all:
+	clang --target=wasm32 -O3 -nostdlib -fno-builtin -ffunction-sections -fdata-sections -I libc ${CFLAGS} -Wl,--gc-sections -Wl,--export-dynamic -Wl,--no-entry -Wl,--strip-all -Wl,--allow-undefined -o html/tinyamd64.wasm ${SRCS}

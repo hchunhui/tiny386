@@ -91,11 +91,19 @@ CFLAGS += ${CFLAGS_${ENABLE_CISO}}
 LIBS += ${LIBS_${ENABLE_CISO}}
 SRCS += ${SRCS_${ENABLE_CISO}}
 
+#USE_AMD64 = n/y
+USE_AMD64 = n
+CFLAGS_AMD64_y = -DUSE_AMD64
+SRCS_AMD64_y = amd64.c
+SRCS_AMD64_n = i386.c
+CFLAGS += ${CFLAGS_AMD64_${USE_AMD64}}
+SRCS += ${SRCS_AMD64_${USE_AMD64}}
+
 PROGS_ = tiny386 tiny386_headless wifikbd initnet
 PROGS_win32 = tiny386 tiny386_headless wifikbd
 PROGS = ${PROGS_${PLAT}}
 
-SRCS += ini.c i386.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
+SRCS += ini.c fpu.c i8259.c i8254.c ide.c vga.c i8042.c misc.c adlib.c ne2000.c i8257.c sb16.c pcspk.c
 SRCS += ${FMOPL_${USE_FMOPL}}
 SRCS += ${CPUABS_${USE_CPUABS}}
 SRCS += pc.c

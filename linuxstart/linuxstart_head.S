@@ -25,6 +25,7 @@
 
 .globl _start
 
+#ifndef __amd64__
 _start:
         movl $0x00012000, %esp
         pushl %edx // kernel_size (new)
@@ -36,3 +37,18 @@ _start:
 /* start linux kernel */
         movl $KERNEL_PARAMS_ADDR, %esi
         ljmp $KERNEL_CS, $KERNEL_LOAD_ADDR
+#else
+_start:
+        movl $0x00012000, %esp
+        //%rdx // kernel_size (new)
+        //%rcx // cmdline
+        xchg %ecx, %edx
+        mov %ebx, %esi // initrd_size
+        mov %eax, %edi // phys_ram_size
+        call setup
+        /* start linux kernel */
+        mov $KERNEL_PARAMS_ADDR, %esi
+        push $KERNEL_CS
+        push $KERNEL_STARTUP64_ADDR
+        lret
+#endif

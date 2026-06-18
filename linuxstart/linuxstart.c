@@ -194,8 +194,15 @@ void setup(int phys_ram_size, int initrd_size, char *cmdline, int kernel_size)
     params->orig_video_isVGA = 1;
     params->orig_video_points = 16;
 
+#ifndef __amd64__
     params->gdt_table[2] = 0x00cf9a000000ffffLL; /* KERNEL_CS */
     params->gdt_table[3] = 0x00cf92000000ffffLL; /* KERNEL_DS */
+#else
+    params->gdt_table[2] = 0x00af9a000000ffffLL; /* KERNEL_CS */
+    params->gdt_table[3] = 0x00cf92000000ffffLL; /* KERNEL_DS */
+    params->gdt_table[4] = 0x0080890000000000LL; /* TS descriptor */
+    params->gdt_table[5] = 0x0000000000000000LL; /* TS continued */
+#endif
 
     gdt_data.limit = sizeof(params->gdt_table);
     gdt_data.addr = params->gdt_table;
