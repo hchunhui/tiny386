@@ -3335,7 +3335,6 @@ static bool check_ioperm(CPUAMD64 *cpu, int port, int bit)
 			TRY(fpu_exec2(cpu->fpu, cpu, opsz16, op, group, curr_seg, addr)); \
 		} else { \
 			int reg = modrm & 7; \
-			if (rex & REX_R) reg |= 8; \
 			TRY(fpu_exec1(cpu->fpu, cpu, op, group, reg)); \
 		} \
 	}

@@ -1,11 +1,11 @@
 // incomplete x87 emulation, use at your own risk!
 // no exception, no tag word, no float80
-#include "fpu.h"
 #if defined(USE_AMD64)
 #include "amd64.h"
 #else
 #include "i386.h"
 #endif
+#include "fpu.h"
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -470,7 +470,7 @@ static void fparith(FPU *fpu, int group, unsigned int d, double a, double b)
 	}
 }
 
-bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uint32_t addr)
+bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uword addr)
 {
 	double a;
 	switch (op) {
