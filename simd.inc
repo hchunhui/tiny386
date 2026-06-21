@@ -4,7 +4,7 @@
 #else
 #define MODSIB(_o) TRY(modsib_off(cpu, adsz32, rex, mod, rm, &addr, _o))
 #define IN_AMD64(...) __VA_ARGS__
-#define code16 true
+#define code16 false
 #define adsz16 false
 #endif
 #ifdef SIMD_i386ins_def
