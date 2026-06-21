@@ -1,6 +1,5 @@
 // "pure" 64bit x86 cpu
 // long mode only, no compat mode, no rarely used features
-// currently no MMX/SSE/SSE2
 #ifdef USE_AMD64
 #include "amd64.h"
 #include <inttypes.h>
@@ -2517,28 +2516,6 @@ static bool call_isr(CPUAMD64 *cpu, int no, bool pusherr, int ext);
 		Ms(0, INVLPG) \
 	}
 
-#define SIMD_PREFETCHq(...)
-#define SIMD_PREFETCHd(...)
-#define SIMD_PREFETCHw(...)
-
-#define SIMD_GRP15() \
-	TRY(fetch8(cpu, &modrm)); \
-	int reg = (modrm >> 3) & 7; \
-	int mod = modrm >> 6; \
-	int rm = modrm & 7; \
-	if (modrm == 0xf8) { \
-		/* SFENCE */ \
-	} else if (modrm == 0xe8) { \
-		/* SSE2 LFENCE */ \
-	} else if (modrm == 0xf0) { \
-		/* SSE2 MFENCE */ \
-	} else if (mod == 3) { \
-		THROW0(EX_UD); \
-	} else { \
-		if ((cpu->cr0 & 0xc) && reg < 2) THROW0(EX_NM); \
-		TRY(modsib(cpu, adsz32, rex, mod, rm, &addr)); \
-	}
-
 #define LAHF() \
 	refresh_flags(cpu); \
 	cpu->cc.mask = 0; \
@@ -3402,18 +3379,18 @@ static bool check_ioperm(CPUAMD64 *cpu, int port, int bit)
 // 586 and later...
 #define UD0() THROW0(EX_UD);
 
-#if defined(AMD64_ENABLE_SSSE3)
+#if defined(I386_ENABLE_SSSE3)
 #define CPUID_SIMD_FEATURE2 0x201
-#elif defined(AMD64_ENABLE_SSE3)
+#elif defined(I386_ENABLE_SSE3)
 #define CPUID_SIMD_FEATURE2 0x1
 #else
 #define CPUID_SIMD_FEATURE2 0x0
 #endif
-#if defined(AMD64_ENABLE_SSE2)
+#if defined(I386_ENABLE_SSE2)
 #define CPUID_SIMD_FEATURE 0x7800000
-#elif defined(AMD64_ENABLE_SSE)
+#elif defined(I386_ENABLE_SSE)
 #define CPUID_SIMD_FEATURE 0x3800000
-#elif defined(AMD64_ENABLE_MMX)
+#elif defined(I386_ENABLE_MMX)
 #define CPUID_SIMD_FEATURE 0x800000
 #else
 #define CPUID_SIMD_FEATURE 0x0
@@ -3543,11 +3520,10 @@ static uint64_t get_nticks()
 		/* out of spec */ THROW(EX_GP, 0); \
 	}
 
-// TODO
-#if defined(AMD64_ENABLE_MMX) || defined(AMD64_ENABLE_SSE)
-#define SIMD_amd64_c
+#if defined(I386_ENABLE_MMX) || defined(I386_ENABLE_SSE)
+#define SIMD_i386_c
 #include "simd.inc"
-#undef SIMD_amd64_c
+#undef SIMD_i386_c
 #endif
 
 static bool pmret(CPUAMD64 *cpu, bool opsz16, int rex, int off, bool isiret);

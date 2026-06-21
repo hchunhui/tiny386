@@ -209,8 +209,6 @@ I(C(0xfd), _,      0, STD)
 //I2(C(0x03), GvEw, 1, LSL)
 I2(C(0x06), _, 0, CLTS)
 
-I2(C(0x18), GvM, 0, SIMD_PREFETCH)
-
 I2(C(0x1f), GvM, 0, NOP1f)
 I2(C(0x20), _, 0, MOVFC) // Move control register to r32
 I2(C(0x21), _, 0, MOVFD) // Move debug register to r32
@@ -438,11 +436,10 @@ I2(C(0x05), _,       0, SYSCALL)
 I2(C(0x07), _,       0, SYSRET)
 I2(C(0x30), _,       0, WRMSR)
 I2(C(0x32), _,       0, RDMSR)
-I2(C(0xae), _, 0, SIMD_GRP15)
 #endif
 
-#if defined(AMD64_ENABLE_MMX) || defined(AMD64_ENABLE_SSE)
-#define SIMD_amd64ins_def
+#if defined(I386_ENABLE_MMX) || defined(I386_ENABLE_SSE)
+#define SIMD_i386ins_def
 #include "simd.inc"
-#undef SIMD_amd64ins_def
+#undef SIMD_i386ins_def
 #endif

@@ -154,7 +154,11 @@ struct FPU {
 
 #ifdef I386_ENABLE_SSE
 	u32 mxcsr;
+#ifndef USE_AMD64
 	UXMM xmm[8];
+#else
+	UXMM xmm[16];
+#endif
 #endif
 };
 
