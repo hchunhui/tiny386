@@ -1920,21 +1920,21 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 #define NEGd(...) NEG_helper(32, __VA_ARGS__)
 #define NEGq(...) NEG_helper(64, __VA_ARGS__)
 
-#define SHL_helper(BIT, a, b, la, sa, lb, sb) \
+#define SHL_helper(BIT, ymask, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = (lb(b)) & 0x3f; \
+	uword y = (lb(b)) & ymask; \
 	if (y) { \
 		cpu->cc.dst = sext ## BIT(x << y); \
 		cpu->cc.dst2 = ((x >> (BIT - y)) & 1); \
 		cpu->cc.op = CC_SHL; \
 		cpu->cc.mask = CF | PF | ZF | SF | OF; \
 		sa(a, cpu->cc.dst); \
-	}
+	} else { sa(a, la(a)); }
 
-#define SHLb(...) SHL_helper(8, __VA_ARGS__)
-#define SHLw(...) SHL_helper(16, __VA_ARGS__)
-#define SHLd(...) SHL_helper(32, __VA_ARGS__)
-#define SHLq(...) SHL_helper(64, __VA_ARGS__)
+#define SHLb(...) SHL_helper(8, 0x1f, __VA_ARGS__)
+#define SHLw(...) SHL_helper(16, 0x1f, __VA_ARGS__)
+#define SHLd(...) SHL_helper(32, 0x1f, __VA_ARGS__)
+#define SHLq(...) SHL_helper(64, 0x3f, __VA_ARGS__)
 
 #define ROL_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
@@ -1944,7 +1944,7 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 	if (y) { \
 		res = sext ## BIT((x << y) | (x >> (BIT - y))); \
 		sa(a, res); \
-	} \
+	} else { sa(a, la(a)); } \
 	if (y0) { \
 		int cf1 = res & 1; \
 		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
@@ -1958,9 +1958,9 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 #define ROLd(...) ROL_helper(32, __VA_ARGS__)
 #define ROLq(...) ROL_helper(64, __VA_ARGS__)
 
-#define RCL_helper(BIT, a, b, la, sa, lb, sb) \
+#define RCL_helper(BIT, ymask, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = ((lb(b)) & 0x3f) % (BIT + 1); \
+	uword y = ((lb(b)) & ymask) % (BIT + 1); \
 	if (y) { \
 		uword cf = get_CF(cpu); \
 		uword res = sext ## BIT((x << y) | (cf << (y - 1)) | (y != 1 ? (x >> (BIT + 1 - y)) : 0)); \
@@ -1970,16 +1970,16 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 		SET_BIT(cpu->flags, of1, OF); \
 		cpu->cc.mask &= ~(CF | OF); \
 		sa(a, res); \
-	}
+	} else { sa(a, la(a)); }
 
-#define RCLb(...) RCL_helper(8, __VA_ARGS__)
-#define RCLw(...) RCL_helper(16, __VA_ARGS__)
-#define RCLd(...) RCL_helper(32, __VA_ARGS__)
-#define RCLq(...) RCL_helper(64, __VA_ARGS__)
+#define RCLb(...) RCL_helper(8, 0x1f, __VA_ARGS__)
+#define RCLw(...) RCL_helper(16, 0x1f, __VA_ARGS__)
+#define RCLd(...) RCL_helper(32, 0x1f, __VA_ARGS__)
+#define RCLq(...) RCL_helper(64, 0x3f, __VA_ARGS__)
 
-#define RCR_helper(BIT, a, b, la, sa, lb, sb) \
+#define RCR_helper(BIT, ymask, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = ((lb(b)) & 0x3f) % (BIT + 1); \
+	uword y = ((lb(b)) & ymask) % (BIT + 1); \
 	if (y) { \
 		uword cf = get_CF(cpu); \
 		uword res = sext ## BIT((x >> y) | (cf << (BIT - y)) | (y != 1 ? (x << (BIT + 1 - y)) : 0)); \
@@ -1989,12 +1989,12 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 		SET_BIT(cpu->flags, of1, OF); \
 		cpu->cc.mask &= ~(CF | OF); \
 		sa(a, res); \
-	}
+	} else { sa(a, la(a)); }
 
-#define RCRb(...) RCR_helper(8, __VA_ARGS__)
-#define RCRw(...) RCR_helper(16, __VA_ARGS__)
-#define RCRd(...) RCR_helper(32, __VA_ARGS__)
-#define RCRq(...) RCR_helper(64, __VA_ARGS__)
+#define RCRb(...) RCR_helper(8, 0x1f, __VA_ARGS__)
+#define RCRw(...) RCR_helper(16, 0x1f, __VA_ARGS__)
+#define RCRd(...) RCR_helper(32, 0x1f, __VA_ARGS__)
+#define RCRq(...) RCR_helper(64, 0x3f, __VA_ARGS__)
 
 #define ROR_helper(BIT, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
@@ -2004,8 +2004,8 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 	if (y) { \
 		res = sext ## BIT((x >> y) | (x << (BIT - y))); \
 		sa(a, res); \
-	} \
-	if (y0) { \
+	} else { sa(a, la(a)); } \
+	if (y) { \
 		int cf1 = (res >> (BIT - 1)) & 1; \
 		int of1 = ((res ^ (res << 1)) >> (BIT - 1)) & 1; \
 		SET_BIT(cpu->flags, cf1, CF); \
@@ -2018,9 +2018,9 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 #define RORd(...) ROR_helper(32, __VA_ARGS__)
 #define RORq(...) ROR_helper(64, __VA_ARGS__)
 
-#define SHR_helper(BIT, a, b, la, sa, lb, sb) \
+#define SHR_helper(BIT, ymask, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
-	uword y = (lb(b)) & 0x3f; \
+	uword y = (lb(b)) & ymask; \
 	if (y) { \
 		cpu->cc.src1 = sext ## BIT(x); \
 		cpu->cc.dst = sext ## BIT(x >> y); \
@@ -2028,15 +2028,15 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 		cpu->cc.op = CC_SHR; \
 		cpu->cc.mask = CF | PF | ZF | SF | OF; \
 		sa(a, cpu->cc.dst); \
-	}
+	} else { sa(a, la(a)); }
 
-#define SHRb(...) SHR_helper(8, __VA_ARGS__)
-#define SHRw(...) SHR_helper(16, __VA_ARGS__)
-#define SHRd(...) SHR_helper(32, __VA_ARGS__)
-#define SHRq(...) SHR_helper(64, __VA_ARGS__)
+#define SHRb(...) SHR_helper(8, 0x1f, __VA_ARGS__)
+#define SHRw(...) SHR_helper(16, 0x1f, __VA_ARGS__)
+#define SHRd(...) SHR_helper(32, 0x1f, __VA_ARGS__)
+#define SHRq(...) SHR_helper(64, 0x3f, __VA_ARGS__)
 
-#define SHLD_helper(BIT, a, b, c, la, sa, lb, sb, lc, sc) \
-	int count = (lc(c)) & 0x3f; \
+#define SHLD_helper(BIT, ymask, a, b, c, la, sa, lb, sb, lc, sc) \
+	int count = (lc(c)) & ymask; \
 	uword x = la(a); \
 	uword y = lb(b); \
 	if (count) { \
@@ -2054,14 +2054,14 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 		cpu->cc.op = CC_SHLD; \
 		cpu->cc.mask = CF | PF | ZF | SF | OF; \
 		sa(a, cpu->cc.dst); \
-	}
+	} else { sa(a, la(a)); }
 
-#define SHLDw(...) SHLD_helper(16, __VA_ARGS__)
-#define SHLDd(...) SHLD_helper(32, __VA_ARGS__)
-#define SHLDq(...) SHLD_helper(64, __VA_ARGS__)
+#define SHLDw(...) SHLD_helper(16, 0x1f, __VA_ARGS__)
+#define SHLDd(...) SHLD_helper(32, 0x1f, __VA_ARGS__)
+#define SHLDq(...) SHLD_helper(64, 0x3f, __VA_ARGS__)
 
-#define SHRD_helper(BIT, a, b, c, la, sa, lb, sb, lc, sc) \
-	int count = (lc(c)) & 0x3f; \
+#define SHRD_helper(BIT, ymask, a, b, c, la, sa, lb, sb, lc, sc) \
+	int count = (lc(c)) & ymask; \
 	uword x = la(a); \
 	uword y = lb(b); \
 	if (count) { \
@@ -2079,28 +2079,28 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 		cpu->cc.op = CC_SHRD; \
 		cpu->cc.mask = CF | PF | ZF | SF | OF; \
 		sa(a, cpu->cc.dst); \
-	}
+	} else { sa(a, la(a)); }
 
-#define SHRDw(...) SHRD_helper(16, __VA_ARGS__)
-#define SHRDd(...) SHRD_helper(32, __VA_ARGS__)
-#define SHRDq(...) SHRD_helper(64, __VA_ARGS__)
+#define SHRDw(...) SHRD_helper(16, 0x1f, __VA_ARGS__)
+#define SHRDd(...) SHRD_helper(32, 0x1f, __VA_ARGS__)
+#define SHRDq(...) SHRD_helper(64, 0x3f, __VA_ARGS__)
 
 // ">>"
-#define SAR_helper(BIT, a, b, la, sa, lb, sb) \
+#define SAR_helper(BIT, ymask, a, b, la, sa, lb, sb) \
 	sword x = sext ## BIT(la(a)); \
-	sword y = (lb(b)) & 0x3f; \
+	sword y = (lb(b)) & ymask; \
 	if (y) { \
 		cpu->cc.dst = x >> y; \
 		cpu->cc.dst2 = (x >> (y - 1)) & 1; \
 		cpu->cc.op = CC_SAR; \
 		cpu->cc.mask = CF | PF | ZF | SF | OF; \
 		sa(a, cpu->cc.dst); \
-	}
+	} else { sa(a, la(a)); }
 
-#define SARb(...) SAR_helper(8, __VA_ARGS__)
-#define SARw(...) SAR_helper(16, __VA_ARGS__)
-#define SARd(...) SAR_helper(32, __VA_ARGS__)
-#define SARq(...) SAR_helper(64, __VA_ARGS__)
+#define SARb(...) SAR_helper(8, 0x1f, __VA_ARGS__)
+#define SARw(...) SAR_helper(16, 0x1f, __VA_ARGS__)
+#define SARd(...) SAR_helper(32, 0x1f, __VA_ARGS__)
+#define SARq(...) SAR_helper(64, 0x3f,__VA_ARGS__)
 
 #define IMUL2w(a, b, la, sa, lb, sb) \
 	cpu->cc.src1 = sext16(la(a)); \
@@ -2262,8 +2262,8 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 	sreg16(2, src1 % src2);
 
 #define IDIVd(a, la, sa) \
-	int64_t src1 = (((uint64_t) lreg32(2)) << 32) | lreg32(0); \
-	int64_t src2 = (sword) (la(a));	\
+	int64_t src1 = (int64_t) (((uint64_t) lreg32(2)) << 32) | lreg32(0); \
+	int64_t src2 = sext32(la(a)); \
 	if (src2 == 0) THROW0(EX_DE); \
 	int64_t res = src1 / src2; \
 	if (res > 2147483647 || res < -2147483648) THROW0(EX_DE); \
@@ -2271,7 +2271,7 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 	sreg32(2, src1 % src2);
 
 #define IDIVq(a, la, sa) \
-	int128_t src1 = (((uint128_t) lreg64(2)) << 64) | lreg64(0); \
+	int128_t src1 = (int128_t) (((uint128_t) lreg64(2)) << 64) | lreg64(0); \
 	int128_t src2 = (sword) (la(a)); \
 	if (src2 == 0) THROW0(EX_DE); \
 	int128_t res = src1 / src2; \
@@ -2329,22 +2329,22 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 #define BTd(...) BT_helper(32, __VA_ARGS__)
 #define BTq(...) BT_helper(64, __VA_ARGS__)
 
-#define BTX_helper(BIT, OP, a, b, la, sa, lb, sb) \
+#define BTX_helper(BIT, one, OP, a, b, la, sa, lb, sb) \
 	int bb = lb(b) % BIT; \
 	bool bit = (la(a) >> bb) & 1; \
-	sa(a, la(a) OP (1 << bb)); \
+	sa(a, la(a) OP (one << bb)); \
 	cpu->cc.mask &= ~CF; \
 	SET_BIT(cpu->flags, bit, CF);
 
-#define BTSw(...) BTX_helper(16, |, __VA_ARGS__)
-#define BTSd(...) BTX_helper(32, |, __VA_ARGS__)
-#define BTSq(...) BTX_helper(64, |, __VA_ARGS__)
-#define BTRw(...) BTX_helper(16, & ~, __VA_ARGS__)
-#define BTRd(...) BTX_helper(32, & ~, __VA_ARGS__)
-#define BTRq(...) BTX_helper(64, & ~, __VA_ARGS__)
-#define BTCw(...) BTX_helper(16, ^, __VA_ARGS__)
-#define BTCd(...) BTX_helper(32, ^, __VA_ARGS__)
-#define BTCq(...) BTX_helper(64, ^, __VA_ARGS__)
+#define BTSw(...) BTX_helper(16, 1u, |, __VA_ARGS__)
+#define BTSd(...) BTX_helper(32, 1u, |, __VA_ARGS__)
+#define BTSq(...) BTX_helper(64, 1ull, |, __VA_ARGS__)
+#define BTRw(...) BTX_helper(16, 1u, & ~, __VA_ARGS__)
+#define BTRd(...) BTX_helper(32, 1u, & ~, __VA_ARGS__)
+#define BTRq(...) BTX_helper(64, 1ull, & ~, __VA_ARGS__)
+#define BTCw(...) BTX_helper(16, 1u, ^, __VA_ARGS__)
+#define BTCd(...) BTX_helper(32, 1u, ^, __VA_ARGS__)
+#define BTCq(...) BTX_helper(64, 1ull, ^, __VA_ARGS__)
 
 #define BSF_helper(BIT, a, b, la, sa, lb, sb) \
 	u ## BIT src = lb(b); \
@@ -3461,7 +3461,7 @@ static uint64_t get_nticks()
 	TRY(translate32(cpu, &meml2, 3, curr_seg, addr + 4)); \
 	uword lo = load32(cpu, &meml1); \
 	uword hi = load32(cpu, &meml2); \
-	if (REGi(0) == lo && REGi(2) == hi) { \
+	if (lreg32(0) == lo && lreg32(2) == hi) { \
 		cpu->flags |= ZF; \
 		store32(cpu, &meml1, REGi(3)); \
 		store32(cpu, &meml2, REGi(1)); \
