@@ -1186,6 +1186,24 @@ static bool set_seg(CPUAMD64 *cpu, int seg, int sel)
 		if (w2 & 0x00800000)
 			cpu->tr_limit = (cpu->tr_limit << 12) | 0xfff;
 	}
+	if (seg == SEG_FS) {
+		if (sel == 0) {
+			cpu->fs_base = 0;
+		} else {
+			uword w1, w2;
+			TRY(read_desc(cpu, sel, &w1, &w2));
+			cpu->fs_base = (w1 >> 16) | ((w2 & 0xff) << 16) | (w2 & 0xff000000);
+		}
+	}
+	if (seg == SEG_GS) {
+		if (sel == 0) {
+			cpu->gs_base = 0;
+		} else {
+			uword w1, w2;
+			TRY(read_desc(cpu, sel, &w1, &w2));
+			cpu->gs_base = (w1 >> 16) | ((w2 & 0xff) << 16) | (w2 & 0xff000000);
+		}
+	}
 	if (seg == SEG_CS) {
 		uword w1, w2;
 		TRY(read_desc(cpu, sel, &w1, &w2));
