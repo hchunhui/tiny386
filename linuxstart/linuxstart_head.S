@@ -27,6 +27,13 @@
 
 #ifndef __amd64__
 _start:
+        xor %ebp, %ebp
+        dec %ebp // REX on amd64
+        xchg %ebp, %ebp
+        test %ebp, %ebp
+        jz _start64
+
+_start32:
         movl $0x00012000, %esp
         pushl %edx // kernel_size (new)
         pushl %ecx // cmdline
@@ -37,6 +44,10 @@ _start:
 /* start linux kernel */
         movl $KERNEL_PARAMS_ADDR, %esi
         ljmp $KERNEL_CS, $KERNEL_LOAD_ADDR
+
+.align 4
+_start64:
+.incbin "linuxstart64.bin"
 #else
 _start:
         movl $0x00012000, %esp
