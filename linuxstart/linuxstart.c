@@ -121,7 +121,7 @@ struct  __attribute__ ((packed)) linux_params {
     uint64_t addr;
     uint64_t size;
     uint32_t type;
-    } e820map[E820MAX];
+  } __attribute__((packed)) e820map[E820MAX];
 
   /* 0x550 */ uint8_t   pad8[0x600 - 0x550];
 
