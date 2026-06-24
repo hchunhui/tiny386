@@ -304,17 +304,21 @@ static bool fploadbcd(void *cpu, int seg, uword addr, double *res)
 	uint64_t val = 0;
 	int sign = hi & 0x8000;
 	hi &= 0x7FFF;
+	uint64_t base = 1;
 	for (int i = 0; i < 4; i++) {
-		val = val * 100 + bcd100(lo);
+		val += base * bcd100(lo);
 		lo >>= 8;
+		base *= 100;
 	}
 	for (int i = 0; i < 4; i++) {
-		val = val * 100 + bcd100(mi);
+		val += base * bcd100(mi);
 		mi >>= 8;
+		base *= 100;
 	}
 	for (int i = 0; i < 2; i++) {
-		val = val * 100 + bcd100(hi);
+		val += base * bcd100(hi);
 		hi >>= 8;
+		base *= 100;
 	}
 	*res = copysign(val, sign ? -1.0 : 1.0);
 	return true;
