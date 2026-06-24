@@ -134,17 +134,17 @@ bool fpu_xmm_mr(FPU *fpu, void *cpu, int op, int src, int seg, uword addr);
 	IN_AMD64(if (rex & REX_R) reg |= 8;) \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
-	if (rep) THROW0(EX_UD); \
+	if (rep && b1 != 0x6f) THROW0(EX_UD); \
 	if (mod == 3) { \
 		IN_AMD64(if (rex & REX_B) rm |= 8;) \
-		if (opsz16 == code16) /* NP */ { \
+		if (opsz16 == code16 && !rep) /* NP */ { \
 			TRY(fpu_mmx_rr(cpu->fpu, cpu, b1, reg & 7, rm & 7)); \
 		} else /* 66 */ { \
 			TRY_SSE2(fpu_xmm_rr(cpu->fpu, cpu, b1, reg, rm)); \
 		} \
 	} else { \
 		MODSIB(0); \
-		if (opsz16 == code16) /* NP */ { \
+		if (opsz16 == code16 && !rep) /* NP */ { \
 			TRY(fpu_mmx_rm(cpu->fpu, cpu, b1, reg & 7, curr_seg, addr)); \
 		} else /* 66 */ { \
 			TRY_SSE2(fpu_xmm_rm(cpu->fpu, cpu, b1, reg, curr_seg, addr)); \
@@ -158,17 +158,17 @@ bool fpu_xmm_mr(FPU *fpu, void *cpu, int op, int src, int seg, uword addr);
 	IN_AMD64(if (rex & REX_R) reg |= 8;) \
 	int mod = modrm >> 6; \
 	int rm = modrm & 7; \
-	if (rep) THROW0(EX_UD); \
+	if (rep && b1 != 0x7f) THROW0(EX_UD); \
 	if (mod == 3) { \
 		IN_AMD64(if (rex & REX_B) rm |= 8;) \
-		if (opsz16 == code16) /* NP */ { \
+		if (opsz16 == code16 && !rep) /* NP */ { \
 			TRY(fpu_mmx_rr(cpu->fpu, cpu, b1, rm & 7, reg & 7)); \
 		} else /* 66 */ { \
 			TRY_SSE2(fpu_xmm_rr(cpu->fpu, cpu, b1, rm, reg)); \
 		} \
 	} else { \
 		MODSIB(0); \
-		if (opsz16 == code16) /* NP */ { \
+		if (opsz16 == code16 && !rep) /* NP */ { \
 			TRY(fpu_mmx_mr(cpu->fpu, cpu, b1, reg & 7, curr_seg, addr)); \
 		} else /* 66 */ { \
 			TRY_SSE2(fpu_xmm_mr(cpu->fpu, cpu, b1, reg, curr_seg, addr)); \
@@ -262,8 +262,8 @@ bool fpu_xmm_mr(FPU *fpu, void *cpu, int op, int src, int seg, uword addr);
 				REGi(rm) = fpu_mmx_get(cpu->fpu, reg & 7); \
 				IN_AMD64(if (!(rex & REX_W)) REGi(rm) &= 0xffffffff;) \
 			} else /* 66 */ { \
-				TRY_SSE2(REGi(rm) = fpu_xmm_get_u32(cpu->fpu, reg)[0], 1); \
-				IN_AMD64(if (!(rex & REX_W)) REGi(rm) &= 0xffffffff;) \
+				IN_AMD64(if ((rex & REX_W)) REGi(rm) = REGi(rm) = fpu_xmm_get_u64(cpu->fpu, reg)[0]; else) \
+				{ TRY_SSE2(REGi(rm) = fpu_xmm_get_u32(cpu->fpu, reg)[0], 1); } \
 			} \
 		} else if (rep == 1) /* F3 */ { \
 			/* MOVQ xmm1, xmm2 */ \
