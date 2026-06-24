@@ -209,7 +209,7 @@ I(C(0xfd), _,      0, STD)
 //I2(C(0x03), GvEw, 1, LSL)
 I2(C(0x06), _, 0, CLTS)
 
-I2(C(0x1f), GvM, 0, NOP1f)
+I2(C(0x1e, 0x1f), GvM, 0, NOP1f)
 I2(C(0x20), _, 0, MOVFC) // Move control register to r32
 I2(C(0x21), _, 0, MOVFD) // Move debug register to r32
 I2(C(0x22), _, 0, MOVTC) // Move r32 to control register
@@ -381,8 +381,8 @@ IG6(C(0x00), Ew, 2, SLDT)
 IG6(C(0x01), Ew, 2, STR)
 IG6(C(0x02), Ew, 1, LLDT)
 IG6(C(0x03), Ew, 1, LTR)
-//IG6(C(0x04), Ew, 1, VERR)
-//IG6(C(0x05), Ew, 1, VERW)
+IG6(C(0x04), Ew, 1, VERR_NOOP)
+IG6(C(0x05), Ew, 1, VERW_NOOP)
 #endif
 
 #ifdef IG7

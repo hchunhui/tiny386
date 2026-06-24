@@ -3260,6 +3260,9 @@ static bool call_isr(CPUAMD64 *cpu, int no, bool pusherr, int ext);
 #define STR(a, la, sa) \
 	sa(a, cpu->seg[SEG_TR].sel);
 
+#define VERR_NOOP(...)
+#define VERW_NOOP(...)
+
 #define MOVFD() \
 	TRY(fetch8(cpu, &modrm));
 
