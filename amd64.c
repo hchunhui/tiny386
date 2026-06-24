@@ -1236,6 +1236,7 @@ static bool set_seg(CPUAMD64 *cpu, int seg, int sel)
 
 #define Eb(...) E_helper(8, , __VA_ARGS__)
 #define Ev(...) if (rex & REX_W) { E_helper(64, q, __VA_ARGS__) } else if (unlikely(opsz16)) { E_helper(16, w, __VA_ARGS__) } else { E_helper(32, d, __VA_ARGS__) }
+#define Ev_(...) if (unlikely(opsz16)) { E_helper(16, w, __VA_ARGS__) } else { E_helper(64, q, __VA_ARGS__) }
 #define Eq(...) E_helper(64, q, __VA_ARGS__)
 
 #define EG_helper(BT, BIT, SUFFIX, rwm, INST) \
@@ -2417,6 +2418,9 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 #define XCHGd(...) XCHG(__VA_ARGS__)
 #define XCHGq(...) XCHG(__VA_ARGS__)
 
+#define NOP() \
+	if (rex) { XCHGAX() }
+
 #define XCHGAX() \
 	if (rex & REX_W) { \
 		int reg = b1 & 7; \
@@ -2520,7 +2524,7 @@ static bool call_isr(CPUAMD64 *cpu, int no, bool pusherr, int ext);
 #define HLT() \
 	if (cpu->cpl != 0) THROW(EX_GP, 0); \
 	cpu->halt = true; return true;
-#define NOP()
+
 #define NOP1fq(...)
 #define NOP1fd(...)
 #define NOP1fw(...)
@@ -3082,6 +3086,14 @@ static bool call_isr(CPUAMD64 *cpu, int no, bool pusherr, int ext);
 #define OUTSb() OUTS_helper(8)
 #define OUTS() if (unlikely(opsz16)) { OUTS_helper(16) } else { OUTS_helper(32) }
 
+#define JCXZb(i, li, _) \
+	sword d = sext8(li(i)); \
+	if (adsz32) { \
+		if (lreg32(1) == 0) cpu->next_ip += d; \
+	} else { \
+		if (lreg64(1) == 0) cpu->next_ip += d; \
+	}
+
 #define COND() \
 	int cond; \
 	switch(b1 & 0xf) { \
@@ -3588,7 +3600,7 @@ static bool IRAM_ATTR_CPU_EXEC1 cpu_exec1(CPUAMD64 *cpu, int stepcount)
 	f0x06: f0x07: f0x0e: f0x16: f0x17: f0x1e: f0x1f: \
 	f0x27: f0x2f: f0x37: f0x3f: f0x60: f0x61: f0x62: \
 	f0x82: f0x9a: f0xc4: f0xc5: f0xc8: f0xce: f0xd4: \
-	f0xd5: f0xd6: f0xd7: f0xe0: f0xe1: f0xe2: f0xe3: \
+	f0xd5: f0xd6: f0xd7: f0xe0: f0xe1: f0xe2: \
 	f0xea: f0xf1
 #define default_ud THROW0(EX_UD)
 #undef CX
