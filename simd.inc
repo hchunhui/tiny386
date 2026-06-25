@@ -262,7 +262,7 @@ bool fpu_xmm_mr(FPU *fpu, void *cpu, int op, int src, int seg, uword addr);
 				REGi(rm) = fpu_mmx_get(cpu->fpu, reg & 7); \
 				IN_AMD64(if (!(rex & REX_W)) REGi(rm) &= 0xffffffff;) \
 			} else /* 66 */ { \
-				IN_AMD64(if ((rex & REX_W)) REGi(rm) = REGi(rm) = fpu_xmm_get_u64(cpu->fpu, reg)[0]; else) \
+				IN_AMD64(if ((rex & REX_W)) REGi(rm) = fpu_xmm_get_u64(cpu->fpu, reg)[0]; else) \
 				{ TRY_SSE2(REGi(rm) = fpu_xmm_get_u32(cpu->fpu, reg)[0], 1); } \
 			} \
 		} else if (rep == 1) /* F3 */ { \

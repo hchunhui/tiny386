@@ -4177,8 +4177,11 @@ static bool pmret(CPUAMD64 *cpu, bool opsz16, int rex, int off, bool isiret)
 			newsp = laddr64(&meml4);
 			newss = laddr64(&meml5);
 			cpu->flags = newflags;
-			TRY1(set_seg(cpu, SEG_CS, newcs));
-			TRY1(set_seg(cpu, SEG_SS, newss));
+			if (!set_seg(cpu, SEG_CS, newcs) ||
+			    !set_seg(cpu, SEG_SS, newss)) {
+				cpu->flags = oldflags;
+				return false;
+			}
 			set_sp(newsp);
 			cpu->next_ip = newip;
 			cpu->cc.mask = 0;
@@ -4186,7 +4189,7 @@ static bool pmret(CPUAMD64 *cpu, bool opsz16, int rex, int off, bool isiret)
 			// out of spec
 			if (cpu->cpl != (newcs & 3))
 				THROW(EX_GP, 0);
-			TRY1(set_seg(cpu, SEG_CS, newcs));
+			TRY(set_seg(cpu, SEG_CS, newcs));
 			set_sp(sp + 16 + off);
 			cpu->next_ip = newip;
 		}
