@@ -1,0 +1,1 @@
+objcopy -O binary $(KERNEL_PATH)/vmlinux vmlinux.bin
