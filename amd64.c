@@ -3879,6 +3879,7 @@ GRPEND
 #undef I3_38
 			default: default_ud;
 			}
+			ebreak;
 		}
 		case 0x3a: {
 			TRY(fetch8(cpu, &b1));
@@ -3888,6 +3889,7 @@ GRPEND
 #undef I3_3a
 			default: default_ud;
 			}
+			ebreak;
 		}
 		default: default_ud;
 		}
