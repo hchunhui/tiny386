@@ -3429,13 +3429,27 @@ static bool check_ioperm(CPUAMD64 *cpu, int port, int bit)
 #define CPUID_SIMD_FEATURE 0x0
 #endif
 
+// if use custom vendor name, newer version of glibc will report:
+// CPU ISA level is lower than required
+#if 0
+// "TINY386 CPU "
+#define CPUID_VENDOR1 0x594e4954
+#define CPUID_VENDOR2 0x20363833
+#define CPUID_VENDOR3 0x20555043
+#else
+// "GenuineIntel"
+#define CPUID_VENDOR1 0x756e6547
+#define CPUID_VENDOR2 0x49656e69
+#define CPUID_VENDOR3 0x6c65746e
+#endif
+
 #define CPUID() \
 	switch (REGi(0)) { \
 	case 0: \
 		REGi(0) = 1; \
-		REGi(3) = 0x594e4954; \
-		REGi(2) = 0x20363833; \
-		REGi(1) = 0x20555043; \
+		REGi(3) = CPUID_VENDOR1; \
+		REGi(2) = CPUID_VENDOR2; \
+		REGi(1) = CPUID_VENDOR3; \
 		break; \
 	case 1: \
 		REGi(0) = 0 | (0 << 4) | (6 << 8); /*gen*/ \
@@ -3443,9 +3457,21 @@ static bool check_ioperm(CPUAMD64 *cpu, int port, int bit)
 		REGi(2) = 0x100; \
 		REGi(1) = 0; \
 		REGi(2) |= 1; \
-		REGi(2) |= 0x8820; \
+		REGi(2) |= 0x8020; \
 		REGi(2) |= CPUID_SIMD_FEATURE; \
 		REGi(1) |= CPUID_SIMD_FEATURE2; \
+		break; \
+	case 0x80000000: \
+		REGi(0) = 0x80000004; \
+		REGi(3) = 0; \
+		REGi(2) = 0; \
+		REGi(1) = 0; \
+		break; \
+	case 0x80000001: \
+		REGi(0) = 0; \
+		REGi(3) = 0; \
+		REGi(2) = (1<<29) | (1<<11); \
+		REGi(1) = 1; \
 		break; \
 	default: \
 		REGi(0) = 0; \
