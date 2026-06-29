@@ -933,8 +933,14 @@ static int64_t trunci64(double val)
 		THROW0(EX_UD); \
 	} else { \
 		MODSIB(0); \
-		TRY(translate32(cpu, &meml, 2, curr_seg, addr)); \
-		saddr32(&meml, lreg32(reg)); \
+		IN_AMD64(if (rex & REX_W) { \
+			TRY(translate64(cpu, &meml, 2, curr_seg, addr)); \
+			saddr64(&meml, lreg64(reg)); \
+		} else) \
+		{ \
+			TRY(translate32(cpu, &meml, 2, curr_seg, addr)); \
+			saddr32(&meml, lreg32(reg)); \
+		} \
 	}
 
 #define MOVQ_DQ() \
@@ -1439,6 +1445,8 @@ static uint64_t PALIGNR_helper(uint64_t d, uint64_t s, int i)
 	if (i < 8) {
 		int sh = i * 8;
 		return (d >> sh) | (s << (64 - sh));
+	} else if (i == 8) {
+		return d;
 	} else if (i < 16) {
 		int sh = (i - 8) * 8;
 		return d >> sh;
@@ -1455,16 +1463,23 @@ static void XMM_PALIGNR_helper(uint64_t *d, uint64_t *s, int i)
 		int sh2 = (8 - i) * 8;
 		d[1] = (s[1] >> sh1) | (d[0] << sh2);
 		d[0] = (s[0] >> sh1) | (s[1] << sh2);
+	} else if (i == 8) {
+		d[1] = d[0];
+		d[0] = s[1];
 	} else if (i < 16) {
 		int sh1 = (i - 8) * 8;
 		int sh2 = (16 - i) * 8;
 		d[1] = (d[0] >> sh1) | (d[1] << sh2);
 		d[0] = (s[1] >> sh1) | (d[0] << sh2);
+	} else if (i == 16) {
 	} else if (i < 24) {
 		int sh1 = (i - 16) * 8;
 		int sh2 = (24 - i) * 8;
 		d[0] = (d[0] >> sh1) | (d[1] << sh2);
 		d[1] = (d[1] >> sh1);
+	} else if (i == 24) {
+		d[0] = d[1];
+		d[1] = 0;
 	} else if (i < 32) {
 		int sh1 = (i - 24) * 8;
 		d[0] = (d[1] >> sh1);
