@@ -2424,19 +2424,19 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 #define XCHGAX() \
 	if (rex & REX_W) { \
 		int reg = b1 & 7; \
-		if (rex & REX_R) reg |= 8; \
+		if (rex & REX_B) reg |= 8; \
 		uword tmp = lreg64(reg); \
 		sreg64(reg, lreg64(0)); \
 		sreg64(0, tmp); \
 	} else if (unlikely(opsz16)) { \
 		int reg = b1 & 7; \
-		if (rex & REX_R) reg |= 8; \
+		if (rex & REX_B) reg |= 8; \
 		uword tmp = lreg16(reg); \
 		sreg16(reg, lreg16(0)); \
 		sreg16(0, tmp); \
 	} else { \
 		int reg = b1 & 7; \
-		if (rex & REX_R) reg |= 8; \
+		if (rex & REX_B) reg |= 8; \
 		uword tmp = lreg32(reg); \
 		sreg32(reg, lreg32(0)); \
 		sreg32(0, tmp); \
