@@ -208,6 +208,7 @@ I(C(0xfd), _,      0, STD)
 //I2(C(0x02), GvEw, 1, LAR)
 //I2(C(0x03), GvEw, 1, LSL)
 I2(C(0x06), _, 0, CLTS)
+I2(C(0x0d), GvM, 0, NOP1f) // PREFETCHx, for AuthenticAMD
 
 I2(C(0x1e, 0x1f), GvM, 0, NOP1f)
 I2(C(0x20), _, 0, MOVFC) // Move control register to r32
