@@ -53,6 +53,7 @@ void cpuamd64_step(CPUAMD64 *cpu, int stepcount);
 void cpuamd64_raise_irq(CPUAMD64 *cpu);
 void cpuamd64_set_gpr(CPUAMD64 *cpu, int i, u32 val);
 long cpuamd64_get_cycle(CPUAMD64 *cpu);
+void cpuamd64_set_vendor(CPUAMD64 *cpu, const char *vendor);
 
 bool cpu_load8(CPUAMD64 *cpu, int seg, uword addr, u8 *res);
 bool cpu_store8(CPUAMD64 *cpu, int seg, uword addr, u8 val);

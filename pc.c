@@ -721,6 +721,11 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data,
 	pc->cpu = cpu_new(conf->cpu_gen, mem, conf->mem_size, &cb);
 	if (conf->fpu)
 		cpu_enable_fpu(pc->cpu);
+#if defined(USE_AMD64)
+	if (conf->cpuid_vendor) {
+		cpuamd64_set_vendor(pc->cpu, conf->cpuid_vendor);
+	}
+#endif
 	pc->bios = conf->bios;
 	pc->vga_bios = conf->vga_bios;
 	pc->linuxstart = conf->linuxstart;
@@ -981,6 +986,8 @@ int parse_conf_ini(void* user, const char* section,
 			conf->cpu_gen = atoi(value);
 		} else if (NAME("fpu")) {
 			conf->fpu = atoi(value);
+		} else if (NAME("cpuid_vendor")) {
+			conf->cpuid_vendor = strdup(value);
 		}
 	}
 #undef SEC

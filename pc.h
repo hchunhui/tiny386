@@ -113,6 +113,7 @@ typedef struct {
 	int fpu;
 	int enable_serial;
 	int vga_force_8dm;
+	const char *cpuid_vendor; // amd64-specific for now
 } PCConfig;
 
 PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data,

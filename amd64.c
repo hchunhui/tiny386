@@ -93,6 +93,10 @@ struct CPUAMD64 {
 	struct {
 		uword star, lstar, cstar, fmask;
 	} syscall;
+
+	struct {
+		u32 vendor[3];
+	} cpuid;
 };
 
 #define dolog(...) fprintf(stderr, __VA_ARGS__)
@@ -3429,27 +3433,22 @@ static bool check_ioperm(CPUAMD64 *cpu, int port, int bit)
 #define CPUID_SIMD_FEATURE 0x0
 #endif
 
-// if use custom vendor name, newer version of glibc will report:
+// The default vendor name is "TINY386 CPU ".
+// Note that if the name is not well-known
+// (such as "GenuineIntel" or "AuthenticAMD"),
+// newer version of glibc will report:
 // CPU ISA level is lower than required
-#if 0
-// "TINY386 CPU "
-#define CPUID_VENDOR1 0x594e4954
-#define CPUID_VENDOR2 0x20363833
-#define CPUID_VENDOR3 0x20555043
-#else
-// "GenuineIntel"
-#define CPUID_VENDOR1 0x756e6547
-#define CPUID_VENDOR2 0x49656e69
-#define CPUID_VENDOR3 0x6c65746e
-#endif
+#define CPUID_VENDOR0 0x594e4954
+#define CPUID_VENDOR1 0x20363833
+#define CPUID_VENDOR2 0x20555043
 
 #define CPUID() \
 	switch (REGi(0)) { \
 	case 0: \
 		REGi(0) = 1; \
-		REGi(3) = CPUID_VENDOR1; \
-		REGi(2) = CPUID_VENDOR2; \
-		REGi(1) = CPUID_VENDOR3; \
+		REGi(3) = cpu->cpuid.vendor[0]; \
+		REGi(2) = cpu->cpuid.vendor[1]; \
+		REGi(1) = cpu->cpuid.vendor[2]; \
 		break; \
 	case 1: \
 		REGi(0) = 0 | (0 << 4) | (6 << 8); /*gen*/ \
@@ -4361,6 +4360,15 @@ long IRAM_ATTR cpuamd64_get_cycle(CPUAMD64 *cpu)
 	return cpu->cycle;
 }
 
+void cpuamd64_set_vendor(CPUAMD64 *cpu, const char *p)
+{
+	if (strlen(p) != 12)
+		return;
+	cpu->cpuid.vendor[0] = p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
+	cpu->cpuid.vendor[1] = p[4] | (p[5] << 8) | (p[6] << 16) | (p[7] << 24);
+	cpu->cpuid.vendor[2] = p[8] | (p[9] << 8) | (p[10] << 16) | (p[11] << 24);
+}
+
 CPUAMD64 *cpuamd64_new(int _, char *phys_mem, long phys_mem_size, CPU_CB **cb)
 {
 	CPUAMD64 *cpu = malloc(sizeof(CPUAMD64));
@@ -4377,6 +4385,10 @@ CPUAMD64 *cpuamd64_new(int _, char *phys_mem, long phys_mem_size, CPU_CB **cb)
 	cpu->intr = false;
 
 	cpu->fpu = fpu_new();
+
+	cpu->cpuid.vendor[0] = CPUID_VENDOR0;
+	cpu->cpuid.vendor[1] = CPUID_VENDOR1;
+	cpu->cpuid.vendor[2] = CPUID_VENDOR2;
 
 	cpuamd64_reset(cpu);
 
