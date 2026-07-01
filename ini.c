@@ -93,6 +93,36 @@ static char* ini_strncpy0(char* dest, const char* src, size_t size)
     return dest;
 }
 
+static char *unquote_inplace(char *val)
+{
+    if (*val != '"')
+        return val;
+    char *p = val + 1;
+    char *q = p;
+    while (*p) {
+        if (*p == '"') {
+            *q = 0;
+            p = ini_lskip(p + 1);
+            if (*p && !strchr(INI_INLINE_COMMENT_PREFIXES, *p))
+                return NULL;
+            return val + 1;
+        } else if (*p == '\\') {
+            p++;
+            switch (*p) {
+            case '\\': *q++ = '\\'; p++; break;
+            case 'n': *q++ = '\n'; p++; break;
+            case 'r': *q++ = '\r'; p++; break;
+            case 't': *q++ = '\t'; p++; break;
+            // TODO: more escape chars
+            default: return NULL;
+            }
+        } else {
+            *q++ = *p++;
+        }
+    }
+    return NULL;
+}
+
 /* See documentation in header file. */
 int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
                      void* user)
@@ -224,9 +254,12 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
                 name = ini_rstrip(start);
                 value = end + 1;
 #if INI_ALLOW_INLINE_COMMENTS
-                end = ini_find_chars_or_comment(value, NULL);
-                if (*end)
-                    *end = '\0';
+                value = ini_lskip(value);
+                if (*value != '"') {
+                    end = ini_find_chars_or_comment(value, NULL);
+                    if (*end)
+                        *end = '\0';
+                }
 #endif
                 value = ini_lskip(value);
                 ini_rstrip(value);
@@ -234,6 +267,10 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
 #if INI_ALLOW_MULTILINE
                 ini_strncpy0(prev_name, name, sizeof(prev_name));
 #endif
+                value = unquote_inplace(value);
+                if (!value) {
+                    error = lineno;
+                } else
                 /* Valid name[=:]value pair found, call handler */
                 if (!HANDLER(user, section, name, value) && !error)
                     error = lineno;
