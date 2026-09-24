@@ -13,7 +13,6 @@ struct Term {
 #include <termios.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include <signal.h>
 
 #define KEY_NONE        0x00
 #define KEY_ESC         0x01
@@ -216,11 +215,6 @@ static void parse_key(Term *s, unsigned char ch)
 
 struct termios orig_termios;
 
-static void sigterm(int _)
-{
-	exit(1);
-}
-
 static void disable_raw_mode()
 {
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
@@ -237,7 +231,6 @@ static void enable_raw_mode()
 	raw.c_iflag &= ~(IXON);
 	raw.c_cc[VMIN] = 0;
 	raw.c_cc[VTIME] = 1;
-	signal(SIGTERM, sigterm);
 
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 	const static char seq[] = "\x1b[?1049h\x1b[?1h\x1b[?25h";

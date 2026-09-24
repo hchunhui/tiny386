@@ -11,11 +11,6 @@
 #if !defined(_WIN32) && !defined(__wasm__)
 #include <sys/ioctl.h>
 #include <termios.h>
-#include <signal.h>
-static void CtrlC(int _)
-{
-	exit( 0 );
-}
 
 static void ResetKeyboardInput()
 {
@@ -31,7 +26,6 @@ void CaptureKeyboardInput()
 {
 	// Hook exit, because we want to re-enable keyboard.
 	atexit(ResetKeyboardInput);
-	signal(SIGINT, CtrlC);
 
 	struct termios term;
 	tcgetattr(0, &term);

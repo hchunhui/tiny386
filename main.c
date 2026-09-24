@@ -69,6 +69,23 @@ static void usage(const char *argv0)
 		argv0);
 }
 
+#ifndef _WIN32
+#include <signal.h>
+volatile int g_running = 1;
+static void sig_handler(int _)
+{
+	g_running = 0;
+}
+static void set_sig_handler()
+{
+	signal(SIGTERM, sig_handler);
+	signal(SIGINT, sig_handler);
+}
+#else
+#define g_running 1
+#define set_sig_handler()
+#endif
+
 int main(int argc, char *argv[])
 {
 	PCConfig conf;
@@ -109,6 +126,8 @@ int main(int argc, char *argv[])
 	if (enable_kvm)
 		conf.cpu_gen = -1;
 
+	set_sig_handler();
+
 	void *fb = bigmalloc(conf.width * conf.height * 4);
 	PC *pc = pc_new(redraw, NULL, fb, &conf);
 	Term *term = NULL;
@@ -117,7 +136,7 @@ int main(int argc, char *argv[])
 	load_bios_and_reset(pc);
 
 	pc->boot_start_time = get_uticks();
-	for (; pc->shutdown_state != 8;) {
+	for (; g_running && pc->shutdown_state != 8;) {
 		pc_step(pc);
 		pc_vga_step(pc);
 		if (use_term)
