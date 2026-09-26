@@ -107,6 +107,13 @@ SRCS_AMD64_full = amd64-comb.o i386-comb.o
 CFLAGS += ${CFLAGS_AMD64_${USE_AMD64}}
 SRCS += ${SRCS_AMD64_${USE_AMD64}}
 
+#ENABLE_RAWDRAW_WAYLAND = n/y
+ENABLE_RAWDRAW_WAYLAND = n
+CFLAGS_RAWDRAW_WAYLAND_y = -DCNFG_WAYLAND
+CFLAGS += ${CFLAGS_RAWDRAW_WAYLAND_${ENABLE_RAWDRAW_WAYLAND}}
+PREPARE_WAYLAND_y = prepare_wayland
+PREPARE_WAYLAND = ${PREPARE_WAYLAND_${ENABLE_RAWDRAW_WAYLAND}}
+
 PROGS_ = tiny386 tiny386_headless wifikbd initnet
 PROGS_win32 = tiny386 tiny386_headless wifikbd
 PROGS = ${PROGS_${PLAT}}
@@ -137,7 +144,10 @@ win32:
 clean:
 	rm -f ${OBJS} i386.o amd64.o fpu.o amd64-comb.o i386-comb.o fpu-leg32.o i386-leg32.o .depends ${PROGS}
 
-prepare: fmopl.inc
+prepare: fmopl.inc ${PREPARE_WAYLAND}
+
+prepare_wayland:
+	make -C rawdraw/wayland
 
 fmopl.inc: fmopl.c
 	${HOSTCC} -DGENTABLE $^$> -o fmoplgen -lm && ./fmoplgen > $@ && rm -f ./fmoplgen

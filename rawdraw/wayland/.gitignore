@@ -1,0 +1,9 @@
+wayland-protocol.c
+xdg-shell-client-protocol.c
+xdg-shell-client-protocol.h
+keyboard-shortcuts-inhibit.c
+keyboard-shortcuts-inhibit.h
+pointer-constraints.c
+pointer-constraints.h
+relative-pointer.c
+relative-pointer.h

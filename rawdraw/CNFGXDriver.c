@@ -174,7 +174,7 @@ void CNFGSetMousePosition( int x, int y ) {
 	XWarpPointer( CNFGDisplay, None, CNFGWindow, 0, 0, 0, 0, x, y );
 }
 
-void CNFGConfineMouse( int confined ) {
+void CNFGConfineMouse_X( int confined ) {
 	if (confined) {
 		XGrabPointer( CNFGDisplay, CNFGWindow, True, 0, GrabModeAsync, GrabModeAsync, CNFGWindow, None, CurrentTime );
 		XGrabKeyboard( CNFGDisplay, CNFGWindow, True, GrabModeAsync, GrabModeAsync, CurrentTime );
@@ -188,7 +188,7 @@ void CNFGConfineMouse( int confined ) {
 
 Cursor CNFGCursors[CNFG_CURSOR_LAST] = { None };
 
-void CNFGSetCursor( CNFGCursorShape shape ) {
+void CNFGSetCursor_X( CNFGCursorShape shape ) {
 	if (shape == CNFG_CURSOR_ARROW) XUndefineCursor( CNFGDisplay, CNFGWindow );
 	else XDefineCursor( CNFGDisplay, CNFGWindow, CNFGCursors[shape] );
 }
@@ -400,15 +400,13 @@ static int init_xlib(void)
 }
 #undef __handle
 
-int CNFGSetup( const char * WindowName, int w, int h )
+int CNFGSetup_X( const char * WindowName, int w, int h )
 {
 	if (!init_xlib())
 		return 1;
 	CNFGDisplay = XOpenDisplay(NULL);
 	if ( !CNFGDisplay ) {
-		fprintf( stderr, "Could not get an X Display.\n%s", 
-				 "Are you in text mode or using SSH without X11-Forwarding?\n" );
-		exit( 1 );
+		return 1;
 	}
 	atexit( CNFGTearDown );
 
@@ -469,7 +467,7 @@ int CNFGSetup( const char * WindowName, int w, int h )
 	return 0;
 }
 
-int CNFGHandleInput()
+int CNFGHandleInput_X()
 {
 	if( !CNFGWindow ) return 0;
 	static int ButtonsDown;
@@ -637,7 +635,7 @@ void CNFGBlitImage( uint32_t * data, int x, int y, int w, int h )
 }
 #endif
 
-void CNFGUpdateScreenWithBitmap( uint32_t * data, int w, int h )
+void CNFGUpdateScreenWithBitmap_X( uint32_t * data, int w, int h )
 {
 	static int lw, lh;
 
