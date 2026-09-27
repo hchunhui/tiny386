@@ -186,7 +186,7 @@ wifikbd${SUFF_SDL}: tools/wifikbd.c win32.c ${SRCS_GLIBC_FIX}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} ${LDFLAGS} ${CFLAGS_SDL} -o $@ $^$> ${LIBS_SDL}
 
-wifikbd${SUFF_RAWDRAW}: rawdraw/wifikbd.c win32.c ${SRCS_GLIBC_FIX}
+wifikbd${SUFF_RAWDRAW}: rawdraw/wifikbd.c win32.c vga.o ${SRCS_GLIBC_FIX}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} ${LDFLAGS} ${CFLAGS} -o $@ $^$> ${LIBS_RAWDRAW}
 
