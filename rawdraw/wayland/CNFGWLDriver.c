@@ -67,6 +67,8 @@ struct AppContext {
 		short x, y;
 	} queue[QLEN];
 	int queue_h, queue_t;
+
+	char name[64];
 } CNFG_ctx;
 
 #ifndef MFD_CLOEXEC
@@ -95,6 +97,30 @@ static uint32_t cnfg_get_uticks()
 static int cnfg_after_eq(uint32_t a, uint32_t b)
 {
     return (a - b) < (1u << 31);
+}
+
+extern const uint8_t vgafont16[];
+static void draw_string(uint32_t *pixels, int w, int h,
+			const char *str, int x, int y,
+			uint32_t color)
+{
+	while (*str) {
+		uint8_t c = *(uint8_t *) str;
+		for (int row = 0; row < 16; row++) {
+			uint8_t bits = vgafont16[((int)c) * 16 + row];
+			for (int col = 0; col < 8; col++) {
+				if (bits & (1 << (7 - col))) {
+					int px = x + col;
+					int py = y + row;
+					if (px < w && py < h) {
+						pixels[py * w + px] = color;
+					}
+				}
+			}
+		}
+		x += 8;
+		str++;
+	}
 }
 
 static void paint_buffer(void *data, uint32_t *src, int w, int h)
@@ -532,6 +558,7 @@ int CNFGSetup_WL( const char * WindowName, int w, int h )
 	app->xdg_toplevel = xdg_surface_get_toplevel(app->xdg_surface);
 	xdg_toplevel_add_listener(app->xdg_toplevel, &xdg_toplevel_listener, &CNFG_ctx);
 	xdg_toplevel_set_title(app->xdg_toplevel, WindowName);
+	strncpy(app->name, WindowName, 63);
 
 	wl_surface_commit(app->surface);
 
@@ -650,6 +677,8 @@ void CNFGUpdateScreenWithBitmap_WL( uint32_t * data, int w, int h )
 	assert(h == CNFG_ctx.h - TITLE_HEIGHT);
 	if (CNFG_ctx.shm_data) {
 		paint_buffer(CNFG_ctx.shm_data, data, app->w, app->h);
+		draw_string(app->shm_data, app->w, TITLE_HEIGHT,
+			    app->name, 4, 4, 0xffdddddd);
 		wl_surface_attach(app->surface, app->buffer, 0, 0);
 		wl_surface_damage(app->surface, 0, 0, app->w, app->h);
 		wl_surface_commit(app->surface);
