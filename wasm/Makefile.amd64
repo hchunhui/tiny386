@@ -7,6 +7,7 @@ main.c \
 ../i8254.c \
 ../ide.c \
 ../vga.c \
+../vgafont.c \
 ../i8042.c \
 ../misc.c \
 ../fmopl.c \
