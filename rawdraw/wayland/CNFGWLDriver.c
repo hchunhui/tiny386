@@ -10,6 +10,7 @@
 #include <linux/memfd.h>
 #include <unistd.h>
 #include <wayland-client.h>
+#include <wayland-cursor.h>
 #include "xdg-shell-client-protocol.h"
 #include "pointer-constraints.h"
 #include "relative-pointer.h"
@@ -39,6 +40,10 @@ struct AppContext {
 	struct zwp_relative_pointer_v1 *relative_pointer;
 	struct zwp_keyboard_shortcuts_inhibit_manager_v1 *shortcuts_inhibit_manager;
 	struct zwp_keyboard_shortcuts_inhibitor_v1 *inhibitor;
+
+	struct wl_cursor_theme *cursor_theme;
+	struct wl_surface *cursor_surface;
+	int hotspot_x, hotspot_y;
 
 	int running;
 	int w, h;
@@ -138,6 +143,11 @@ static void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t seria
 {
 	struct AppContext *app = data;
 	app->last_serial = serial;
+	if (CNFGRelPos)
+		wl_pointer_set_cursor(app->pointer, app->last_serial, NULL, 0, 0);
+	else
+		wl_pointer_set_cursor(app->pointer, app->last_serial, app->cursor_surface,
+				      app->hotspot_x, app->hotspot_y);
 }
 
 static void pointer_leave(void *data, struct wl_pointer *pointer, uint32_t serial, struct wl_surface *surface)
@@ -448,6 +458,7 @@ void CNFGConfineMouse_WL( int confined ) {
 					app->pointer_constraints,
 					app->surface, app->pointer, NULL,
 					ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
+			wl_pointer_set_cursor(app->pointer, app->last_serial, NULL, 0, 0);
 		}
 		if (app->shortcuts_inhibit_manager && !app->inhibitor) {
 			app->inhibitor =
@@ -460,6 +471,8 @@ void CNFGConfineMouse_WL( int confined ) {
 		if (app->locked_pointer) {
 			zwp_locked_pointer_v1_destroy(app->locked_pointer);
 			app->locked_pointer = NULL;
+			wl_pointer_set_cursor(app->pointer, app->last_serial, app->cursor_surface,
+					      app->hotspot_x, app->hotspot_y);
 		}
 		if (app->inhibitor) {
 			zwp_keyboard_shortcuts_inhibitor_v1_destroy(
@@ -481,6 +494,14 @@ static int init_wayland(void)
     return !!__handle;
 }
 #undef __handle
+#define __handle __libwayland_cursor_handle
+#include "wayland-cursor_wrapper.c"
+static int init_wayland_cursor(void)
+{
+    __handle = dlopen("libwayland-cursor.so.0", RTLD_NOW);
+    return !!__handle;
+}
+#undef __handle
 #include "wayland-protocol.c"
 #include "xdg-shell-client-protocol.c"
 #include "pointer-constraints.c"
@@ -489,7 +510,7 @@ static int init_wayland(void)
 
 int CNFGSetup_WL( const char * WindowName, int w, int h )
 {
-	if (!init_wayland())
+	if (!init_wayland() || !init_wayland_cursor())
 		return 1;
 
 	struct AppContext *app = &CNFG_ctx;
@@ -513,6 +534,21 @@ int CNFGSetup_WL( const char * WindowName, int w, int h )
 	xdg_toplevel_set_title(app->xdg_toplevel, WindowName);
 
 	wl_surface_commit(app->surface);
+
+	app->cursor_surface = wl_compositor_create_surface(app->compositor);
+	app->cursor_theme = wl_cursor_theme_load(NULL, 24, app->shm);
+	struct wl_cursor *cursor = wl_cursor_theme_get_cursor(app->cursor_theme, "default");
+	if (!cursor || cursor->image_count == 0)
+		assert(false);
+	struct wl_cursor_image *image = cursor->images[0];
+	struct wl_buffer *buffer = wl_cursor_image_get_buffer(image);
+	if (!buffer)
+		assert(false);
+	wl_surface_attach(app->cursor_surface, buffer, 0, 0);
+	wl_surface_damage(app->cursor_surface, 0, 0, image->width, image->height);
+	app->hotspot_x = image->hotspot_x;
+	app->hotspot_y = image->hotspot_y;
+	wl_surface_commit(app->cursor_surface);
 
 	app->running = 1;
 
