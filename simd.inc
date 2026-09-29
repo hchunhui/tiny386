@@ -735,6 +735,7 @@ static int32_t trunci32(double val)
 	return val < 2147483648.0 && val >= -2147483648.0 ? (int32_t) val : 0x80000000;
 }
 
+#ifdef USE_AMD64
 static int64_t trunci64f(float val)
 {
 	return val < 9223372036854775808.0 && val >= -9223372036854775808.0 ? (int64_t) val : 0x8000000000000000ll;
@@ -744,6 +745,7 @@ static int64_t trunci64(double val)
 {
 	return val < 9223372036854775808.0 && val >= -9223372036854775808.0 ? (int64_t) val : 0x8000000000000000ll;
 }
+#endif
 
 #define SIMD_CVTS2I_D2I() \
 	if (cpu->cr0 & 0xc) THROW0(EX_NM); \

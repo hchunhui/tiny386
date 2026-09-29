@@ -101,7 +101,6 @@ int CNFAStateWin( void * v )
 void CALLBACK HANDLEMIC(HWAVEIN hwi, UINT umsg, DWORD dwi, DWORD hdr, DWORD dwparm)
 {
 	int ob;
-	unsigned int maxWave=0;
 
 	if (w->isEnding) return;
 
@@ -124,8 +123,6 @@ void CALLBACK HANDLEMIC(HWAVEIN hwi, UINT umsg, DWORD dwi, DWORD hdr, DWORD dwpa
 
 void CALLBACK HANDLESINK(HWAVEIN hwi, UINT umsg, DWORD dwi, DWORD hdr, DWORD dwparm)
 {
-	unsigned int maxWave=0;
-
 	if (w->isEnding) return;
 
 	switch (umsg)
@@ -150,7 +147,6 @@ static struct CNFADriverWin * InitWinCNFA( struct CNFADriverWin * r )
 	WAVEFORMATEX wfmt;
 	long dwdeviceR, dwdeviceP;
 	memset( &wfmt, 0, sizeof(wfmt) );
-	printf ("WFMT Size (debugging temp for TCC): %zu\n", sizeof(wfmt) );
 	fprintf(stderr, "WFMT: %d %d %d\n", r->channelsRec, r->spsRec, r->spsRec * r->channelsRec );
 	w = r;
 	
