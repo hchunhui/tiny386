@@ -7,11 +7,34 @@
 #include "osd/osd.h"
 #include "term.h"
 
+#ifndef ANDROID
 #define CNFG_IMPLEMENTATION
 #include "CNFG.h"
 
 #define CNFA_IMPLEMENTATION
 #include "CNFA.h"
+#else /* ANDROID */
+#include "CNFGAndroid.h"
+
+#define CNFA_IMPLEMENTATION
+#include "android/rawdrawandroid/cnfa/CNFA.h"
+
+#define CNFG_IMPLEMENTATION
+#define CNFG3D
+#include "android/rawdrawandroid/rawdraw/CNFG.h"
+
+void HandleThisWindowTermination()
+{
+}
+
+void HandleSuspend()
+{
+}
+
+void HandleResume()
+{
+}
+#endif /* ANDROID */
 
 // platform HAL implementation
 #include <time.h>
@@ -66,6 +89,11 @@ typedef struct {
 	bool osd_enabled;
 	int lastx, lasty, relx, rely, dz;
 	int mbtn;
+#ifdef ANDROID
+	uint32_t touch_start, touch_end;
+	int touch_btn;
+	int btnup_pending;
+#endif
 } Console;
 
 void console_send_kbd(void *opaque, int keypress, int keycode)
@@ -88,7 +116,12 @@ Console *console_init(int width, int height)
 #endif
 	s->fb = bigmalloc(s->width * s->height * 4);
 	s->cnfgret = 1;
+#ifndef ANDROID
 	CNFGSetup("tiny386 - use ctrl + ] to grab/ungrab", s->width, s->height);
+#else
+	CNFGSetupFullscreen( "tiny386", 0 );
+	HandleWindowTermination = HandleThisWindowTermination;
+#endif
 	osd_attach_console(s->osd, s);
 	s->lastx = -1;
 	s->lasty = -1;
@@ -106,7 +139,17 @@ static void redraw(void *opaque, int x, int y, int w, int h)
 	if (s->osd_enabled)
 		osd_render(s->osd, s->fb,
 			   s->width, s->height, s->width * 4);
+#ifndef ANDROID
 	CNFGUpdateScreenWithBitmap(s->fb, s->width, s->height);
+#else
+	CNFGClearFrame();
+	static uint32_t fb2[2000*2000];
+	uint32_t *fb = s->fb;
+	for (int i = 0; i < s->width * s->height; i++)
+		fb2[i] = (fb[i] << 8) | 0xff;
+	CNFGBlitImage(fb2, 0, 0, s->width, s->height);
+	CNFGSwapBuffers();
+#endif
 }
 
 static void dummy(void *opaque, int x, int y, int w, int h)
@@ -114,10 +157,18 @@ static void dummy(void *opaque, int x, int y, int w, int h)
 }
 
 static void *g_opaque;
+static void mouse_common(int rel, int x, int y, int mask, int down);
 static void cnfgpoll(void *opaque)
 {
 	Console *s = opaque;
 	g_opaque = s;
+#ifdef ANDROID
+	if (s->btnup_pending) {
+		s->btnup_pending--;
+		if (s->btnup_pending == 0)
+			mouse_common(1, 0, 0, 0, 0);
+	}
+#endif
 	s->cnfgret = CNFGHandleInput();
 }
 
@@ -192,6 +243,7 @@ void HandleKey(int cnfgkeycode, int bDown)
 			s->pc->full_update = s->osd_enabled ? 1 : 2;
 			return;
 		}
+#ifndef ANDROID
 		if (keycode == 0x1b && key_pressed[0x1d]) {
 			static int en;
 			en ^= 1;
@@ -199,6 +251,7 @@ void HandleKey(int cnfgkeycode, int bDown)
 			CNFGSetCursor(en ? CNFG_CURSOR_HIDDEN : CNFG_CURSOR_ARROW);
 			return;
 		}
+#endif
 	}
 
 	if (keycode) {
@@ -226,12 +279,47 @@ static void mouse_common(int rel, int x, int y, int mask, int down)
 
 void HandleButton(int x, int y, int button, int bDown)
 {
-	mouse_common(0, x, y, bDown ? 1 << (button - 1) : 0, !!bDown);
+#ifdef ANDROID
+	Console *s = g_opaque;
+	uint32_t t2 = get_uticks();
+	if (bDown) {
+		s->touch_start = t2;
+		if (t2 - s->touch_end < 200000) {
+			s->touch_btn = 1;
+		} else {
+			s->touch_btn = 0;
+		}
+	}
+	if (!bDown) {
+		if (t2 - s->touch_start < 200000) {
+			mouse_common(1, 0, 0, 1, 1);
+			s->btnup_pending = 100;
+		} else if (t2 - s->touch_start < 500000) {
+			mouse_common(1, 0, 0, 4, 1);
+			s->btnup_pending = 100;
+		}
+		s->touch_start = t2 - 1100000;
+		s->touch_end = t2;
+	}
+	s->lastx = x;
+	s->lasty = y;
+#else
+	mouse_common(1, x, y, bDown ? 1 << (button - 1) : 0, !!bDown);
+#endif
 }
 
 void HandleMotion(int x, int y, int mask)
 {
+#ifdef ANDROID
+	Console *s = g_opaque;
+	if (abs(s->lastx - x) > 5 || abs(s->lasty - y) > 5)
+		s->touch_start = get_uticks() - 1100000;
+	if (s->touch_btn)
+		s->btnup_pending = 0;
+	mouse_common(0, x, y, s->touch_btn, -1);
+#else
 	mouse_common(0, x, y, mask, -1);
+#endif
 }
 
 void HandleButtonRel(int x, int y, int button, int bDown)
@@ -294,6 +382,10 @@ static void set_sig_handler()
 #else
 #define g_running 1
 #define set_sig_handler()
+#endif
+
+#ifdef ANDROID
+#define main main1
 #endif
 
 int main(int argc, char *argv[])
@@ -375,3 +467,17 @@ int main(int argc, char *argv[])
 	}
 	return 0;
 }
+
+#ifdef ANDROID
+#undef main
+int main(int argc, char *_argv[])
+{
+	char *argv[3] = {
+		_argv[0],
+		"tiny386.ini",
+		NULL,
+	};
+	chdir(gapp->activity->externalDataPath);
+	return main1(2, argv);
+}
+#endif
