@@ -304,7 +304,7 @@ void HandleButton(int x, int y, int button, int bDown)
 	s->lastx = x;
 	s->lasty = y;
 #else
-	mouse_common(1, x, y, bDown ? 1 << (button - 1) : 0, !!bDown);
+	mouse_common(0, x, y, bDown ? 1 << (button - 1) : 0, !!bDown);
 #endif
 }
 
