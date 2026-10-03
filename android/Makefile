@@ -8,7 +8,7 @@ CFLAGS += -DI386_ENABLE_FPU
 CFLAGS += -DI386_ENABLE_MMX -DI386_ENABLE_SSE -DI386_ENABLE_SSE2 -DI386_ENABLE_SSE3
 CFLAGS += -DI386_ENABLE_SSSE3
 CFLAGS += -DUSE_FMOPL
-LDFLAGS = -s
+LDFLAGS = -Wl,--gc-sections -s
 PACKAGENAME = org.yourorg.$(APPNAME)
 SRC = \
 ../ini.c \
@@ -32,7 +32,13 @@ SRC = \
 ../term.c \
 ../osd/microui.c \
 ../osd/osd.c \
+vkbd.c \
 ../rawdraw/main.c
+
+SLIRP_DIR = ../build/slirp/build-android-aarch64
+CFLAGS += -DUSE_SLIRP
+CFLAGS += -I$(SLIRP_DIR)
+LDFLAGS += -L$(SLIRP_DIR) -lslirp
 
 ANDROIDVERSION = 30
 ANDROIDTARGET = 30

@@ -15,6 +15,8 @@
 #include "CNFA.h"
 #else /* ANDROID */
 #include "CNFGAndroid.h"
+#include "android/vkbd.h"
+#define VKBD_SCALE 1.5
 
 #define CNFA_IMPLEMENTATION
 #include "android/rawdrawandroid/cnfa/CNFA.h"
@@ -93,6 +95,8 @@ typedef struct {
 	uint32_t touch_start, touch_end;
 	int touch_btn;
 	int btnup_pending;
+	int vkbdx, vkbdy;
+	bool vkbdinfo[VKBDLAYOUT_LEN];
 #endif
 } Console;
 
@@ -105,6 +109,7 @@ void console_send_kbd(void *opaque, int keypress, int keycode)
 Console *console_init(int width, int height)
 {
 	Console *s = malloc(sizeof(Console));
+	memset(s, 0, sizeof(Console));
 	s->osd = osd_init();
 	s->osd_enabled = false;
 #ifdef SWAPXY
@@ -121,6 +126,8 @@ Console *console_init(int width, int height)
 #else
 	CNFGSetupFullscreen( "tiny386", 0 );
 	HandleWindowTermination = HandleThisWindowTermination;
+	s->vkbdx = 1280;
+	s->vkbdy = 50;
 #endif
 	osd_attach_console(s->osd, s);
 	s->lastx = -1;
@@ -143,11 +150,33 @@ static void redraw(void *opaque, int x, int y, int w, int h)
 	CNFGUpdateScreenWithBitmap(s->fb, s->width, s->height);
 #else
 	CNFGClearFrame();
+
+	static int vkbd_tex;
+	static uint32_t fbk[VKBDLAYOUT_W * VKBDLAYOUT_H];
+	if (!vkbd_tex)
+		vkbd_tex = CNFGTexImage(NULL, VKBDLAYOUT_W, VKBDLAYOUT_H);
+	vkbd_draw(fbk, VKBDLAYOUT_W, VKBDLAYOUT_H, 0, 0, s->vkbdinfo);
+	for (int i = 0; i < VKBDLAYOUT_W * VKBDLAYOUT_H; i++)
+		fbk[i] = (fbk[i] << 8) | (fbk[i] >> 24);
+	glBindTexture(GL_TEXTURE_2D, vkbd_tex);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VKBDLAYOUT_W, VKBDLAYOUT_H,
+			GL_RGBA, GL_UNSIGNED_BYTE, (void *) fbk);
+	CNFGBlitTex(vkbd_tex, s->vkbdx, s->vkbdy,
+		    VKBDLAYOUT_W * VKBD_SCALE, VKBDLAYOUT_H * VKBD_SCALE);
+
+	static int fb_tex;
 	static uint32_t fb2[2000*2000];
+	assert(s->width * s->height < 2000 * 2000);
+	if (!fb_tex)
+		fb_tex = CNFGTexImage(NULL, s->width, s->height);
 	uint32_t *fb = s->fb;
 	for (int i = 0; i < s->width * s->height; i++)
 		fb2[i] = (fb[i] << 8) | 0xff;
-	CNFGBlitImage(fb2, 0, 0, s->width, s->height);
+	glBindTexture(GL_TEXTURE_2D, fb_tex);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s->width, s->height,
+			GL_RGBA, GL_UNSIGNED_BYTE, (void *) fb2);
+	CNFGBlitTex(fb_tex, 0, 0, 1280, 960);
+
 	CNFGSwapBuffers();
 #endif
 }
@@ -281,6 +310,22 @@ void HandleButton(int x, int y, int button, int bDown)
 {
 #ifdef ANDROID
 	Console *s = g_opaque;
+	if (x >= s->vkbdx && x < s->vkbdx + VKBDLAYOUT_W * VKBD_SCALE &&
+	    y >= s->vkbdy && y < s->vkbdy + VKBDLAYOUT_H * VKBD_SCALE) {
+		int i = vkbd_button((x - s->vkbdx) / VKBD_SCALE,
+				    (y - s->vkbdy) / VKBD_SCALE);
+		if (i >= 0) {
+			s->vkbdinfo[i] = bDown;
+			int keycode = vkbd_code(i);
+			if (keycode) {
+				if (s->osd_enabled)
+					osd_handle_key(s->osd, keycode, bDown);
+				else
+					ps2_put_keycode(s->pc->kbd, bDown, keycode);
+			}
+		}
+		return;
+	}
 	uint32_t t2 = get_uticks();
 	if (bDown) {
 		s->touch_start = t2;
@@ -312,6 +357,9 @@ void HandleMotion(int x, int y, int mask)
 {
 #ifdef ANDROID
 	Console *s = g_opaque;
+	if (x >= s->vkbdx && x < s->vkbdx + VKBDLAYOUT_W * VKBD_SCALE &&
+	    y >= s->vkbdy && y < s->vkbdy + VKBDLAYOUT_H * VKBD_SCALE)
+		return;
 	if (abs(s->lastx - x) > 5 || abs(s->lasty - y) > 5)
 		s->touch_start = get_uticks() - 1100000;
 	if (s->touch_btn)
@@ -478,6 +526,11 @@ int main(int argc, char *_argv[])
 		NULL,
 	};
 	chdir(gapp->activity->externalDataPath);
-	return main1(2, argv);
+	int ret = main1(2, argv);
+	if (gapp && gapp->activity) {
+		ANativeActivity_finish(gapp->activity);
+	}
+	exit(ret);
+	return ret;
 }
 #endif
