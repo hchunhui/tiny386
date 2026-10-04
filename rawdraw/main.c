@@ -29,16 +29,20 @@
 #define CNFG3D
 #include "android/rawdrawandroid/rawdraw/CNFG.h"
 
+volatile int suspended;
 void HandleThisWindowTermination()
 {
+	suspended = 1;
 }
 
 void HandleSuspend()
 {
+	suspended = 1;
 }
 
 void HandleResume()
 {
+	suspended = 0;
 }
 #endif /* ANDROID */
 
@@ -129,8 +133,8 @@ Console *console_init(int width, int height)
 #ifndef ANDROID
 	CNFGSetup("tiny386 - use ctrl + ] to grab/ungrab", s->width, s->height);
 #else
-	CNFGSetupFullscreen( "tiny386", 0 );
 	HandleWindowTermination = HandleThisWindowTermination;
+	CNFGSetupFullscreen( "tiny386", 0 );
 	s->vkbdx = -30;
 	s->vkbdy = (android_height - VKBDLAYOUT_H * VKBD_SCALE) * 3 / 4;
 #endif
@@ -154,31 +158,42 @@ static void redraw(void *opaque, int x, int y, int w, int h)
 #ifndef ANDROID
 	CNFGUpdateScreenWithBitmap(s->fb, s->width, s->height);
 #else
+	static int vkbd_tex;
+	static int fb_tex;
+	if (suspended) {
+		vkbd_tex = 0;
+		fb_tex = 0;
+		return;
+	}
 	CNFGClearFrame();
 
-	static int vkbd_tex;
 	static uint32_t fbk[VKBDLAYOUT_W * VKBDLAYOUT_H];
-	if (!vkbd_tex)
-		vkbd_tex = CNFGTexImage(NULL, VKBDLAYOUT_W, VKBDLAYOUT_H);
 	vkbd_draw(fbk, VKBDLAYOUT_W, VKBDLAYOUT_H, 0, 0, s->vkbdinfo);
 	for (int i = 0; i < VKBDLAYOUT_W * VKBDLAYOUT_H; i++)
 		fbk[i] = (fbk[i] << 8) | (fbk[i] >> 24);
-	glBindTexture(GL_TEXTURE_2D, vkbd_tex);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VKBDLAYOUT_W, VKBDLAYOUT_H,
-			GL_RGBA, GL_UNSIGNED_BYTE, (void *) fbk);
 
-	static int fb_tex;
 	static uint32_t fb2[2000*2000];
 	assert(s->width * s->height < 2000 * 2000);
-	if (!fb_tex)
-		fb_tex = CNFGTexImage(NULL, s->width, s->height);
 	uint32_t *fb = s->fb;
 	for (int i = 0; i < s->width * s->height; i++)
 		fb2[i] = (fb[i] << 8) | 0xff;
-	glBindTexture(GL_TEXTURE_2D, fb_tex);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s->width, s->height,
-			GL_RGBA, GL_UNSIGNED_BYTE, (void *) fb2);
 
+	if (fb_tex) {
+		CNFGglActiveTexture( 0 );
+		glBindTexture(GL_TEXTURE_2D, fb_tex);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s->width, s->height,
+				GL_RGBA, GL_UNSIGNED_BYTE, (void *) fb2);
+	} else {
+		fb_tex = CNFGTexImage((void *) fb2, s->width, s->height);
+	}
+	if (vkbd_tex) {
+		CNFGglActiveTexture( 0 );
+		glBindTexture(GL_TEXTURE_2D, vkbd_tex);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VKBDLAYOUT_W, VKBDLAYOUT_H,
+				GL_RGBA, GL_UNSIGNED_BYTE, (void *) fbk);
+	} else {
+		vkbd_tex = CNFGTexImage((void *) fbk, VKBDLAYOUT_W, VKBDLAYOUT_H);
+	}
 	CNFGBlitTex(fb_tex, FB_X, FB_Y, FB_W, FB_H);
 	CNFGBlitTex(vkbd_tex, s->vkbdx, s->vkbdy,
 		    VKBDLAYOUT_W * VKBD_SCALE, VKBDLAYOUT_H * VKBD_SCALE);
