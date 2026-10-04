@@ -139,7 +139,11 @@ static void cpu_enable_fpu(CPUABS *cpu)
 void pcmalloc_init(void *ptr, long len);
 #else
 #define MIXER_BUF_LEN 2048
+#ifdef ANDROID
+#define PC_STEP_COUNT 4096
+#else
 #define PC_STEP_COUNT 10240
+#endif
 #define pcmalloc_init(ptr, len)
 #endif
 

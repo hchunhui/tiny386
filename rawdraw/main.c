@@ -16,7 +16,11 @@
 #else /* ANDROID */
 #include "CNFGAndroid.h"
 #include "android/vkbd.h"
-#define VKBD_SCALE 1.5
+#define VKBD_SCALE 2
+#define FB_W 1280
+#define FB_H 960
+#define FB_X (android_width - FB_W)
+#define FB_Y ((android_height - FB_H) / 2)
 
 #define CNFA_IMPLEMENTATION
 #include "android/rawdrawandroid/cnfa/CNFA.h"
@@ -96,6 +100,7 @@ typedef struct {
 	int touch_btn;
 	int btnup_pending;
 	int vkbdx, vkbdy;
+	int vkbdx_drag, vkbdy_drag;
 	bool vkbdinfo[VKBDLAYOUT_LEN];
 #endif
 } Console;
@@ -126,8 +131,8 @@ Console *console_init(int width, int height)
 #else
 	CNFGSetupFullscreen( "tiny386", 0 );
 	HandleWindowTermination = HandleThisWindowTermination;
-	s->vkbdx = 1280;
-	s->vkbdy = 50;
+	s->vkbdx = -30;
+	s->vkbdy = (android_height - VKBDLAYOUT_H * VKBD_SCALE) * 3 / 4;
 #endif
 	osd_attach_console(s->osd, s);
 	s->lastx = -1;
@@ -161,8 +166,6 @@ static void redraw(void *opaque, int x, int y, int w, int h)
 	glBindTexture(GL_TEXTURE_2D, vkbd_tex);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VKBDLAYOUT_W, VKBDLAYOUT_H,
 			GL_RGBA, GL_UNSIGNED_BYTE, (void *) fbk);
-	CNFGBlitTex(vkbd_tex, s->vkbdx, s->vkbdy,
-		    VKBDLAYOUT_W * VKBD_SCALE, VKBDLAYOUT_H * VKBD_SCALE);
 
 	static int fb_tex;
 	static uint32_t fb2[2000*2000];
@@ -175,8 +178,10 @@ static void redraw(void *opaque, int x, int y, int w, int h)
 	glBindTexture(GL_TEXTURE_2D, fb_tex);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s->width, s->height,
 			GL_RGBA, GL_UNSIGNED_BYTE, (void *) fb2);
-	CNFGBlitTex(fb_tex, 0, 0, 1280, 960);
 
+	CNFGBlitTex(fb_tex, FB_X, FB_Y, FB_W, FB_H);
+	CNFGBlitTex(vkbd_tex, s->vkbdx, s->vkbdy,
+		    VKBDLAYOUT_W * VKBD_SCALE, VKBDLAYOUT_H * VKBD_SCALE);
 	CNFGSwapBuffers();
 #endif
 }
@@ -210,8 +215,10 @@ static void update_mouse(Console *s, int rel, int x, int y, int cnfgmask)
 		s->lasty += y;
 		if (s->lastx < 0) s->lastx = 0;
 		if (s->lasty < 0) s->lasty = 0;
+#ifndef ANDROID
 		if (s->lastx > 2048) s->lastx = 2048;
 		if (s->lasty > 2048) s->lasty = 2048;
+#endif
 	} else {
 		if (s->lastx < 0 || s->lasty < 0) {
 			s->lastx = x;
@@ -257,10 +264,9 @@ static void put_key(void *o, unsigned char scan_code, int is_pressed)
 #define KEYCODE_MAX 127
 static uint8_t key_pressed[KEYCODE_MAX + 1];
 
-void HandleKey(int cnfgkeycode, int bDown)
+static void kbd_common(int keycode, int bDown)
 {
 	Console *s = g_opaque;
-	int keycode = translate_key(cnfgkeycode);
 	if (keycode <= KEYCODE_MAX)
 		key_pressed[keycode] = bDown;
 
@@ -291,16 +297,29 @@ void HandleKey(int cnfgkeycode, int bDown)
 	}
 }
 
+void HandleKey(int cnfgkeycode, int bDown)
+{
+	int keycode = translate_key(cnfgkeycode);
+	kbd_common(keycode, bDown);
+	return;
+}
+
 static void mouse_common(int rel, int x, int y, int mask, int down)
 {
 	Console *s = g_opaque;
 	update_mouse(s, rel, x, y, mask);
 	if (s->osd_enabled) {
+		int lastx = s->lastx;
+		int lasty = s->lasty;
+#ifdef ANDROID
+		lastx = (lastx - FB_X) * s->width / FB_W;
+		lasty = (lasty - FB_Y) * s->height / FB_H;
+#endif
 		if (down >= 0)
-			osd_handle_mouse_button(s->osd,	s->lastx, s->lasty,
+			osd_handle_mouse_button(s->osd, lastx, lasty,
 						down, 1 /* XXX */);
 		else
-			osd_handle_mouse_motion(s->osd, s->lastx, s->lasty);
+			osd_handle_mouse_motion(s->osd,	lastx, lasty);
 	} else
 		ps2_mouse_event(s->pc->mouse, s->relx, s->rely,
 				s->dz, s->mbtn);
@@ -317,11 +336,12 @@ void HandleButton(int x, int y, int button, int bDown)
 		if (i >= 0) {
 			s->vkbdinfo[i] = bDown;
 			int keycode = vkbd_code(i);
-			if (keycode) {
-				if (s->osd_enabled)
-					osd_handle_key(s->osd, keycode, bDown);
-				else
-					ps2_put_keycode(s->pc->kbd, bDown, keycode);
+			if (keycode > 0) {
+				kbd_common(keycode, bDown);
+			}
+			if (keycode == -1) {
+				s->vkbdx_drag = x - s->vkbdx;
+				s->vkbdy_drag = y - s->vkbdy;
 			}
 		}
 		return;
@@ -358,8 +378,18 @@ void HandleMotion(int x, int y, int mask)
 #ifdef ANDROID
 	Console *s = g_opaque;
 	if (x >= s->vkbdx && x < s->vkbdx + VKBDLAYOUT_W * VKBD_SCALE &&
-	    y >= s->vkbdy && y < s->vkbdy + VKBDLAYOUT_H * VKBD_SCALE)
+	    y >= s->vkbdy && y < s->vkbdy + VKBDLAYOUT_H * VKBD_SCALE) {
+		int i = vkbd_button((x - s->vkbdx) / VKBD_SCALE,
+				    (y - s->vkbdy) / VKBD_SCALE);
+		if (i >= 0 && s->vkbdinfo[i]) {
+			int code = vkbd_code(i);
+			if (code == -1) {
+				s->vkbdx = x - s->vkbdx_drag;
+				s->vkbdy = y - s->vkbdy_drag;
+			}
+		}
 		return;
+	}
 	if (abs(s->lastx - x) > 5 || abs(s->lasty - y) > 5)
 		s->touch_start = get_uticks() - 1100000;
 	if (s->touch_btn)
