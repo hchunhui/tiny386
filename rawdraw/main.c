@@ -563,6 +563,19 @@ int main(int argc, char *argv[])
 
 #ifdef ANDROID
 #undef main
+static void create_default(const char *name, const char *content)
+{
+	FILE *fp;
+	fp = fopen(name, "r");
+	if (!fp) {
+		fp = fopen(name, "w");
+		if (fp) {
+			fputs(content, fp);
+			fclose(fp);
+		}
+	}
+}
+
 int main(int argc, char *_argv[])
 {
 	char *argv[3] = {
@@ -571,6 +584,22 @@ int main(int argc, char *_argv[])
 		NULL,
 	};
 	chdir(gapp->activity->externalDataPath);
+	create_default("resolv.conf", "nameserver 8.8.8.8\n");
+	create_default("tiny386.ini",
+		       "[pc]\n"
+		       "bios = \n"
+		       "vga_bios = \n"
+		       "mem_size = 32M\n"
+		       "vga_mem_size = 4M\n"
+		       "vga_force_8dm = 1\n"
+		       ";fill_cmos = 1\n"
+		       "hda = \n"
+		       "[display]\n"
+		       "width = 640\n"
+		       "height = 480\n"
+		       "[cpu]\n"
+		       "gen = 6\n"
+		       "fpu = 1\n");
 	int ret = main1(2, argv);
 	if (gapp && gapp->activity) {
 		ANativeActivity_finish(gapp->activity);

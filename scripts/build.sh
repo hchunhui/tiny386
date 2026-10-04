@@ -30,7 +30,7 @@ build_sdl() {
 build_slirp() {
     cp -r ../scripts/slirp . &&
 	cd slirp &&
-	git clone -b v4.9.4 --depth=1 https://gitlab.freedesktop.org/slirp/libslirp.git slirp &&
+	git clone -b v4.9.5 --depth=1 https://gitlab.freedesktop.org/slirp/libslirp.git slirp &&
 	cd slirp && patch -p1 < ../patch && cd .. &&
 	make && make install DESTDIR=build && make clean &&
 	make win32 && make install DESTDIR=build-mingw32 && make clean &&

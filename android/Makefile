@@ -35,7 +35,7 @@ SRC = \
 vkbd.c \
 ../rawdraw/main.c
 
-SLIRP_DIR = ../build/slirp/build-android-aarch64
+SLIRP_DIR = $(PWD)/build-slirp-android-aarch64
 CFLAGS += -DUSE_SLIRP
 CFLAGS += -I$(SLIRP_DIR)
 LDFLAGS += -L$(SLIRP_DIR) -lslirp
@@ -49,3 +49,6 @@ TARGETS = makecapk/lib/arm64-v8a/lib$(APPNAME).so
 #TARGETS += makecapk/lib/x86_64/lib$(APPNAME).so
 
 include rawdrawandroid/Makefile
+
+build-slirp-android-aarch64:
+	make -C ../build/slirp CC="$(NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android$(ANDROIDTARGET)-clang -Wno-c23-extensions -fPIC -DANDROID" DESTDIR="$(PWD)/build-slirp-android-aarch64" clean all install
