@@ -48,7 +48,16 @@ TARGETS = makecapk/lib/arm64-v8a/lib$(APPNAME).so
 #TARGETS += makecapk/lib/x86/lib$(APPNAME).so
 #TARGETS += makecapk/lib/x86_64/lib$(APPNAME).so
 
-include rawdrawandroid/Makefile
+include Makefile.rawdrawandroid
+
+classes.dex: MyStorageProvider.java
+	javac --release 8 -cp $(ANDROID_JAR) MyStorageProvider.java
+	$(BUILD_TOOLS)/d8 --classpath android-30.jar --output . MyStorageProvider.class
+
+rawdrawandroid:
+	git clone --recursive https://github.com/cnlohr/rawdrawandroid
 
 build-slirp-android-aarch64:
 	make -C ../build/slirp CC="$(NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android$(ANDROIDTARGET)-clang -Wno-c23-extensions -fPIC -DANDROID" DESTDIR="$(PWD)/build-slirp-android-aarch64" clean all install
+
+prepare: classes.dex rawdrawandroid build-slirp-android-aarch64
