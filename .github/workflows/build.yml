@@ -38,6 +38,12 @@ jobs:
         target: esp32p4
         command: scripts/build.sh patch_idf_60 && scripts/build.sh esp_p4
 
+    - name: android build
+      continue-on-error: true
+      run: |
+        cd android && make prepare && make && cd ..
+        mkdir -p out/android && cp android/tiny386.apk out/android 
+
     - name: release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

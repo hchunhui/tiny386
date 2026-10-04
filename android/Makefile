@@ -1,6 +1,3 @@
-NDK = /tmp/android-ndk-r30
-BUILD_TOOLS = /usr/bin
-
 APPNAME = tiny386
 RAWDRAWANDROID = rawdrawandroid
 CFLAGS = -I.. -ffunction-sections -O3 -fvisibility=hidden
