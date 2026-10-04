@@ -41,8 +41,8 @@ jobs:
     - name: android build
       continue-on-error: true
       run: |
-        cd android && make prepare && make && cd ..
-        mkdir -p out/android && cp android/tiny386.apk out/android 
+        cd android && make android-30.jar && make prepare && make && cd ..
+        mkdir -p out/android && cp android/tiny386.apk out/android
 
     - name: release
       env:
