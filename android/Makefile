@@ -49,7 +49,7 @@ include Makefile.rawdrawandroid
 
 classes.dex: MyStorageProvider.java
 	javac --release 8 -cp $(ANDROID_JAR) MyStorageProvider.java
-	$(BUILD_TOOLS)/d8 --classpath android-30.jar --output . MyStorageProvider.class
+	$(BUILD_TOOLS)/d8 --classpath $(ANDROID_JAR) --output . MyStorageProvider.class
 
 rawdrawandroid:
 	git clone --recursive https://github.com/cnlohr/rawdrawandroid

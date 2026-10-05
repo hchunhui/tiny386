@@ -38,8 +38,13 @@ jobs:
         target: esp32p4
         command: scripts/build.sh patch_idf_60 && scripts/build.sh esp_p4
 
+    - name: android setup keystore
+      env:
+        SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+      run: |
+        python3 -c "import os, base64; key = os.environ.get('SIGNING_KEY', ''); open('android/my-release-key.keystore', 'wb').write(base64.b64decode(key)) if key else 0"
+
     - name: android build
-      continue-on-error: true
       run: |
         cd android && make android-30.jar && make prepare && make && cd ..
         mkdir -p out/android && cp android/tiny386.apk out/android
