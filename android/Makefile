@@ -5,6 +5,7 @@ CFLAGS += -DI386_ENABLE_FPU
 CFLAGS += -DI386_ENABLE_MMX -DI386_ENABLE_SSE -DI386_ENABLE_SSE2 -DI386_ENABLE_SSE3
 CFLAGS += -DI386_ENABLE_SSSE3
 CFLAGS += -DUSE_FMOPL
+CFLAGS += -DANDROID_USE_SCANCODES
 LDFLAGS = -Wl,--gc-sections -s
 PACKAGENAME = org.yourorg.$(APPNAME)
 SRC = \
@@ -30,6 +31,7 @@ SRC = \
 ../osd/microui.c \
 ../osd/osd.c \
 vkbd.c \
+akeycode.c \
 ../rawdraw/main.c
 
 SLIRP_DIR = $(PWD)/build-slirp-android-aarch64

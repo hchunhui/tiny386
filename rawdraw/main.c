@@ -44,6 +44,23 @@ void HandleResume()
 {
 	suspended = 0;
 }
+
+void CNFGBlitImage2( uint32_t * data, int x, int y, int w, int h, int w2, int h2 )
+{
+	glEnable( GL_TEXTURE_2D );
+	CNFGglActiveTexture( 0 );
+	glBindTexture( GL_TEXTURE_2D, gRDBlitProgTex );
+
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,  GL_RGBA,
+		GL_UNSIGNED_BYTE, data );
+
+	CNFGBlitTex( gRDBlitProgTex, x, y, w2, h2 );
+}
 #endif /* ANDROID */
 
 // platform HAL implementation
@@ -135,7 +152,7 @@ Console *console_init(int width, int height)
 #else
 	HandleWindowTermination = HandleThisWindowTermination;
 	CNFGSetupFullscreen( "tiny386", 0 );
-	s->vkbdx = -30;
+	s->vkbdx = 0;
 	s->vkbdy = (android_height - VKBDLAYOUT_H * VKBD_SCALE) * 3 / 4;
 #endif
 	osd_attach_console(s->osd, s);
@@ -158,11 +175,7 @@ static void redraw(void *opaque, int x, int y, int w, int h)
 #ifndef ANDROID
 	CNFGUpdateScreenWithBitmap(s->fb, s->width, s->height);
 #else
-	static int vkbd_tex;
-	static int fb_tex;
 	if (suspended) {
-		vkbd_tex = 0;
-		fb_tex = 0;
 		return;
 	}
 	CNFGClearFrame();
@@ -178,25 +191,10 @@ static void redraw(void *opaque, int x, int y, int w, int h)
 	for (int i = 0; i < s->width * s->height; i++)
 		fb2[i] = (fb[i] << 8) | 0xff;
 
-	if (fb_tex) {
-		CNFGglActiveTexture( 0 );
-		glBindTexture(GL_TEXTURE_2D, fb_tex);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s->width, s->height,
-				GL_RGBA, GL_UNSIGNED_BYTE, (void *) fb2);
-	} else {
-		fb_tex = CNFGTexImage((void *) fb2, s->width, s->height);
-	}
-	if (vkbd_tex) {
-		CNFGglActiveTexture( 0 );
-		glBindTexture(GL_TEXTURE_2D, vkbd_tex);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VKBDLAYOUT_W, VKBDLAYOUT_H,
-				GL_RGBA, GL_UNSIGNED_BYTE, (void *) fbk);
-	} else {
-		vkbd_tex = CNFGTexImage((void *) fbk, VKBDLAYOUT_W, VKBDLAYOUT_H);
-	}
-	CNFGBlitTex(fb_tex, FB_X, FB_Y, FB_W, FB_H);
-	CNFGBlitTex(vkbd_tex, s->vkbdx, s->vkbdy,
-		    VKBDLAYOUT_W * VKBD_SCALE, VKBDLAYOUT_H * VKBD_SCALE);
+	CNFGBlitImage2(fb2, FB_X, FB_Y, s->width, s->height, FB_W, FB_H);
+	CNFGBlitImage2(fbk, s->vkbdx, s->vkbdy,
+		       VKBDLAYOUT_W, VKBDLAYOUT_H,
+		       VKBDLAYOUT_W * VKBD_SCALE, VKBDLAYOUT_H * VKBD_SCALE);
 	CNFGSwapBuffers();
 #endif
 }
@@ -314,8 +312,14 @@ static void kbd_common(int keycode, int bDown)
 
 void HandleKey(int cnfgkeycode, int bDown)
 {
+#ifndef ANDROID
 	int keycode = translate_key(cnfgkeycode);
 	kbd_common(keycode, bDown);
+#else
+	int akeycode_to_linux(int akeycode);
+	int keycode = akeycode_to_linux(cnfgkeycode);
+	kbd_common(keycode, !bDown);
+#endif
 	return;
 }
 
