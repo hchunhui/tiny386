@@ -2319,7 +2319,7 @@ int ide_attach_cd(IDEIFState *s, int drive, const char *filename)
 #ifdef IDE_ENABLE_CISO
     BlockDevice *bs = block_device_init_ciso(filename);
 #else
-    BlockDevice *bs = block_device_init(filename, BF_MODE_RW);
+    BlockDevice *bs = block_device_init(filename, BF_MODE_RO);
 #endif
     s->drives[drive] = ide_cddrive_init(s, bs);
     return 0;
