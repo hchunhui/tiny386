@@ -135,19 +135,35 @@ SRCS += osd/microui.c osd/osd.c
 
 OBJS = ${SRCS:.c=.o}
 
-.PHONY: all clean dep prepare
+-include config.mk
+
+.PHONY: all clean dep prepare show
 .SUFFIXES: .c
 .c.o:
 	@/bin/echo -e " \e[1;32mCC\e[0m\t\e[1;37m$<\e[0m \e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} ${CFLAGS} -c $< -o $@
 
-all: ${PROGS}
+all: show ${PROGS}
 
 win32:
 	make -C . PLAT=win32
 
 clean:
 	rm -f ${OBJS} i386.o amd64.o fpu.o amd64-comb.o i386-comb.o fpu-leg32.o i386-leg32.o .depends ${PROGS}
+
+show:
+	@echo CC = ${CC}
+	@echo USE_AMD64 = ${USE_AMD64}
+	@echo USE_CPUABS = ${USE_CPUABS}
+	@echo USE_SDL = ${USE_SDL}
+	@echo USE_SLIRP = ${USE_SLIRP}
+	@echo SLIRP_INC = ${SLIRP_INC}
+	@echo SLIRP_LIB = ${SLIRP_LIB}
+	@echo USE_TUNTAP = ${USE_TUNTAP}
+	@echo USE_FMOPL = ${USE_FMOPL}
+	@echo USE_GLIBC_FIX = ${USE_GLIBC_FIX}
+	@echo ENABLE_CISO = ${ENABLE_CISO}
+	@echo ENABLE_RAWDRAW_WAYLAND = ${ENABLE_RAWDRAW_WAYLAND}
 
 prepare: fmopl.inc ${PREPARE_WAYLAND}
 
