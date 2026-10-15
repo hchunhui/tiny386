@@ -46,9 +46,16 @@
 #define ldebug(...)
 #endif
 
+#if defined(USE_FMOPL) || defined(USE_NUKED_OPL3)
 #ifdef USE_FMOPL
 #include "fmopl.h"
 #define SHIFT 1
+#define OPLGenerate YM3812UpdateOne
+#endif
+#ifdef USE_NUKED_OPL3
+#include "adlib_nuked_opl3.h"
+#define SHIFT 2
+#endif
 
 struct AdlibState {
     uint32_t freq;
@@ -135,7 +142,7 @@ void adlib_callback (void *opaque, uint8_t *stream, int free)
     if (!(s->active && s->enabled) || !samples) {
         return;
     }
-    YM3812UpdateOne (s->opl, (void *) stream, samples);
+    OPLGenerate(s->opl, (void *) stream, samples);
 }
 
 void adlib_free(AdlibState *s)
@@ -157,6 +164,7 @@ AdlibState *adlib_new()
     s->freq = 44100;
     s->opl = OPLCreate (3579545, s->freq);
     if (!s->opl) {
+        free(s);
         return NULL;
     }
     else {
