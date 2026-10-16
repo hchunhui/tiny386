@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Tiny386</title>
+    <meta charset="UTF-8">
+    <style>
+      #virtual-kb {
+          position: absolute;
+          background: #d1d4d9; padding: 2px;
+          display: none; flex-direction: column; gap: 2px;
+          user-select: none; font-family: sans-serif;
+      }
+      .kb-header {
+          height: 25px; background: #abb2bb; margin: -1px;
+          border-radius: 8px 8px 0 0; cursor: move; text-align: center;
+          font-size: 10px; color: #fff;
+      }
+      .kb-row { display: flex; justify-content: center; gap: 2px; }
+      .key {
+          background: #fff; border: none; border-radius: 4px;
+          padding: 12px 0; min-width: 0px; width: 35px; text-align: center;
+          cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+      }
+      .key.space { width: 275px; }
+      .key.fkey { width: 35px; background: #abb2bb; }
+      .key.wide { width: 45px; background: #abb2bb; }
+      .key:active { background: #ced4da; }
+    </style>
+  </head>
+  <body>
+    <button onclick="exportLayout('virtual-kb')">export</button>
+
+    <div id="virtual-kb">
+      <div class="kb-header" id="kb-handle">---</div>
+      <div class="kb-row" id="row1"></div>
+      <div class="kb-row" id="row2"></div>
+      <div class="kb-row" id="row3"></div>
+      <div class="kb-row" id="row4"></div>
+      <div class="kb-row" id="row5"></div>
+      <div class="kb-row" id="row6"></div>
+    </div>
+    <script>
+      (function() {
+          const kb = document.getElementById('virtual-kb');
+          const handle = document.getElementById('kb-handle');
+
+          const key2code = {
+              "Esc": 0x0001,
+              "1": 0x0002, "2": 0x0003, "3": 0x0004, "4": 0x0005, "5": 0x0006,
+              "6": 0x0007, "7": 0x0008, "8": 0x0009, "9": 0x000a, "0": 0x000b,
+              "-": 0x000c, "=": 0x000d, "Back": 0x000e, "Tab": 0x000f,
+              "Q": 0x0010, "W": 0x0011, "E": 0x0012, "R": 0x0013, "T": 0x0014,
+              "Y": 0x0015, "U": 0x0016, "I": 0x0017, "O": 0x0018, "P": 0x0019,
+              "[": 0x001a, "]": 0x001b, "Enter": 0x001c, "Ctrl": 0x001d,
+              "A": 0x001e, "S": 0x001f, "D": 0x0020, "F": 0x0021, "G": 0x0022,
+              "H": 0x0023, "J": 0x0024, "K": 0x0025, "L": 0x0026, ";": 0x0027,
+              "'": 0x0028, "`": 0x0029, "Shift": 0x002a, "\\": 0x002b,
+              "Z": 0x002c, "X": 0x002d, "C": 0x002e, "V": 0x002f, "B": 0x0030,
+              "N": 0x0031, "M": 0x0032, ",": 0x0033, ".": 0x0034, "/": 0x0035,
+              "Alt": 0x0038, "Space": 0x0039, "Caps": 0x003a,
+              "F1": 0x003b, "F2": 0x003c, "F3": 0x003d, "F4": 0x003e, "F5": 0x003f,
+              "F6": 0x0040, "F7": 0x0041, "F8": 0x0042, "F9": 0x0043, "F10": 0x0044,
+              "F11": 0x0057, "F12": 0x0058,
+              "Home": 0xe047, "Up": 0xe048, "PgUp": 0xe049, "Left": 0xe04b,
+              "Right": 0xe04d, "End": 0xe04f, "Down": 0xe050, "PgDn": 0xe051,
+              "Insert": 0xe052, "Del": 0xe053,
+          };
+
+          const layout = [
+              ["Esc", "F1", "F2", "F3", "F4", "F5", "F6",
+               "F7", "F8", "F9", "F10", "F11", "F12", "PgUp", "PgDn"],
+              [..."`1234567890-=".split(""), "Back"],
+              ["Tab", ..."QWERTYUIOP[]\\".split("")],
+              ["Caps", ..."ASDFGHJKL;'".split(""), "Enter"],
+              ["Win", "Shift", ..."ZXCVBNM,./".split(""), "Up", "Shift"],
+              ["Ctrl", "Alt", "Space", "Del", "Left", "Down", "Right"],
+          ];
+
+          layout.forEach((row, i) => {
+              const rowEl = document.getElementById(`row${i+1}`);
+              row.forEach(key => {
+                  const btn = document.createElement('button');
+                  if (key.length === 1)
+                      btn.className = 'key';
+                  else if (key[0] === 'F' || key == 'Esc' || key == 'PgUp' || key == 'PgDn')
+                      btn.className = 'key fkey';
+                  else if (key === 'Space')
+                      btn.className = 'key space';
+                  else
+                      btn.className = 'key wide';
+                  btn.textContent = key;
+                  btn.setAttribute('data-val', key);
+                  rowEl.appendChild(btn);
+              });
+          });
+
+          kb.style.display = 'flex';
+      })();
+    </script>
+
+    <script>
+      function rgbaTo0xHex(colorStr) {
+          if (!colorStr || colorStr === "transparent" || colorStr === "rgba(0, 0, 0, 0)") {
+              return "0x00000000";
+          }
+
+          const matches = colorStr.match(/[\d\.]+/g);
+          if (!matches) return colorStr;
+
+          const r = parseInt(matches[0]);
+          const g = parseInt(matches[1]);
+          const b = parseInt(matches[2]);
+          const a = matches[3] !== undefined ? parseFloat(matches[3]) : 1;
+
+          const toHex = (val) => val.toString(16).padStart(2, '0');
+
+          const hexR = toHex(r);
+          const hexG = toHex(g);
+          const hexB = toHex(b);
+          const hexA = toHex(Math.round(a * 255));
+
+          return `0x${hexA}${hexR}${hexG}${hexB}`;
+      }
+
+      function exportLayout(containerId) {
+          const container = document.getElementById(containerId);
+
+          if (!container) {
+              alert(`unable to find "${containerId}"`);
+              return;
+          }
+
+          const containerRect = container.getBoundingClientRect();
+          const items = container.querySelectorAll("*");
+          const layoutData = [];
+          {
+              const computedStyle = window.getComputedStyle(container);
+              layoutData.push({
+                  width: Math.round(containerRect.width),
+                  height: Math.round(containerRect.height),
+                  backgroundColor: rgbaTo0xHex(computedStyle.backgroundColor),
+              });
+          }
+          items.forEach(item => {
+              const itemRect = item.getBoundingClientRect();
+              const computedStyle = window.getComputedStyle(item);
+
+              const relativeLeft = itemRect.left - containerRect.left;
+              const relativeTop = itemRect.top - containerRect.top;
+
+              let directText = "";
+              const hasDirectText = Array.from(item.childNodes).some(node => {
+                  if (node.nodeType === Node.TEXT_NODE && node.nodeValue.trim() !== "") {
+                      directText = node.nodeValue.trim();
+                      return true;
+                  }
+                  return false;
+              });
+
+              layoutData.push({
+                  tagName: item.tagName.toLowerCase(),
+                  text: hasDirectText ? directText : "",
+                  width: Math.round(itemRect.width),
+                  height: Math.round(itemRect.height),
+                  left: Math.round(relativeLeft),
+                  top: Math.round(relativeTop),
+                  backgroundColor: rgbaTo0xHex(computedStyle.backgroundColor),
+                  color: rgbaTo0xHex(computedStyle.color)
+              });
+          });
+
+          const jsonString = JSON.stringify(layoutData, null, 2);
+          const blob = new Blob([jsonString], { type: "application/json;charset=utf-8" });
+
+          const downloadLink = document.createElement("a");
+          downloadLink.href = URL.createObjectURL(blob);
+          downloadLink.download = `${containerId}.json`;
+
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+
+          document.body.removeChild(downloadLink);
+          URL.revokeObjectURL(downloadLink.href);
+      }
+    </script>
+
+  </body>
+</html>
