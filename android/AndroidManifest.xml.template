@@ -15,7 +15,7 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
-        <activity android:screenOrientation="landscape" android:configChanges="keyboardHidden|orientation" android:label="${LABEL}" android:name="android.app.NativeActivity" android:exported="true">
+        <activity android:configChanges="keyboardHidden|orientation" android:label="${LABEL}" android:name="android.app.NativeActivity" android:exported="true">
             <meta-data android:name="android.app.lib_name" android:value="${APPNAME}"/>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

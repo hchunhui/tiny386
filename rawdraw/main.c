@@ -16,11 +16,15 @@
 #else /* ANDROID */
 #include "CNFGAndroid.h"
 #include "android/vkbd.h"
-#define VKBD_SCALE 2
-#define FB_W 1280
-#define FB_H 960
-#define FB_X (android_width - FB_W)
-#define FB_Y ((android_height - FB_H) / 2)
+#define VKBD_SCALE 1.92
+#define FB_W1 1080
+#define FB_H1 810
+#define FB_X1 0
+#define FB_Y1 0
+#define FB_W2 1280
+#define FB_H2 960
+#define FB_X2 (android_width - FB_W2)
+#define FB_Y2 ((android_height - FB_H2) / 2)
 
 #define CNFA_IMPLEMENTATION
 #include "android/rawdrawandroid/cnfa/CNFA.h"
@@ -45,7 +49,7 @@ void HandleResume()
 	suspended = 0;
 }
 
-void CNFGBlitImage2( uint32_t * data, int x, int y, int w, int h, int w2, int h2 )
+void CNFGBlitImage2( uint32_t * data, int x, int y, int w, int h, int w2, int h2, int filter )
 {
 	glEnable( GL_TEXTURE_2D );
 	CNFGglActiveTexture( 0 );
@@ -54,7 +58,7 @@ void CNFGBlitImage2( uint32_t * data, int x, int y, int w, int h, int w2, int h2
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter );
 
 	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,  GL_RGBA,
 		GL_UNSIGNED_BYTE, data );
@@ -153,7 +157,7 @@ Console *console_init(int width, int height)
 	HandleWindowTermination = HandleThisWindowTermination;
 	CNFGSetupFullscreen( "tiny386", 0 );
 	s->vkbdx = 0;
-	s->vkbdy = (android_height - VKBDLAYOUT_H * VKBD_SCALE) * 3 / 4;
+	s->vkbdy = 900;
 #endif
 	osd_attach_console(s->osd, s);
 	s->lastx = -1;
@@ -191,10 +195,13 @@ static void redraw(void *opaque, int x, int y, int w, int h)
 	for (int i = 0; i < s->width * s->height; i++)
 		fb2[i] = (fb[i] << 8) | 0xff;
 
-	CNFGBlitImage2(fb2, FB_X, FB_Y, s->width, s->height, FB_W, FB_H);
+	if (android_width < android_height)
+		CNFGBlitImage2(fb2, FB_X1, FB_Y1, s->width, s->height, FB_W1, FB_H1, GL_LINEAR);
+	else
+		CNFGBlitImage2(fb2, FB_X2, FB_Y2, s->width, s->height, FB_W2, FB_H2, GL_NEAREST);
 	CNFGBlitImage2(fbk, s->vkbdx, s->vkbdy,
 		       VKBDLAYOUT_W, VKBDLAYOUT_H,
-		       VKBDLAYOUT_W * VKBD_SCALE, VKBDLAYOUT_H * VKBD_SCALE);
+		       VKBDLAYOUT_W * VKBD_SCALE, VKBDLAYOUT_H * VKBD_SCALE, GL_LINEAR);
 	CNFGSwapBuffers();
 #endif
 }
@@ -331,8 +338,13 @@ static void mouse_common(int rel, int x, int y, int mask, int down)
 		int lastx = s->lastx;
 		int lasty = s->lasty;
 #ifdef ANDROID
-		lastx = (lastx - FB_X) * s->width / FB_W;
-		lasty = (lasty - FB_Y) * s->height / FB_H;
+		if (android_width < android_height) {
+			lastx = (lastx - FB_X1) * s->width / FB_W1;
+			lasty = (lasty - FB_Y1) * s->height / FB_H1;
+		} else {
+			lastx = (lastx - FB_X2) * s->width / FB_W2;
+			lasty = (lasty - FB_Y2) * s->height / FB_H2;
+		}
 #endif
 		if (down >= 0)
 			osd_handle_mouse_button(s->osd, lastx, lasty,
