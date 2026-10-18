@@ -1580,9 +1580,6 @@ void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val)
             s->cr[s->cr_index] = val;
             break;
         }
-        if (s->graphic_mode == 2) {
-            simplefb_clear(s->fb_dev);
-        }
         if (s->vga_text_ops && s->graphic_mode == 1) {
             int width = (s->cr[0x01] + 1);
             uint32_t start_addr = s->cr[0x0d] | (s->cr[0x0c] << 8);
