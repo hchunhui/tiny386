@@ -238,8 +238,10 @@ static inline void pstore8(CPUI386 *cpu, uword addr, u8 val)
 }
 
 #ifdef I386_OPT1
-/* only works on hosts that are little-endian and support unaligned access */
-#ifdef __mips__
+/* only works on hosts that are little-endian; where unaligned loads and
+   stores trap or are slow, the packed accesses below let the compiler take
+   them apart (on MIPS always, elsewhere with -DI386_ALIGNED_ONLY) */
+#if defined(__mips__) || defined(I386_ALIGNED_ONLY)
 static inline u16 pload16(CPUI386 *cpu, uword addr)
 {
 	const struct { u16 v; } __attribute__((packed))
