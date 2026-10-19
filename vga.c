@@ -1027,9 +1027,11 @@ static void vga_graphic_refresh(VGAState *s,
     if (shift_control == 0 || shift_control == 1) {
         update_palette16(s, palette);
         if (s->sr[0x01] & 8) {
+            /* half the dot clock: each pixel two dots wide, the picture
+               as wide as at the full clock, in mode 0Dh as in the CGA
+               modes */
             xdiv = 2;
-            if (shift_control == 1) // XXX
-                w *= 2;
+            w *= 2;
         }
     } else {
         if (!vbe_enabled(s)) {
