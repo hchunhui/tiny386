@@ -224,6 +224,18 @@ static void vga_draw_glyph9(uint8_t *d, int linesize,
     } while (--h);
 }
 #elif BPP == 16
+/* With VGA_STORE_CHANGED a pixel is stored only where the screen does not
+   show it already: for a frame buffer in memory that is slow to write, as
+   on a board whose cache writes every store through. */
+#ifdef VGA_STORE_CHANGED
+#define PUT16(d, n, v) do { \
+        uint16_t v_ = (v); \
+        if (((uint16_t *)(d))[n] != v_) \
+            ((uint16_t *)(d))[n] = v_; \
+    } while (0)
+#else
+#define PUT16(d, n, v) (((uint16_t *)(d))[n] = (v))
+#endif
 static void vga_draw_glyph8(uint8_t *d, int linesize,
                             const uint8_t *font_ptr, int h,
                             uint32_t fgcol, uint32_t bgcol)
@@ -233,14 +245,14 @@ static void vga_draw_glyph8(uint8_t *d, int linesize,
     xorcol = bgcol ^ fgcol;
     do {
         font_data = font_ptr[0];
-        ((uint16_t *)d)[0] = (-((font_data >> 7)) & xorcol) ^ bgcol;
-        ((uint16_t *)d)[1] = (-((font_data >> 6) & 1) & xorcol) ^ bgcol;
-        ((uint16_t *)d)[2] = (-((font_data >> 5) & 1) & xorcol) ^ bgcol;
-        ((uint16_t *)d)[3] = (-((font_data >> 4) & 1) & xorcol) ^ bgcol;
-        ((uint16_t *)d)[4] = (-((font_data >> 3) & 1) & xorcol) ^ bgcol;
-        ((uint16_t *)d)[5] = (-((font_data >> 2) & 1) & xorcol) ^ bgcol;
-        ((uint16_t *)d)[6] = (-((font_data >> 1) & 1) & xorcol) ^ bgcol;
-        ((uint16_t *)d)[7] = (-((font_data >> 0) & 1) & xorcol) ^ bgcol;
+        PUT16(d, 0, (-((font_data >> 7)) & xorcol) ^ bgcol);
+        PUT16(d, 1, (-((font_data >> 6) & 1) & xorcol) ^ bgcol);
+        PUT16(d, 2, (-((font_data >> 5) & 1) & xorcol) ^ bgcol);
+        PUT16(d, 3, (-((font_data >> 4) & 1) & xorcol) ^ bgcol);
+        PUT16(d, 4, (-((font_data >> 3) & 1) & xorcol) ^ bgcol);
+        PUT16(d, 5, (-((font_data >> 2) & 1) & xorcol) ^ bgcol);
+        PUT16(d, 6, (-((font_data >> 1) & 1) & xorcol) ^ bgcol);
+        PUT16(d, 7, (-((font_data >> 0) & 1) & xorcol) ^ bgcol);
         font_ptr += 4;
         d += linesize;
     } while (--h);
@@ -256,19 +268,19 @@ static void vga_draw_glyph9(uint8_t *d, int linesize,
     xorcol = bgcol ^ fgcol;
     do {
         font_data = font_ptr[0];
-        ((uint16_t *)d)[0] = ((-((font_data >> 7)) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[1] = ((-((font_data >> 6) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[2] = ((-((font_data >> 5) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[3] = ((-((font_data >> 4) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[4] = ((-((font_data >> 3) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[5] = ((-((font_data >> 2) & 1) & xorcol) ^ bgcol);
-        ((uint16_t *)d)[6] = ((-((font_data >> 1) & 1) & xorcol) ^ bgcol);
+        PUT16(d, 0, ((-((font_data >> 7)) & xorcol) ^ bgcol));
+        PUT16(d, 1, ((-((font_data >> 6) & 1) & xorcol) ^ bgcol));
+        PUT16(d, 2, ((-((font_data >> 5) & 1) & xorcol) ^ bgcol));
+        PUT16(d, 3, ((-((font_data >> 4) & 1) & xorcol) ^ bgcol));
+        PUT16(d, 4, ((-((font_data >> 3) & 1) & xorcol) ^ bgcol));
+        PUT16(d, 5, ((-((font_data >> 2) & 1) & xorcol) ^ bgcol));
+        PUT16(d, 6, ((-((font_data >> 1) & 1) & xorcol) ^ bgcol));
         v = (-((font_data >> 0) & 1) & xorcol) ^ bgcol;
-        ((uint16_t *)d)[7] = v;
+        PUT16(d, 7, v);
         if (dup9)
-            ((uint16_t *)d)[8] = v;
+            PUT16(d, 8, v);
         else
-            ((uint16_t *)d)[8] = bgcol;
+            PUT16(d, 8, bgcol);
         font_ptr += 4;
         d += linesize;
     } while (--h);
@@ -322,8 +334,8 @@ static void scale_3_2(uint8_t *dst, int dst_stride, uint8_t *src, int w)
            int sh1 = shift[idx][1];
            int sh2 = shift[idx][2];
            int sh3 = shift[idx][3];
-           *(uint16_t *)dst1 = c96(((c69(*p0) << sh0) + (c69(*p1) << sh1) +
-                                    (c69(*p2) << sh2) + (c69(*p3) << sh3)) >> 3);
+           PUT16(dst1, 0, c96(((c69(*p0) << sh0) + (c69(*p1) << sh1) +
+                               (c69(*p2) << sh2) + (c69(*p3) << sh3)) >> 3));
 #ifdef SWAPXY
            dst1 += dst_stride;
 #else
@@ -345,7 +357,7 @@ static void scale_3_3(uint8_t *dst, int dst_stride, uint8_t *src, int w)
        uint8_t *dst1 = dst;
        uint8_t *src1 = src + (j * w) * (BPP / 8);
        for (int k = 0; k < w; k++) {
-           *(uint16_t *)dst1 = *(uint16_t *) (src1 + k * (BPP / 8));
+           PUT16(dst1, 0, *(uint16_t *) (src1 + k * (BPP / 8)));
 #ifdef SWAPXY
            dst1 += dst_stride;
 #else
@@ -365,8 +377,8 @@ static void scale_2_1(uint8_t *dst, int dst_stride, uint8_t *src, int w)
         uint16_t *p1 = p0 + 1;
         uint16_t *p2 = p0 + w;
         uint16_t *p3 = p1 + w;
-        *(uint16_t *)dst1 = c96((c69(*p0) + c69(*p1) +
-                                 c69(*p2) + c69(*p3)) >> 2);
+        PUT16(dst1, 0, c96((c69(*p0) + c69(*p1) +
+                            c69(*p2) + c69(*p3)) >> 2));
 #ifdef SWAPXY
         dst1 += dst_stride;
 #else
@@ -1278,8 +1290,17 @@ static void vga_graphic_refresh(VGAState *s,
             s->tmpbuf[i + 1] = color >> 8;
 #else
             int i = (BPP / 8) * (y * fb_dev->width + x) + i0;
+#if defined(VGA_STORE_CHANGED) && !defined(HOST_WORDS_BIGENDIAN)
+            /* one store of 16 bits, and none where the screen shows this
+               colour already; i is even, and so is the frame buffer (on a
+               big-endian host the two bytes below keep their order) */
+            uint16_t *d = (uint16_t *) (fb_dev->fb_data + i);
+            if (*d != (uint16_t) color)
+                *d = color;
+#else
             fb_dev->fb_data[i + 0] = color;
             fb_dev->fb_data[i + 1] = color >> 8;
+#endif
 #endif
 #else
 #error "bad bpp"
