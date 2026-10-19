@@ -1,3 +1,6 @@
+/* Only with USE_CPUABS (see the Makefile), which needs Linux's KVM on an
+   x86 host: elsewhere this file is empty, so that `gcc *.c` builds. */
+#ifdef USE_CPUABS
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -509,3 +512,4 @@ long cpukvm_get_cycle(CPUKVM *cpu)
 {
 	return cpu->cycle;
 }
+#endif /* USE_CPUABS */
