@@ -46,6 +46,7 @@ void *pcmalloc(long size);
 //#define DEBUG_VGA_REG
 
 #define MSR_COLOR_EMULATION 0x01
+#define MSR_RAM_ENABLE      0x02 /* the CPU may get at video memory */
 #define MSR_PAGE_SELECT     0x20
 
 #define ST01_V_RETRACE      0x08
@@ -113,6 +114,7 @@ struct VGAState {
     uint8_t cr_index;
     uint8_t cr[256]; /* CRT registers */
     uint8_t msr; /* Misc Output Register */
+    uint8_t dac_mask; /* PEL mask, 3C6h */
     uint8_t fcr; /* Feature Control Register */
     uint8_t st00; /* status 0 */
     uint8_t st01; /* status 1 */
@@ -432,8 +434,9 @@ static int update_palette256(VGAState *s, uint32_t *palette)
     uint32_t v, col;
 
     full_update = 0;
-    v = 0;
     for(i = 0; i < 256; i++) {
+        /* through the PEL mask (3C6h) to the DAC */
+        v = (i & s->dac_mask) * 3;
         if (s->dac_8bit) {
           col = rgb_to_pixel(s->palette[v],
                              s->palette[v + 1],
@@ -447,7 +450,6 @@ static int update_palette256(VGAState *s, uint32_t *palette)
             full_update = 1;
             palette[i] = col;
         }
-        v += 3;
     }
     return full_update;
 }
@@ -464,7 +466,7 @@ static int update_palette16(VGAState *s, uint32_t *palette)
             v = ((s->ar[0x14] & 0xf) << 4) | (v & 0xf);
         else
             v = ((s->ar[0x14] & 0xc) << 4) | (v & 0x3f);
-        v = v * 3;
+        v = (v & s->dac_mask) * 3;
         col = (c6_to_8(s->palette[v]) << 16) |
             (c6_to_8(s->palette[v + 1]) << 8) |
             c6_to_8(s->palette[v + 2]);
@@ -482,8 +484,9 @@ static int update_palette256(VGAState *s, uint32_t *palette)
     uint32_t v, col;
 
     full_update = 0;
-    v = 0;
     for(i = 0; i < 256; i++) {
+        /* through the PEL mask (3C6h) to the DAC */
+        v = (i & s->dac_mask) * 3;
         if (s->dac_8bit) {
             col = ((s->palette[v + 2] >> 3)) |
                 ((s->palette[v + 1] >> 2) << 5) |
@@ -497,7 +500,6 @@ static int update_palette256(VGAState *s, uint32_t *palette)
             full_update = 1;
             palette[i] = col;
         }
-        v += 3;
     }
     return full_update;
 }
@@ -514,7 +516,7 @@ static int update_palette16(VGAState *s, uint32_t *palette)
             v = ((s->ar[0x14] & 0xf) << 4) | (v & 0xf);
         else
             v = ((s->ar[0x14] & 0xc) << 4) | (v & 0x3f);
-        v = v * 3;
+        v = (v & s->dac_mask) * 3;
         col = (s->palette[v + 2] >> 1) |
               ((s->palette[v + 1]) << 5) |
               ((s->palette[v] >> 1) << 11);
@@ -1446,6 +1448,9 @@ uint32_t vga_ioport_read(VGAState *s, uint32_t addr)
             printf("vga: read SR%x = 0x%02x\n", s->sr_index, val);
 #endif
             break;
+        case 0x3c6:
+            val = s->dac_mask;
+            break;
         case 0x3c7:
             val = s->dac_state;
             break;
@@ -1559,6 +1564,9 @@ void vga_ioport_write(VGAState *s, uint32_t addr, uint32_t val)
         printf("vga: write SR%x = 0x%02x\n", s->sr_index, val);
 #endif
         s->sr[s->sr_index] = val & sr_mask[s->sr_index];
+        break;
+    case 0x3c6:
+        s->dac_mask = val;
         break;
     case 0x3c7:
         s->dac_read_index = val;
@@ -1818,6 +1826,8 @@ static const uint32_t mask16[16] = {
 //#define TARGET_FMT_plx "%x"
 void IRAM_ATTR vga_mem_write16(VGAState *s, uint32_t addr, uint16_t val16)
 {
+    if (!(s->msr & MSR_RAM_ENABLE))
+        return;
     if (!(s->sr[VGA_SEQ_MEMORY_MODE] & VGA_SR04_CHN_4M)) {
         vga_mem_write(s, addr, val16);
         vga_mem_write(s, addr + 1, val16 >> 8);
@@ -1864,6 +1874,8 @@ void IRAM_ATTR vga_mem_write16(VGAState *s, uint32_t addr, uint16_t val16)
 
 void IRAM_ATTR vga_mem_write32(VGAState *s, uint32_t addr, uint32_t val)
 {
+    if (!(s->msr & MSR_RAM_ENABLE))
+        return;
     if (!(s->sr[VGA_SEQ_MEMORY_MODE] & VGA_SR04_CHN_4M)) {
         vga_mem_write(s, addr, val);
         vga_mem_write(s, addr + 1, val >> 8);
@@ -1911,6 +1923,8 @@ void IRAM_ATTR vga_mem_write32(VGAState *s, uint32_t addr, uint32_t val)
 
 bool IRAM_ATTR vga_mem_write_string(VGAState *s, uint32_t addr, uint8_t *buf, int len)
 {
+    if (!(s->msr & MSR_RAM_ENABLE))
+        return true;    /* written to nothing */
     if (!(s->sr[VGA_SEQ_MEMORY_MODE] & VGA_SR04_CHN_4M)) {
         return false;
     }
@@ -1957,6 +1971,10 @@ bool IRAM_ATTR vga_mem_write_string(VGAState *s, uint32_t addr, uint8_t *buf, in
 void IRAM_ATTR vga_mem_write(VGAState *s, uint32_t addr, uint8_t val8)
 {
     uint32_t val = val8;
+
+    /* misc output bit 1 off: the CPU's writes go nowhere */
+    if (!(s->msr & MSR_RAM_ENABLE))
+        return;
 
     int memory_map_mode, plane, write_mode, b, func_select, mask;
     uint32_t write_mask, bit_mask, set_mask;
@@ -2110,6 +2128,9 @@ uint8_t vga_mem_read(VGAState *s, uint32_t addr)
 {
     int memory_map_mode, plane;
     uint32_t ret;
+
+    if (!(s->msr & MSR_RAM_ENABLE))
+        return 0xff;
 
     /* convert to VGA memory offset */
     memory_map_mode = (s->gr[VGA_GFX_MISC] >> 2) & 3;
@@ -2285,6 +2306,7 @@ static void vga_initmode(VGAState *s)
         s->cr[i] = crtc[i];
 
     s->msr = 0x67;
+    s->dac_mask = 0xff;
 
     // clear screen
     for (int i = 0; i < s->vga_ram_size / 4; i++) {
