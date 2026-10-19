@@ -1113,6 +1113,13 @@ static void vga_graphic_refresh(VGAState *s,
         w = wx;
 #endif
     uint32_t plane_mask = s->ar[0x12];
+    /* how many bytes of video memory one line of the picture reads */
+    uint32_t line_bytes;
+    if (shift_control == 0 || shift_control == 1)
+        line_bytes = 4 * ((((w - 1) / xdiv) >> 3) + 1);
+    else
+        line_bytes = ((w - 1) / xdiv + 1) * ((bpp + 7) / 8);
+    bool vbe = vbe_enabled(s);
     for (int y = 0; y < h; y++) {
         uint32_t addr = addr1;
         if (!(s->cr[0x17] & 1)) {
@@ -1124,9 +1131,16 @@ static void vga_graphic_refresh(VGAState *s,
         if (!(s->cr[0x17] & 2)) {
             addr = (addr & ~0x8000) | ((y1 & 2) << 14);
         }
+        /* A VGA's display address wraps at 256 KB; and a line that would
+           read past the end of video memory is not drawn. */
+        if (!vbe)
+            addr &= 0x3ffff;
+        int x0 = 0;
+        if (addr + line_bytes > (uint32_t) s->vga_ram_size)
+            x0 = w;
 
         uint32_t color_comp = 0;
-        for (int x = 0; x < w; x++) {
+        for (int x = x0; x < w; x++) {
             int x1 = x / xdiv;
             uint32_t color;
             if (shift_control == 0) {
