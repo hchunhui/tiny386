@@ -1635,6 +1635,15 @@ void vbe_write(VGAState *s, uint32_t offset, uint32_t val)
                     s->vbe_regs[VBE_DISPI_INDEX_YRES];
                 s->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] = 0;
                 s->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] = 0;
+                s->vbe_regs[s->vbe_index] = val;
+                vbe_fixup_regs(s);
+                /* clear video memory when VBE is turned on, and only then,
+                   as QEMU does */
+                if (!(val & VBE_DISPI_NOCLEARMEM)) {
+                    uint32_t n = s->vbe_regs[VBE_DISPI_INDEX_YRES] * s->vbe_line_offset;
+                    memset(s->vga_ram, 0, n < (uint32_t) s->vga_ram_size ?
+                           n : (uint32_t) s->vga_ram_size);
+                }
             } else {
                 s->bank_offset = 0;
             }
@@ -1642,11 +1651,6 @@ void vbe_write(VGAState *s, uint32_t offset, uint32_t val)
             s->vbe_regs[s->vbe_index] = val;
             vbe_fixup_regs(s);
             vbe_update_vgaregs(s);
-            /* clear the screen */
-            if (!(val & VBE_DISPI_NOCLEARMEM)) {
-                memset(s->vga_ram, 0,
-                       s->vbe_regs[VBE_DISPI_INDEX_YRES] * s->vbe_line_offset);
-            }
             break;
         case VBE_DISPI_INDEX_XRES:
         case VBE_DISPI_INDEX_YRES:
