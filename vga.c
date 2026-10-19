@@ -134,6 +134,7 @@ struct VGAState {
     
     /* text mode state */
     uint32_t last_palette[16];
+    int last_gw, last_gh;   /* the graphics picture's size; -1: just cleared */
 #ifndef FULL_UPDATE
     uint16_t last_ch_attr[MAX_TEXT_WIDTH * MAX_TEXT_HEIGHT];
 #endif
@@ -1115,6 +1116,15 @@ static void vga_graphic_refresh(VGAState *s,
         w = wx;
 #endif
     uint32_t plane_mask = s->ar[0x12];
+    /* Every pixel of the picture is drawn each time, so all a clear is
+       needed for is what lay outside the picture when it changes size, and
+       so place.  Clearing only then keeps the flicker away (43b4b85). */
+    if (w != s->last_gw || h != s->last_gh) {
+        if (s->last_gw != -1)
+            simplefb_clear(fb_dev);
+        s->last_gw = w;
+        s->last_gh = h;
+    }
     /* how many bytes of video memory one line of the picture reads */
     uint32_t line_bytes;
     if (shift_control == 0 || shift_control == 1)
@@ -1359,6 +1369,7 @@ void vga_refresh(VGAState *s,
         full_update = 1;
         s->cursor_blink_time = get_uticks();
         simplefb_clear(fb_dev);
+        s->last_gw = -1;    /* any size will do: the screen is black */
     }
 
     if (s->graphic_mode == 2) {
