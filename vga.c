@@ -32,6 +32,18 @@
 #include "vga.h"
 #include "pci.h"
 
+/* A quicker way of drawing the 16-colour modes, for a screen of 16 bits a
+   pixel that is drawn on directly and is slow to write: see
+   vga_graphic_refresh().  It takes the planes' bytes and the screen's
+   pixels in little-endian order. */
+#if BPP == 16 && defined(VGA_STORE_CHANGED) && \
+    !defined(SCALE_3_2) && !defined(SCALE_2_1) && !defined(SWAPXY) && \
+    !defined(HOST_WORDS_BIGENDIAN)
+#define VGA_PLANAR_FAST
+#endif
+/* 0 draws them the way every other mode is drawn, pixel by pixel */
+int vga_planar_fast = 1;
+
 #ifdef BUILD_ESP32
 #include "esp_attr.h"
 void *pcmalloc(long size);
@@ -151,6 +163,16 @@ struct VGAState {
     uint32_t vbe_start_addr;
     uint32_t vbe_line_offset;
 
+#ifdef VGA_PLANAR_FAST
+    /* What the screen was last drawn from in a 16-colour mode: see
+       vga_graphic_refresh(). */
+    uint32_t *seen;         /* the four planes of every 8 pixels, row by row */
+    int seen_cols, seen_rows;   /* how many of them there is room for */
+    bool seen_valid;        /* the screen shows what they say */
+    int seen_w, seen_h, seen_i0, seen_xdiv;
+    uint32_t seen_palette[16];
+#endif
+
 #if defined(SCALE_3_2) || defined(SCALE_2_1) || defined(SWAPXY)
 #ifndef LCD_WIDTH
 #define LCD_WIDTH 2048
@@ -168,6 +190,16 @@ static int after_eq(uint32_t a, uint32_t b)
 static void simplefb_clear(FBDevice *fb_dev)
 {
     memset(fb_dev->fb_data, 0, fb_dev->width * fb_dev->height * (BPP / 8));
+}
+
+/* The screen is cleared, and whatever was known about what it shows is not
+   so any more. */
+static void vga_clear_screen(VGAState *s)
+{
+    simplefb_clear(s->fb_dev);
+#ifdef VGA_PLANAR_FAST
+    s->seen_valid = false;
+#endif
 }
 
 #if BPP == 32
@@ -729,7 +761,7 @@ static void vbe_update_vgaregs(VGAState *s)
     s->gr[VGA_GFX_MODE] = (s->gr[VGA_GFX_MODE] & ~0x60) |
         (shift_control << 5);
     s->cr[VGA_CRTC_MAX_SCAN] &= ~0x9f; /* no double scan */
-    simplefb_clear(s->fb_dev);
+    vga_clear_screen(s);
 }
 
 /* the text refresh is just for debugging and initial boot message, so
@@ -1134,6 +1166,62 @@ static void vga_graphic_refresh(VGAState *s,
     else
         line_bytes = ((w - 1) / xdiv + 1) * ((bpp + 7) / 8);
     bool vbe = vbe_enabled(s);
+#ifdef VGA_PLANAR_FAST
+    /*
+     * The 16-colour modes (640x480 and its like, which is what Windows'
+     * standard VGA driver uses, 640x350, and 320x200 at half the dot clock)
+     * are drawn eight pixels at a time: the four bytes that hold one bit of
+     * each of them in each of the four planes are one aligned word of the
+     * video memory.  At half the dot clock each pixel is two dots wide, so
+     * the eight are sixteen pixels of the screen.  That word is kept
+     * (s->seen) for every eight pixels of the picture.  At the next picture,
+     * eight pixels whose word is what it was are where they should be
+     * already, and are passed over; the others are worked out as in the
+     * loop further down, and stored where they differ from the screen.  A
+     * picture that has not changed then costs a comparison for every eight
+     * pixels, where the loop further down works out every pixel of it
+     * every time.
+     *
+     * The words can be trusted only if nothing else has drawn on the
+     * screen and nothing else that decides a pixel has changed: the caller
+     * says the first (full_update), a clear says it (vga_clear_screen),
+     * and the size, the place, the dot clock and the sixteen colours are
+     * compared here.  Whatever does not fit (an address that is not a
+     * multiple of four, a line past the end of the video memory, no memory
+     * for the words) is drawn as it would be without this, and nothing is
+     * trusted the next time.
+     */
+    int dots = 8 * xdiv;        /* pixels of the screen from one word */
+    int cols = (w + dots - 1) / dots;
+    bool fast = vga_planar_fast && shift_control == 0 && plane_mask != 1 &&
+        (xdiv == 1 || xdiv == 2) && h > 0 && cols > 0;
+    bool trust = false;
+    if (fast && (s->seen_cols < cols || s->seen_rows < h)) {
+        free(s->seen);
+        s->seen = malloc((size_t) cols * h * sizeof(uint32_t));
+        s->seen_cols = s->seen ? cols : 0;
+        s->seen_rows = s->seen ? h : 0;
+        s->seen_valid = false;
+        if (!s->seen)
+            fast = false;
+    }
+    if (fast) {
+        trust = s->seen_valid && !full_update &&
+            s->seen_w == w && s->seen_h == h && s->seen_i0 == i0 &&
+            s->seen_xdiv == xdiv &&
+            !memcmp(s->seen_palette, palette, sizeof(s->seen_palette));
+        s->seen_w = w;
+        s->seen_h = h;
+        s->seen_i0 = i0;
+        s->seen_xdiv = xdiv;
+        memcpy(s->seen_palette, palette, sizeof(s->seen_palette));
+    } else if (s->seen) {
+        /* another kind of mode: the memory is of no use to it */
+        free(s->seen);
+        s->seen = NULL;
+        s->seen_cols = s->seen_rows = 0;
+    }
+#endif
     for (int y = 0; y < h; y++) {
         uint32_t addr = addr1;
         if (!(s->cr[0x17] & 1)) {
@@ -1161,6 +1249,62 @@ static void vga_graphic_refresh(VGAState *s,
 #endif
             x0 = w;
         }
+
+#ifdef VGA_PLANAR_FAST
+        /* a line in video memory (x0 0), whose words are aligned */
+        if (fast && x0 == 0 && !(addr & 3)) {
+            const uint32_t *src = (const uint32_t *) (vram + addr);
+            uint32_t *seen = s->seen + (size_t) y * s->seen_cols;
+            uint16_t *d = (uint16_t *) (fb_dev->fb_data +
+                                        (BPP / 8) * (y * fb_dev->width) + i0);
+            /* a loop for each dot clock, the first said to be the likely
+               one, which keeps more of both loops in registers */
+            if (__builtin_expect(xdiv == 1, 1)) {
+                for (int c = 0; c < cols; c++, d += 8) {
+                    uint32_t pl = src[c];
+                    if (trust && seen[c] == pl)
+                        continue;
+                    seen[c] = pl;
+                    int n = w - 8 * c;
+                    if (n > 8)
+                        n = 8;
+                    for (int b = 0; b < n; b++) {
+                        /* bit 7 - b of each plane's byte, in the lowest
+                           bit of each byte of t; times 0x01020408 they
+                           are next to each other in the highest byte,
+                           plane 0 lowest */
+                        uint32_t t = (pl >> (7 - b)) & 0x01010101;
+                        uint16_t px = palette[(t * 0x01020408) >> 24];
+                        if (d[b] != px)
+                            d[b] = px;
+                    }
+                }
+            } else {
+                /* each pixel twice, so a word is sixteen pixels of the
+                   screen; its edge may cut the last of them in half */
+                for (int c = 0; c < cols; c++, d += 16) {
+                    uint32_t pl = src[c];
+                    if (trust && seen[c] == pl)
+                        continue;
+                    seen[c] = pl;
+                    int n = w - 16 * c;
+                    if (n > 16)
+                        n = 16;
+                    for (int b = 0; b < n; b += 2) {
+                        uint32_t t = (pl >> (7 - (b >> 1))) & 0x01010101;
+                        uint16_t px = palette[(t * 0x01020408) >> 24];
+                        if (d[b] != px)
+                            d[b] = px;
+                        if (b + 1 < n && d[b + 1] != px)
+                            d[b + 1] = px;
+                    }
+                }
+            }
+            x0 = w;     /* this line is done */
+        } else {
+            fast = false;       /* not every line went this way */
+        }
+#endif
 
         uint32_t color_comp = 0;
         for (int x = x0; x < w; x++) {
@@ -1333,6 +1477,10 @@ static void vga_graphic_refresh(VGAState *s,
 #undef KLINE
 #endif
     }
+#ifdef VGA_PLANAR_FAST
+    /* every line of the screen is now what s->seen says, or not */
+    s->seen_valid = fast;
+#endif
     redraw_func(opaque, 0, 0, fb_dev->width, fb_dev->height);
 }
 
@@ -1362,7 +1510,6 @@ int vga_step(VGAState *s)
 void vga_refresh(VGAState *s,
                  SimpleFBDrawFunc *redraw_func, void *opaque, int full_update)
 {
-    FBDevice *fb_dev = s->fb_dev;
     int graphic_mode;
     if (!(s->ar_index & 0x20)) {
         /* blank */
@@ -1379,7 +1526,7 @@ void vga_refresh(VGAState *s,
         s->graphic_mode = graphic_mode;
         full_update = 1;
         s->cursor_blink_time = get_uticks();
-        simplefb_clear(fb_dev);
+        vga_clear_screen(s);
     }
 
     if (s->graphic_mode == 2) {
