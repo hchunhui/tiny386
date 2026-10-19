@@ -194,6 +194,7 @@ static u8 pc_io_read(void *o, int addr)
 	case 0x376:
 		val = ide_status_read(pc->ide2);
 		return val;
+	case 0x3b4: case 0x3b5: case 0x3ba:	/* the CRTC and status, monochrome */
 	case 0x3c0: case 0x3c1: case 0x3c2: case 0x3c3:
 	case 0x3c4: case 0x3c5: case 0x3c6: case 0x3c7:
 	case 0x3c8: case 0x3c9: case 0x3ca: case 0x3cb:
@@ -393,6 +394,7 @@ static void pc_io_write(void *o, int addr, u8 val)
 	case 0x376:
 		ide_cmd_write(pc->ide2, val);
 		return;
+	case 0x3b4: case 0x3b5: case 0x3ba:	/* the CRTC and status, monochrome */
 	case 0x3c0: case 0x3c1: case 0x3c2: case 0x3c3:
 	case 0x3c4: case 0x3c5: case 0x3c6: case 0x3c7:
 	case 0x3c8: case 0x3c9: case 0x3ca: case 0x3cb:
@@ -510,6 +512,7 @@ static void pc_io_write16(void *o, int addr, u16 val)
 	case 0x170:
 		ide_data_writew(pc->ide2, val);
 		return;
+	case 0x3b4:	/* the CRTC, monochrome: index and data at once */
 	case 0x3c0: case 0x3c1: case 0x3c2: case 0x3c3:
 	case 0x3c4: case 0x3c5: case 0x3c6: case 0x3c7:
 	case 0x3c8: case 0x3c9: case 0x3ca: case 0x3cb:
