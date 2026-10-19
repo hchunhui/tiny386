@@ -82,7 +82,7 @@ void *pcmalloc(long size);
 #define FB_ALLOC_ALIGN (1 << 20)
 
 #define MAX_TEXT_WIDTH 132
-#define MAX_TEXT_HEIGHT 60
+#define MAX_TEXT_HEIGHT 64     /* 60 rows and a part row when scrolled */
 
 struct FBDevice {
     /* the following is set by the device */
@@ -147,6 +147,13 @@ struct VGAState {
     uint16_t last_cursor_offset;
     uint8_t last_cursor_start;
     uint8_t last_cursor_end;
+    uint8_t last_preset;
+    uint8_t last_cheight;
+    uint8_t last_underline;
+    uint8_t last_blink;
+    bool blink_visible;             /* blinking characters, now */
+    /* where the text was last drawn; last_text_w1 -1: just cleared */
+    int last_text_x1, last_text_y1, last_text_w1, last_text_h1;
 
     /* VBE extension */
     uint16_t vbe_index;
@@ -399,6 +406,47 @@ static const uint8_t cursor_glyph[32 * 4] = {
     FF8, FF8, FF8, FF8, FF8, FF8, FF8, FF8,
 };
 #undef FF8
+
+/* A text cell at half the dot clock (40 columns): every dot twice. */
+static void vga_draw_glyph_wide(uint8_t *d, int linesize,
+                                const uint8_t *font_ptr, int h,
+                                uint32_t fgcol, uint32_t bgcol,
+                                int nine, int dup9)
+{
+    int n = nine ? 9 : 8;
+
+    do {
+        uint32_t font_data = font_ptr[0];
+        for (int i = 0; i < n; i++) {
+            int bit = i < 8 ? (font_data >> (7 - i)) & 1 :
+                (dup9 ? font_data & 1 : 0);
+            uint32_t v = bit ? fgcol : bgcol;
+#if BPP == 32
+            ((uint32_t *)d)[2 * i] = v;
+            ((uint32_t *)d)[2 * i + 1] = v;
+#else
+            ((uint16_t *)d)[2 * i] = v;
+            ((uint16_t *)d)[2 * i + 1] = v;
+#endif
+        }
+        font_ptr += 4;
+        d += linesize;
+    } while (--h);
+}
+
+/* h lines of a text cell, cwidth dots wide, each dot dw pixels wide */
+static void vga_draw_cell(uint8_t *d, int linesize, const uint8_t *font_ptr,
+                          int h, uint32_t fgcol, uint32_t bgcol,
+                          int cwidth, int dup9, int dw)
+{
+    if (dw == 2)
+        vga_draw_glyph_wide(d, linesize, font_ptr, h, fgcol, bgcol,
+                            cwidth == 9, dup9);
+    else if (cwidth == 8)
+        vga_draw_glyph8(d, linesize, font_ptr, h, fgcol, bgcol);
+    else
+        vga_draw_glyph9(d, linesize, font_ptr, h, fgcol, bgcol, dup9);
+}
 
 #if BPP == 32
 #define COLOR(a) a
@@ -749,9 +797,15 @@ static void vga_text_refresh(VGAState *s,
     const uint8_t *font_ptr;
     uint32_t fgcol, bgcol, cursor_offset, cursor_start, cursor_end;
     uint32_t now = get_uticks();
+    int blink_changed = 0;
     if (after_eq(now, s->cursor_blink_time)) {
         s->cursor_blink_time = now + 133333;
         s->cursor_visible_phase = !s->cursor_visible_phase;
+        /* characters blink at half the cursor's rate, as on a VGA */
+        if (s->cursor_visible_phase) {
+            s->blink_visible = !s->blink_visible;
+            blink_changed = 1;
+        }
         if (s->term_refresh) {
             int width = (s->cr[0x01] + 1);
             uint32_t start_addr = s->cr[0x0d] | (s->cr[0x0c] << 8);
@@ -769,6 +823,16 @@ static void vga_text_refresh(VGAState *s,
     }
 
     full_update = full_update || update_palette16(s, s->last_palette);
+    /* AR10h bit 3: attribute bit 7 makes a character blink, and the
+       background has only eight colours */
+    int blink = s->ar[0x10] & 0x08;
+    if (blink != s->last_blink) {
+        s->last_blink = blink;
+        full_update = 1;
+    }
+    if (!blink)
+        blink_changed = 0;
+    (void) blink_changed;   /* not looked at with FULL_UPDATE */
 
     vga_ram = s->vga_ram;
 
@@ -788,11 +852,14 @@ static void vga_text_refresh(VGAState *s,
         cwidth++;
 
     width = (s->cr[0x01] + 1);
-    height = s->cr[0x12] |
+    int disp = s->cr[0x12] |
         ((s->cr[0x07] & 0x02) << 7) |
         ((s->cr[0x07] & 0x40) << 3);
-    height = (height + 1) / cheight;
-    
+    disp++;     /* scan lines in the picture */
+    height = disp / cheight;
+    int preset = 0;     /* lines of the first row that are above the picture */
+    int dw = 1;         /* pixels to a dot */
+
     width1 = width * cwidth;
     height1 = height * cheight;
 #if defined(SCALE_3_2) || defined(SCALE_2_1) || defined(SWAPXY)
@@ -819,13 +886,55 @@ static void vga_text_refresh(VGAState *s,
     full_update = 1;
 #endif
 #else
+    /*
+     * As a VGA shows it: as many scan lines as the CRT controller says,
+     * rows from the top and cut where they fall (28 rows of 14 lines in
+     * 400 leave 8 lines of a 29th); the first row moved up by the preset
+     * row scan (CR08h, smooth scrolling); every dot twice at half the dot
+     * clock (40 columns).
+     */
+    preset = s->cr[0x08] & 0x1f;
+    if (preset >= cheight)
+        preset = 0;
+    height = (disp + preset + cheight - 1) / cheight;
+    if (s->sr[0x01] & 0x08)
+        dw = 2;
+    width1 = width * cwidth * dw;
+    height1 = disp;
     if (fb_dev->width < width1 || fb_dev->height < height1 ||
         width > MAX_TEXT_WIDTH || height > MAX_TEXT_HEIGHT)
         return; /* not enough space */
     x1 = (fb_dev->width - width1) / 2;
     y1 = (fb_dev->height - height1) / 2;
     int stride = fb_dev->stride;
+    if (x1 != s->last_text_x1 || y1 != s->last_text_y1 ||
+        width1 != s->last_text_w1 || height1 != s->last_text_h1) {
+        /* another size or place: what the last one left around it goes,
+           unless a change of mode has just cleared the screen (see
+           vga_refresh()) */
+        if (s->last_text_w1 != -1)
+            simplefb_clear(fb_dev);
+        s->last_text_x1 = x1;
+        s->last_text_y1 = y1;
+        s->last_text_w1 = width1;
+        s->last_text_h1 = height1;
+        full_update = 1;
+    }
+    if (preset != s->last_preset) {
+        s->last_preset = preset;
+        full_update = 1;
+    }
 #endif
+    /* taller or shorter cells move every row, even where the number of
+       rows stays the same */
+    if (cheight != s->last_cheight) {
+        s->last_cheight = cheight;
+        full_update = 1;
+    }
+    if ((s->cr[0x14] & 0x1f) != s->last_underline) {
+        s->last_underline = s->cr[0x14] & 0x1f;
+        full_update = 1;
+    }
     if (s->last_line_offset != line_offset ||
         s->last_start_addr != start_addr ||
         s->last_width != width ||
@@ -877,10 +986,18 @@ static void vga_text_refresh(VGAState *s,
 #endif
     for(cy = 0; cy < height; cy++) {
         ch_addr = ch_addr1;
+        /* the lines of this row that are in the picture: first to last - 1 */
+        int first = 0, last = cheight;
 #if defined(SCALE_3_2) || defined(SCALE_2_1) || defined(SWAPXY)
         dst = s->tmpbuf + yt * stride;
+        (void) preset;
 #else
-        dst = fb_dev->fb_data + (y1 + cy * cheight) * stride + x1 * (BPP / 8);
+        int top = cy * cheight - preset;
+        if (top < 0)
+            first = -top;
+        if (disp - top < cheight)
+            last = disp - top;
+        dst = fb_dev->fb_data + (y1 + top + first) * stride + x1 * (BPP / 8);
 #endif
         cx_min = width;
         cx_max = -1;
@@ -893,7 +1010,8 @@ static void vga_text_refresh(VGAState *s,
 #ifdef FULL_UPDATE
             if (1) {
 #else
-            if (full_update || ch_attr != s->last_ch_attr[cy * width + cx] || cursor_offset == ch_addr) {
+            if (full_update || ch_attr != s->last_ch_attr[cy * width + cx] || cursor_offset == ch_addr ||
+                (blink_changed && (ch_attr & 0x8000))) {
                 s->last_ch_attr[cy * width + cx] = ch_attr;
 #endif
                 cx_min = cx_min > cx ? cx : cx_min;
@@ -902,18 +1020,25 @@ static void vga_text_refresh(VGAState *s,
                 cattr = ch_attr >> 8;
 
                 font_ptr = font_base[(cattr >> 3) & 1] + 32 * 4 * ch;
-                bgcol = s->last_palette[cattr >> 4];
-                fgcol = s->last_palette[cattr & 0x0f];
-                if (cwidth == 8) {
-                    vga_draw_glyph8(dst, stride, font_ptr, cheight,
-                                    fgcol, bgcol);
+                uint32_t textcol = s->last_palette[cattr & 0x0f];
+                if (blink) {
+                    bgcol = s->last_palette[(cattr >> 4) & 7];
+                    fgcol = (cattr & 0x80) && !s->blink_visible ? bgcol : textcol;
                 } else {
-                    dup9 = 0;
-                    if (ch >= 0xb0 && ch <= 0xdf && (s->ar[0x10] & 0x04))
-                        dup9 = 1;
-                    vga_draw_glyph9(dst, stride, font_ptr, cheight,
-                                    fgcol, bgcol, dup9);
+                    bgcol = s->last_palette[cattr >> 4];
+                    fgcol = textcol;
                 }
+                dup9 = 0;
+                if (cwidth == 9 && ch >= 0xb0 && ch <= 0xdf && (s->ar[0x10] & 0x04))
+                    dup9 = 1;
+                vga_draw_cell(dst, stride, font_ptr + 4 * first, last - first,
+                              fgcol, bgcol, cwidth, dup9, dw);
+                /* the underline: a foreground of 1 on a background of 0,
+                   at the line CR14h says (beyond the cell in colour modes) */
+                int ul = s->cr[0x14] & 0x1f;
+                if ((cattr & 0x77) == 0x01 && ul >= first && ul < last)
+                    vga_draw_cell(dst + stride * (ul - first), stride,
+                                  cursor_glyph, 1, fgcol, bgcol, cwidth, 1, dw);
                 /* cursor display */
                 if (cursor_offset == ch_addr && !(cursor_start & 0x20) && s->cursor_visible_phase) {
                     int line_start, line_last, h;
@@ -922,24 +1047,22 @@ static void vga_text_refresh(VGAState *s,
                     line_last = cursor_end & 0x1f;
                     if (line_last > cheight - 1)
                         line_last = cheight - 1;
+                    /* only what of it is in the picture */
+                    if (line_start < first)
+                        line_start = first;
+                    if (line_last > last - 1)
+                        line_last = last - 1;
 
-                    if (line_last >= line_start && line_start < cheight) {
+                    if (line_last >= line_start) {
                         h = line_last - line_start + 1;
-                        dst1 = dst + stride * line_start;
-                        if (cwidth == 8) {
-                            vga_draw_glyph8(dst1, stride,
-                                            cursor_glyph,
-                                            h, fgcol, bgcol);
-                        } else {
-                            vga_draw_glyph9(dst1, stride,
-                                            cursor_glyph,
-                                            h, fgcol, bgcol, 1);
-                        }
+                        dst1 = dst + stride * (line_start - first);
+                        vga_draw_cell(dst1, stride, cursor_glyph, h,
+                                      textcol, bgcol, cwidth, 1, dw);
                     }
                 }
             }
             ch_addr += 4;
-            dst += (BPP / 8) * cwidth;
+            dst += (BPP / 8) * cwidth * dw;
         }
 #if defined(SCALE_3_2) || defined(SCALE_2_1) || defined(SWAPXY)
 #if defined(SCALE_2_1)
@@ -1425,6 +1548,7 @@ void vga_refresh(VGAState *s,
         s->cursor_blink_time = get_uticks();
         simplefb_clear(fb_dev);
         s->last_gw = -1;    /* any size will do: the screen is black */
+        s->last_text_w1 = -1;   /* the text may go anywhere: it is black */
     }
 
     if (s->graphic_mode == 2) {
