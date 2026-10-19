@@ -1136,8 +1136,17 @@ static void vga_graphic_refresh(VGAState *s,
         if (!vbe)
             addr &= 0x3ffff;
         int x0 = 0;
-        if (addr + line_bytes > (uint32_t) s->vga_ram_size)
+        if (addr >= (uint32_t) s->vga_ram_size ||
+            line_bytes > (uint32_t) s->vga_ram_size - addr) {
+            /* nothing of this line is in video memory: draw it black */
+#if BPP == 16 && (defined(SCALE_3_2) || defined(SCALE_2_1) || defined(SWAPXY))
+            memset(s->tmpbuf + (BPP / 8) * (yyt * w), 0, (BPP / 8) * w);
+#else
+            memset(fb_dev->fb_data + (BPP / 8) * (y * fb_dev->width) + i0, 0,
+                   (BPP / 8) * w);
+#endif
             x0 = w;
+        }
 
         uint32_t color_comp = 0;
         for (int x = x0; x < w; x++) {
