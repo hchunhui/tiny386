@@ -324,9 +324,58 @@ static bool fploadbcd(void *cpu, int seg, uword addr, double *res)
 	return true;
 }
 
-static bool fpstoref32(void *cpu, int seg, uword addr, double val)
+/* val rounded to single precision in the x87 rounding mode rc (0 nearest, 1 down, 2 up, 3 toward zero) */
+static float f32_round(double x, int rc)
 {
-	union union32 u = { .f = val };
+	float f = x;
+	if (rc == 0 || isnan(x) || (double) f == x)
+		return f;
+	bool above = (double) f > x;
+	if ((rc == 1 && above) || (rc == 2 && !above) || (rc == 3 && (x >= 0 ? above : !above)))
+		f = nextafterf(f, rc == 1 ? -INFINITY : rc == 2 ? INFINITY : 0.0f);
+	return f;
+}
+
+/* an arithmetic result in the precision control's precision: single rounds the significand to 24 bits in the
+   rounding mode, keeping the exponent's range as the x87's registers do (doubles hold more than 2 * 24 + 2 bits, so
+   the result of single operands is the x87's) */
+static double fpprec(FPU *fpu, double x)
+{
+	if ((fpu->cw & 0x300) != 0 || sizeof(x) != 8)
+		return x;
+	union { double d; uint64_t u; } v = { .d = x };
+	const unsigned e = (v.u >> 52) & 0x7ff;
+	const uint64_t half = 1ull << 28, drop = v.u & (2 * half - 1);
+	if (e == 0x7ff || e == 0 || drop == 0)   /* inf, NaN, zero and denormals, exact */
+		return x;
+	const uint64_t keep = v.u - drop;
+	const bool neg = v.u >> 63;
+	bool up;
+	switch ((fpu->cw >> 10) & 3) {
+	case 0: up = drop > half || (drop == half && (keep >> 29) & 1); break;
+	case 1: up = neg; break;
+	case 2: up = !neg; break;
+	default: up = false; break;
+	}
+	v.u = keep + (up ? 2 * half : 0);   /* (a carry runs on into the exponent, as it should) */
+	return v.d;
+}
+
+/* a NaN result as the x87 makes it: an operand's NaN, made quiet, or the "real indefinite" (negative) one (hosts
+   give their own: RISC-V's is positive, without the operand's sign) */
+static double fpnan(double c, double a, double b)
+{
+	if (!isnan(c))
+		return c;
+	union { double d; uint64_t u; } v;
+	v.d = isnan(a) ? a : isnan(b) ? b : 0;
+	v.u = isnan(a) || isnan(b) ? v.u | (1ull << 51) : 0xfff8000000000000ull;
+	return sizeof(double) == 8 ? v.d : c;
+}
+
+static bool fpstoref32(void *cpu, int seg, uword addr, double val, int rc)
+{
+	union union32 u = { .f = f32_round(val, rc) };
 	u32 v = u.i;
 	if (!cpu_store32(cpu, seg, addr, v))
 		return false;
@@ -474,7 +523,7 @@ static void fparith(FPU *fpu, int group, unsigned int d, double a, double b)
 	if (group == 3) {
 		fppop(fpu);
 	} else if (group != 2) {
-		fpset(fpu, d, c);
+		fpset(fpu, d, fpprec(fpu, fpnan(c, a, b)));
 	}
 }
 
@@ -505,14 +554,14 @@ bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uwo
 			return false;
 		case 2: { // FST float32
 			a = fpget(fpu, 0);
-			if (!fpstoref32(cpu, seg, addr, a)) {
+			if (!fpstoref32(cpu, seg, addr, a, (fpu->cw >> 10) & 3)) {
 				return false;
 			}
 			break;
 		}
 		case 3: { // FSTP float32
 			a = fpget(fpu, 0);
-			if (!fpstoref32(cpu, seg, addr, a)) {
+			if (!fpstoref32(cpu, seg, addr, a, (fpu->cw >> 10) & 3)) {
 				return false;
 			}
 			fppop(fpu);
@@ -1030,7 +1079,7 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 				fppop(fpu);
 				break;
 			case 2: // FSQRT
-				fpset(fpu, 0, sqrt(temp));
+				fpset(fpu, 0, fpprec(fpu, fpnan(sqrt(temp), temp, 0)));
 				break;
 			case 3: { // FSINCOS
 				double s, c;
