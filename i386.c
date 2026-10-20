@@ -1563,7 +1563,7 @@ static inline void clear_segs(CPUI386 *cpu)
 	}
 
 #define Jv(rwm, INST) \
-	if (adsz16) { \
+	if (opsz16) { \
 		u16 imm16; \
 		TRY(fetch16(cpu, &imm16)); \
 		INST ## w(imm16, limm, 0); \
