@@ -4330,6 +4330,7 @@ static bool task_switch(CPUI386 *cpu, int tss, int sw_type)
 	cpu->flags = load32(cpu, &meml);
 	cpu->flags &= EFLAGS_MASK;
 	cpu->flags |= 0x2;
+	cpu->cc.mask = 0;	/* the new task's flags, not the old one's last operation's */
 	if (sw_type == TS_CALL) {
 		TRY1(translate(cpu, &meml, 2, SEG_TR, 0, 4, 0));
 		store32(cpu, &meml, oldtss);
@@ -4683,8 +4684,19 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 	}
 
 	/* task gate */
-	if (gt == 5)
-		return task_switch(cpu, w1 >> 16, TS_CALL);
+	if (gt == 5) {
+		TRY(task_switch(cpu, w1 >> 16, TS_CALL));
+		/* an exception's error code goes onto the new task's stack (a 32-bit TSS's: 4 bytes) */
+		if (pusherr) {
+			OptAddr meml1;
+			uword sp = lreg32(4);
+			uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
+			TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask, 4, 0));
+			saddr32(&meml1, cpu->excerr);
+			set_sp(sp - 4, sp_mask);
+		}
+		return true;
+	}
 
 	/* TRAP-OR-INTERRUPT-GATE */
 	int newcs = w1 >> 16;
