@@ -172,6 +172,8 @@ void i8254_ioport_write(PITState *pit, uint32_t addr, uint32_t val)
 				s->write_state = access;
 
 				s->mode = (val >> 1) & 7;
+				if (s->mode >= 6)	/* 6 and 7 are 2 and 3 */
+					s->mode -= 4;
 				s->bcd = val & 1;
 				/* XXX: update irq timer ? */
 			}
@@ -285,8 +287,22 @@ void i8254_update_irq(PITState *pit)
 			}
 		}
 		break;
+	case 0:
+	case 4:
+		/* one-shot: one interrupt when the count runs out after it
+		   was loaded (last_irq_count marks it as sent) */
+		if (s->last_irq_count == 0 && d >= s->count) {
+			if (s->irq != -1) {
+				pit->set_irq(pit->pic, s->irq, 1);
+				pit->set_irq(pit->pic, s->irq, 0);
+			}
+			s->last_irq_count = s->count;
+		}
+		break;
 	default:
-		abort();
+		/* 1 and 5 start on a rising edge of the gate, which channel 0's
+		   (always high) never has: no interrupt */
+		break;
 	}
 }
 
