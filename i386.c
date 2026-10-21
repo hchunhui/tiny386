@@ -4691,7 +4691,7 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 			OptAddr meml1;
 			uword sp = lreg32(4);
 			uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
-			TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask, 4, 0));
+			TRY(translate(cpu, &meml1, 2, SEG_SS, (sp - 4) & sp_mask, 4, cpu->cpl));
 			saddr32(&meml1, cpu->excerr);
 			set_sp(sp - 4, sp_mask);
 		}
