@@ -310,7 +310,7 @@ void i8254_update_irq(PITState *pit)
 			break;
 		/* one-shot: one interrupt when the count runs out after it
 		   was loaded (last_irq_count marks it as sent) */
-		if (s->last_irq_count == 0 && d >= s->count) {
+		if (s->last_irq_count == 0 && d - s->count < 0x80000000) {
 			if (s->irq != -1) {
 				pit->set_irq(pit->pic, s->irq, 1);
 				pit->set_irq(pit->pic, s->irq, 0);
