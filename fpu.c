@@ -336,9 +336,9 @@ static float f32_round(double x, int rc)
 	return f;
 }
 
-/* an arithmetic result in the precision control's precision: single rounds the significand to 24 bits in the
-   rounding mode, keeping the exponent's range as the x87's registers do (doubles hold more than 2 * 24 + 2 bits, so
-   the result of single operands is the x87's) */
+/* PC24 rounding of a binary64 intermediate. Arithmetic first jams any lost
+   residual into an odd low bit, so exact boundaries and halfway cases survive.
+   This still has binary64's exponent/subnormal limits, not x87's full range. */
 static double fpprec(FPU *fpu, double x)
 {
 	if ((fpu->cw & 0x300) != 0 || sizeof(x) != 8)
@@ -367,10 +367,66 @@ static double fpnan(double c, double a, double b)
 {
 	if (!isnan(c))
 		return c;
-	union { double d; uint64_t u; } v;
-	v.d = isnan(a) ? a : isnan(b) ? b : 0;
-	v.u = isnan(a) || isnan(b) ? v.u | (1ull << 51) : 0xfff8000000000000ull;
-	return sizeof(double) == 8 ? v.d : c;
+	if (sizeof(double) != 8)
+		return c;
+	union { double d; uint64_t u; } x = { .d = a }, y = { .d = b };
+	const uint64_t quiet = 1ull << 51, magnitude = 0x7fffffffffffffffull;
+	bool an = isnan(a), bn = isnan(b);
+	if (!an && !bn) {
+		x.u = 0xfff8000000000000ull;
+	} else if (!an) {
+		x = y;
+	} else if (bn) {
+		/* A quiet NaN wins over a signaling one; otherwise larger
+		   significand wins. Equal magnitudes prefer the positive sign. */
+		bool aq = (x.u & quiet) != 0, bq = (y.u & quiet) != 0;
+		if (aq != bq ? bq : (y.u & magnitude) > (x.u & magnitude) ||
+		    ((y.u & magnitude) == (x.u & magnitude) && y.u < x.u))
+			x = y;
+	}
+	x.u |= quiet;
+	return x.d;
+}
+
+/* Return the sign of (exact operation - host result). TwoSum recovers an
+   addition's residual; scaled FMA comparisons avoid losing a product/division/
+   square-root residual to underflow. Only its sign is needed for round-to-odd.
+   As elsewhere in this double-backed FPU, host arithmetic must round to nearest
+   and must not be compiled with reassociation/fast-math. */
+static double fpresidual(int group, double a, double b, double c)
+{
+	if (group == 4) b = -b;
+	if (group == 5) { double t = a; a = b; b = -t; }
+	if (group == 7) { double t = a; a = b; b = t; }
+	if (group == 0 || group == 4 || group == 5) {
+		double v = c - a;
+		return (a - (c - v)) + (b - v);
+	}
+	int ea, eb, ec;
+	double ma = frexp(a, &ea), mb = frexp(b, &eb), mc = frexp(c, &ec);
+	if (group == 1)
+		return fma(ma, mb, -scalbn(c, -ea - eb));
+	if (group == 6 || group == 7) {
+		double r = fma(-mc, mb, scalbn(ma, ea - eb - ec));
+		return signbit(b) ? -r : r;
+	}
+	/* FSQRT: a - c*c has the same sign as sqrt(a) - c. */
+	return fma(-mc, mc, scalbn(ma, ea - 2 * ec));
+}
+
+static double fpfinish(FPU *fpu, int group, double a, double b, double c)
+{
+	c = fpnan(c, a, b);
+	if ((fpu->cw & 0x300) == 0 && sizeof(c) == 8 &&
+	    isfinite(a) && isfinite(b) && isnormal(c)) {
+		union { double d; uint64_t u; } v = { .d = c };
+		if (!(v.u & 1)) {
+			double r = fpresidual(group, a, b, c);
+			if (r != 0)
+				c = nextafter(c, r > 0 ? INFINITY : -INFINITY);
+		}
+	}
+	return fpprec(fpu, c);
 }
 
 static bool fpstoref32(void *cpu, int seg, uword addr, double val, int rc)
@@ -523,7 +579,7 @@ static void fparith(FPU *fpu, int group, unsigned int d, double a, double b)
 	if (group == 3) {
 		fppop(fpu);
 	} else if (group != 2) {
-		fpset(fpu, d, fpprec(fpu, fpnan(c, a, b)));
+		fpset(fpu, d, fpfinish(fpu, group, a, b, c));
 	}
 }
 
@@ -1079,7 +1135,7 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 				fppop(fpu);
 				break;
 			case 2: // FSQRT
-				fpset(fpu, 0, fpprec(fpu, fpnan(sqrt(temp), temp, 0)));
+				fpset(fpu, 0, fpfinish(fpu, 8, temp, 0, sqrt(temp)));
 				break;
 			case 3: { // FSINCOS
 				double s, c;
