@@ -34,59 +34,97 @@ struct fatfs_image {
 	DWORD *map;
 };
 
-/* the largest map made, in words: two for each piece of the file, and
-   two more (1 MiB, 131,071 pieces) */
-#define MAX_MAP_WORDS (1 << 18)
+/*
+ * [esp] fast_seek_kb: the most memory an image's map may take, in KiB; 0
+ * maps none, and every image goes through stdio as before.  The map is 8
+ * bytes for each piece of the file on the card, and 8 more (at least 256
+ * bytes: room for 31 pieces).  Each image mapped also has its own FIL,
+ * which holds a sector buffer of FF_MAX_SS bytes unless
+ * CONFIG_FATFS_USE_DYN_BUFFERS is set (4,176 bytes with the S3 boards'
+ * sdkconfigs; 88, and a 512-byte buffer, with the P4's).  Both go to
+ * PSRAM where the heap has some.  On by default on the P4; off on the S3s,
+ * whose PSRAM mostly goes to the guest, so that both would come out of
+ * internal RAM there.
+ */
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+int fatfs_image_max_kb = 1024;
+#else
+int fatfs_image_max_kb = 0;
+#endif
 
-/* path opened through FatFs with its clusters mapped; NULL if it is not on
-   the card, or would not open or be mapped (the caller then uses stdio) */
+#if FF_USE_FASTSEEK
+/* PSRAM if the heap has some: both are read by the processor only, and
+   the SD driver copies what FatFs reads into the FIL's buffer itself */
+static void *alloc_prefer_psram(size_t n)
+{
+	return heap_caps_calloc_prefer(1, n, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_8BIT);
+}
+#endif
+
+/* path opened through FatFs with its clusters mapped; NULL if mapping is
+   off, the file is not on the card, or it would not open or be mapped in
+   fast_seek_kb (the caller then uses stdio) */
 void *fatfs_image_open(const char *path, int writable)
 {
 #if FF_USE_FASTSEEK
 	size_t l = strlen(vol_path);
 	char fpath[256];
-	if (!l || strncmp(path, vol_path, l) || path[l] != '/' ||
+	if (fatfs_image_max_kb <= 0 || !l || strncmp(path, vol_path, l) || path[l] != '/' ||
 	    snprintf(fpath, sizeof(fpath), "%s%s", vol_drv, path + l) >= (int) sizeof(fpath))
 		return NULL;
-	struct fatfs_image *d = calloc(1, sizeof(*d));
-	if (!d)
+	struct fatfs_image *d = alloc_prefer_psram(sizeof(*d));
+	if (!d) {
+		ESP_LOGW(TAG, "%s: no memory for a FIL (%u bytes); through stdio",
+			 path, (unsigned) sizeof(*d));
 		return NULL;
+	}
 	if (f_open(&d->fil, fpath, FA_READ | (writable ? FA_WRITE : 0)) != FR_OK) {
-		free(d);
+		heap_caps_free(d);
 		return NULL;
 	}
 	/* FatFs says how many words the map needs when it is too small */
+	DWORD max_words = (DWORD) fatfs_image_max_kb * (1024 / sizeof(DWORD));
 	DWORD words = 64;
 	FRESULT r;
 	for (;;) {
-		/* read by the processor only: PSRAM if there is some */
-		d->map = heap_caps_malloc_prefer(words * sizeof(DWORD), 2,
-						 MALLOC_CAP_SPIRAM, MALLOC_CAP_8BIT);
+		d->map = alloc_prefer_psram(words * sizeof(DWORD));
 		if (!d->map) {
+			ESP_LOGW(TAG, "%s: no memory for a map of %u bytes; through stdio",
+				 path, (unsigned) (words * sizeof(DWORD)));
 			r = FR_NOT_ENOUGH_CORE;
 			break;
 		}
 		d->map[0] = words;
 		d->fil.cltbl = d->map;
 		r = f_lseek(&d->fil, CREATE_LINKMAP);
-		if (r != FR_NOT_ENOUGH_CORE || d->map[0] <= words ||
-		    d->map[0] > MAX_MAP_WORDS)
+		if (r != FR_NOT_ENOUGH_CORE || d->map[0] <= words)
 			break;
-		words = d->map[0];
+		DWORD need = d->map[0];
 		d->fil.cltbl = NULL;
 		heap_caps_free(d->map);
+		d->map = NULL;
+		if (need > max_words) {
+			ESP_LOGW(TAG, "%s: in %u pieces on the card, a map of %u KiB, more than "
+				 "fast_seek_kb = %d; through stdio", path, (unsigned) (need - 2) / 2,
+				 (unsigned) ((need * sizeof(DWORD) + 1023) / 1024), fatfs_image_max_kb);
+			break;
+		}
+		words = need;
 	}
-	if (r != FR_OK) {
-		ESP_LOGW(TAG, "%s: clusters not mapped (FatFs error %d)", path, (int) r);
+	if (r != FR_OK || !d->map) {
+		if (r != FR_OK && r != FR_NOT_ENOUGH_CORE)
+			ESP_LOGW(TAG, "%s: clusters not mapped (FatFs error %d); through stdio",
+				 path, (int) r);
 		d->fil.cltbl = NULL;
 		f_close(&d->fil);
 		if (d->map)
 			heap_caps_free(d->map);
-		free(d);
+		heap_caps_free(d);
 		return NULL;
 	}
-	ESP_LOGI(TAG, "%s: in %u pieces on the card, mapped", path,
-		 (unsigned) (d->map[0] - 2) / 2);
+	unsigned pieces = (d->map[0] - 2) / 2;
+	ESP_LOGI(TAG, "%s: in %u piece%s on the card, mapped (%u bytes)", path,
+		 pieces, pieces == 1 ? "" : "s", (unsigned) (words * sizeof(DWORD)));
 	return d;
 #else
 	return NULL;

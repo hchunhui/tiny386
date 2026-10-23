@@ -17,5 +17,6 @@ extern struct Globals globals;
 
 /* fatfs_image.c: hard disk images on the card through FatFs, mapped */
 void fatfs_image_set_volume(const char *path, int pdrv);
+extern int fatfs_image_max_kb;  /* [esp] fast_seek_kb */
 
 #endif /* COMMON_H */
