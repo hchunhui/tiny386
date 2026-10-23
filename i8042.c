@@ -471,6 +471,7 @@ struct PS2MouseState {
     int mouse_dy;
     int mouse_dz;
     uint8_t mouse_buttons;
+    uint8_t mouse_pending; /* a packet found no room: send with the next event */
 };
 
 void ps2_queue(void *opaque, int b)
@@ -688,9 +689,10 @@ void ps2_keyboard_set_translation(void *opaque, int mode)
     s->translate = mode;
 }
 
-/* n bytes into the queue, all of them or none: none if fewer than
-   n + headroom places are free.  A mouse packet cut short by a full queue
-   would put every packet after it out of step in the guest's driver. */
+/* n bytes into the queue, all of them or none: none if headroom places or
+   fewer are free, or if the n bytes do not fit.  A mouse packet cut short
+   by a full queue would put every packet after it out of step in the
+   guest's driver. */
 static int ps2_queue_packet(PS2State *s, const uint8_t *b, int n, int headroom)
 {
     PS2Queue *q = &s->queue;
@@ -699,7 +701,7 @@ static int ps2_queue_packet(PS2State *s, const uint8_t *b, int n, int headroom)
 #ifdef THREAD_SAFE
     xSemaphoreTake(q->mutex, portMAX_DELAY);
 #endif
-    ok = q->count + n <= PS2_QUEUE_SIZE - headroom;
+    ok = q->count < PS2_QUEUE_SIZE - headroom && q->count + n <= PS2_QUEUE_SIZE;
     if (ok) {
         for (int i = 0; i < n; i++) {
             q->data[q->wptr] = b[i];
@@ -784,16 +786,21 @@ void ps2_mouse_event(PS2MouseState *s,
     s->mouse_dz += dz;
     /* XXX: SDL sometimes generates nul events: we delete them */
     if (s->mouse_dx == 0 && s->mouse_dy == 0 && s->mouse_dz == 0 &&
-        s->mouse_buttons == buttons_state)
+        s->mouse_buttons == buttons_state && !s->mouse_pending)
         return;
     s->mouse_buttons = buttons_state;
 
     if (!(s->mouse_status & MOUSE_STATUS_REMOTE)) {
         /* if not remote, send event. Multiple events are sent if
-           too big deltas, while there is room for them and 16 bytes
-           more (for replies to commands); what is left is sent with
-           the next event */
-        while (ps2_mouse_send_packet(s, 16)) {
+           too big deltas, while more than 16 places are free (they
+           are kept for replies to commands); what is left, a change
+           of buttons too, is sent with the next event */
+        for (;;) {
+            if (!ps2_mouse_send_packet(s, 16)) {
+                s->mouse_pending = 1;
+                break;
+            }
+            s->mouse_pending = 0;
             if (s->mouse_dx == 0 && s->mouse_dy == 0 && s->mouse_dz == 0)
                 break;
         }
