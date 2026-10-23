@@ -766,8 +766,36 @@ static u8 IRAM_ATTR load8(CPUI386 *cpu, OptAddr *res)
 	return pload8(cpu, addr);
 }
 
+/* An access of n bytes that runs on into the next page goes a byte at a time: each byte may be RAM, MMIO (VGA memory
+   from 0xa0000) or nothing, whatever the first one is. Byte i of it is at: */
+static inline uword byte_addr(OptAddr *res, int i)
+{
+	uword off = (res->addr1 & 0xfff) + i;
+	return res->res == ADDR_OK2 && off >= 0x1000 ? res->addr2 + (off - 0x1000) : res->addr1 + i;
+}
+#define CROSSES_PAGE(res, n) (((res)->addr1 & 0xfff) > 0x1000 - (n))
+static void IRAM_ATTR store8(CPUI386 *cpu, OptAddr *res, u8 val);
+static u32 load_bytes(CPUI386 *cpu, OptAddr *res, int n)
+{
+	u32 v = 0;
+	for (int i = 0; i < n; i++) {
+		OptAddr b = { ADDR_OK1, byte_addr(res, i), 0 };
+		v |= (u32) load8(cpu, &b) << (8 * i);
+	}
+	return v;
+}
+static void store_bytes(CPUI386 *cpu, OptAddr *res, int n, u32 val)
+{
+	for (int i = 0; i < n; i++) {
+		OptAddr b = { ADDR_OK1, byte_addr(res, i), 0 };
+		store8(cpu, &b, val >> (8 * i));
+	}
+}
+
 static u16 IRAM_ATTR load16(CPUI386 *cpu, OptAddr *res)
 {
+	if (unlikely(CROSSES_PAGE(res, 2)))
+		return load_bytes(cpu, res, 2);
 	if (in_iomem(res->addr1) && cpu->cb.iomem_read16)
 		return cpu->cb.iomem_read16(cpu->cb.iomem, res->addr1);
 	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
@@ -781,6 +809,8 @@ static u16 IRAM_ATTR load16(CPUI386 *cpu, OptAddr *res)
 
 static u32 IRAM_ATTR load32(CPUI386 *cpu, OptAddr *res)
 {
+	if (unlikely(CROSSES_PAGE(res, 4)))
+		return load_bytes(cpu, res, 4);
 	if (in_iomem(res->addr1) && cpu->cb.iomem_read32)
 		return cpu->cb.iomem_read32(cpu->cb.iomem, res->addr1);
 	if (unlikely(res->addr1 >= cpu->phys_mem_size)) {
@@ -818,6 +848,10 @@ static void IRAM_ATTR store8(CPUI386 *cpu, OptAddr *res, u8 val)
 
 static void IRAM_ATTR store16(CPUI386 *cpu, OptAddr *res, u16 val)
 {
+	if (unlikely(CROSSES_PAGE(res, 2))) {
+		store_bytes(cpu, res, 2, val);
+		return;
+	}
 	if (in_iomem(res->addr1) && cpu->cb.iomem_write16) {
 		cpu->cb.iomem_write16(cpu->cb.iomem, res->addr1, val);
 		return;
@@ -835,6 +869,10 @@ static void IRAM_ATTR store16(CPUI386 *cpu, OptAddr *res, u16 val)
 
 static void IRAM_ATTR store32(CPUI386 *cpu, OptAddr *res, u32 val)
 {
+	if (unlikely(CROSSES_PAGE(res, 4))) {
+		store_bytes(cpu, res, 4, val);
+		return;
+	}
 	if (in_iomem(res->addr1) && cpu->cb.iomem_write32) {
 		cpu->cb.iomem_write32(cpu->cb.iomem, res->addr1, val);
 		return;
