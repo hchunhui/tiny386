@@ -15,4 +15,7 @@ struct Globals {
 extern EventGroupHandle_t global_event_group;
 extern struct Globals globals;
 
+/* fatfs_image.c: hard disk images on the card through FatFs, mapped */
+void fatfs_image_set_volume(const char *path, int pdrv);
+
 #endif /* COMMON_H */

@@ -1895,8 +1895,18 @@ typedef enum {
 
 #define SECTOR_SIZE 512
 
+#ifdef BUILD_ESP32
+/* esp/main/fatfs_image.c: an image on the SD card through FatFs, with its
+   clusters mapped so that a seek does not walk the FAT */
+void *fatfs_image_open(const char *path, int writable);
+int fatfs_image_rw(void *h, uint64_t offset, void *buf, size_t len, int write);
+#endif
+
 typedef struct BlockDeviceFile {
     FILE *f;
+#ifdef BUILD_ESP32
+    void *mapped;       /* fatfs_image_open()'s, in place of f */
+#endif
     int start_offset;
     int cylinders, heads, sectors;
     int64_t nb_sectors;
@@ -1935,6 +1945,11 @@ static int bf_read_async(BlockDevice *bs,
         fprintf(f, "%" PRId64 " %d\n", sector_num, n);
     }
 #endif
+#ifdef BUILD_ESP32
+    if (bf->mapped)
+        return fatfs_image_rw(bf->mapped, bf->start_offset + sector_num * SECTOR_SIZE,
+                              buf, n * SECTOR_SIZE, 0);
+#endif
     if (!bf->f)
         return -1;
     if (bf->mode == BF_MODE_SNAPSHOT) {
@@ -1969,6 +1984,13 @@ static int bf_write_async(BlockDevice *bs,
         ret = -1; /* error */
         break;
     case BF_MODE_RW:
+#ifdef BUILD_ESP32
+        if (bf->mapped) {
+            ret = fatfs_image_rw(bf->mapped, bf->start_offset + sector_num * SECTOR_SIZE,
+                                 (void *) buf, n * SECTOR_SIZE, 1);
+            break;
+        }
+#endif
         fseeko(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, SEEK_SET);
         fwrite(buf, 1, n * SECTOR_SIZE, bf->f);
         ret = 0;
@@ -2058,6 +2080,17 @@ static BlockDevice *block_device_init(const char *filename,
     }
     bs->read_async = bf_read_async;
     bs->write_async = bf_write_async;
+#ifdef BUILD_ESP32
+    /* a hard disk image on the SD card: through FatFs with its clusters
+       mapped, if it can be (stdio stays if not) */
+    if (mode == BF_MODE_RW) {
+        bf->mapped = fatfs_image_open(filename, 1);
+        if (bf->mapped) {
+            fclose(f);
+            bf->f = NULL;
+        }
+    }
+#endif
     return bs;
 }
 
