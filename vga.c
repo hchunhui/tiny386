@@ -1115,13 +1115,36 @@ static void vga_graphic_refresh(VGAState *s,
         w = wx;
 #endif
     uint32_t plane_mask = s->ar[0x12];
+    bool vbe = vbe_enabled(s);
+    /* Horizontal pel panning (AR13h): each line begins this many pixels
+       further on.  The 256-colour modes count it in half pixels. */
+    int pan = 0;
+    if (!vbe)
+        pan = shift_control >= 2 ? (s->ar[0x13] >> 1) & 3 : s->ar[0x13] & 7;
+    /* The line compare (split screen): after this scan line the picture
+       goes on from the start of video memory, and without the panning if
+       AR10h bit 5 says so.  Where each row is drawn more than once (mode
+       13h and mode X draw every row twice) the split falls on the start of
+       a row, so that the rows below it are drawn as often as those above;
+       a split within the first row puts all of the picture below it.
+       Not in VBE modes, as on the Bochs VBE adapter: the BIOS's VBE mode
+       set leaves the register at 511. */
+    int line_compare = s->cr[0x18] | ((s->cr[0x07] & 0x10) << 4) |
+        ((s->cr[0x09] & 0x40) << 3);
+    if (vbe)
+        line_compare = 0xffff;
+    int split_after = (line_compare + 1) / (multi_scan + 1) * (multi_scan + 1) - 1;
+    if (split_after < 0) {
+        addr1 = 0;
+        if (s->ar[0x10] & 0x20)
+            pan = 0;
+    }
     /* how many bytes of video memory one line of the picture reads */
     uint32_t line_bytes;
     if (shift_control == 0 || shift_control == 1)
-        line_bytes = 4 * ((((w - 1) / xdiv) >> 3) + 1);
+        line_bytes = 4 * ((((w - 1) / xdiv + pan) >> 3) + 1);
     else
-        line_bytes = ((w - 1) / xdiv + 1) * ((bpp + 7) / 8);
-    bool vbe = vbe_enabled(s);
+        line_bytes = ((w - 1) / xdiv + pan + 1) * ((bpp + 7) / 8);
     for (int y = 0; y < h; y++) {
         uint32_t addr = addr1;
         if (!(s->cr[0x17] & 1)) {
@@ -1152,12 +1175,14 @@ static void vga_graphic_refresh(VGAState *s,
 
         uint32_t color_comp = 0;
         for (int x = x0; x < w; x++) {
-            int x1 = x / xdiv;
+            int x1 = x / xdiv + pan;
             uint32_t color;
             if (shift_control == 0) {
                 if (plane_mask == 1) {
                     if (s->comp_ntsc) {
-                        if (!(x1 & 3)) {
+                        /* a colour for every four pixels, from the first
+                           pixel of a panned line too */
+                        if (!(x1 & 3) || x == x0) {
                             int k = vram[addr + 4 * (x1 >> 3)];
                             if (!(x1 & 4))
                                 k >>= 4;
@@ -1281,6 +1306,13 @@ static void vga_graphic_refresh(VGAState *s,
             multi_run = multi_scan;
         } else {
             multi_run--;
+        }
+        if (y == split_after) {
+            addr1 = 0;
+            y1 = 0;
+            multi_run = multi_scan;
+            if (s->ar[0x10] & 0x20)
+                pan = 0;
         }
 #if defined(SCALE_3_2) || defined(SCALE_2_1) || defined(SWAPXY)
 #if defined(SCALE_2_1)
