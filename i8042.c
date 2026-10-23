@@ -482,8 +482,15 @@ void ps2_queue(void *opaque, int b)
     xSemaphoreTake(q->mutex, portMAX_DELAY);
 #endif
 
-    if (q->count >= PS2_QUEUE_SIZE)
+    if (q->count >= PS2_QUEUE_SIZE) {
+        /* full: the byte is lost, as on a real keyboard, but the queue
+           must not stay locked, or the next ps2_queue() or
+           ps2_read_data() waits for ever */
+#ifdef THREAD_SAFE
+        xSemaphoreGive(q->mutex);
+#endif
         return;
+    }
     q->data[q->wptr] = b;
     if (++q->wptr == PS2_QUEUE_SIZE)
         q->wptr = 0;
