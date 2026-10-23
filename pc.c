@@ -749,7 +749,8 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data,
 	char *mem = bigmalloc(conf->mem_size);
 	CPU_CB *cb = NULL;
 	memset(mem, 0, conf->mem_size);
-	pcmalloc_init(mem + 0xa0000, 0xc0000 - 0xa0000);
+	// guest writes below 0xa0000 may overwrite 0xa0000
+	pcmalloc_init(mem + 0xa0020, 0xc0000 - 0xa0020);
 	pc->cpu = cpu_new(conf->cpu_gen, mem, conf->mem_size, &cb);
 	if (conf->fpu)
 		cpu_enable_fpu(pc->cpu);
