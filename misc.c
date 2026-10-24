@@ -465,8 +465,10 @@ uint32_t emulink_status_read(void *s)
 }
 
 /* The guest's drive, cylinder, head, sector and count name sectors of an
-   image that is there: nothing outside fdd[], and no seek past the end of
-   the image, which a write would make longer. */
+   image that is there: nothing outside fdd[]; a first sector the disk has
+   (a sector number past the track's, or a head it lacks, is not found, as
+   on a real drive, rather than read from somewhere else); and no seek past
+   the end of the image, which a write would make longer. */
 static int emulink_range_ok(EMULINK *e)
 {
 	if (e->args[0] >= 2 || !e->fdd[e->args[0]])
@@ -475,9 +477,11 @@ static int emulink_range_ok(EMULINK *e)
 	int64_t c = e->args[1] >> 16;
 	int64_t h = (e->args[1] >> 8) & 0xff;
 	int64_t s = e->args[1] & 0xff;
+	if (c >= f->tracks || h >= f->heads || s < 1 || s > f->sectors)
+		return 0;
 	int64_t total = (int64_t) f->sectors * f->tracks * f->heads;
 	int64_t lba = (c * f->heads + h) * f->sectors + (s - 1);
-	return s >= 1 && lba + (int64_t) e->args[2] <= total;
+	return lba + (int64_t) e->args[2] <= total;
 }
 
 static void exec_cmd(EMULINK *e)
