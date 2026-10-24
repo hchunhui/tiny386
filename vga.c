@@ -756,7 +756,11 @@ static void vga_text_refresh(VGAState *s,
         }
     }
 
-    full_update = full_update || update_palette16(s, s->last_palette);
+    /* the palette every time: when a full redraw was due already it was
+       not looked at, so that redraw used the colours from before and the
+       next picture, finding them changed, was drawn in full again */
+    if (update_palette16(s, s->last_palette))
+        full_update = 1;
 
     vga_ram = s->vga_ram;
 
