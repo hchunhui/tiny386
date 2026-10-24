@@ -783,14 +783,20 @@ static void lba_to_msf(uint8_t *buf, int lba)
     buf[2] = lba % 75;
 }
 
-static void cpu_to_be32wu(uint32_t *o, uint32_t v)
+/* a byte at a time: the TOC's fields are at any address (the raw TOC's
+   lead-out at buf + 33), and these are big-endian on any host */
+static void cpu_to_be32wu(uint8_t *p, uint32_t v)
 {
-    *o = __builtin_bswap32(v);
+    p[0] = v >> 24;
+    p[1] = v >> 16;
+    p[2] = v >> 8;
+    p[3] = v;
 }
 
-static void cpu_to_be16wu(uint16_t *o, uint16_t v)
+static void cpu_to_be16wu(uint8_t *p, uint16_t v)
 {
-    *o = __builtin_bswap16(v);
+    p[0] = v >> 8;
+    p[1] = v;
 }
 
 /* same toc as bochs. Return -1 if error or the toc length */
@@ -816,7 +822,7 @@ static int cdrom_read_toc(int nb_sectors, uint8_t *buf, int msf, int start_track
             q += 3;
         } else {
             /* sector 0 */
-            cpu_to_be32wu((uint32_t *)q, 0);
+            cpu_to_be32wu(q, 0);
             q += 4;
         }
     }
@@ -830,11 +836,11 @@ static int cdrom_read_toc(int nb_sectors, uint8_t *buf, int msf, int start_track
         lba_to_msf(q, nb_sectors);
         q += 3;
     } else {
-        cpu_to_be32wu((uint32_t *)q, nb_sectors);
+        cpu_to_be32wu(q, nb_sectors);
         q += 4;
     }
     len = q - buf;
-    cpu_to_be16wu((uint16_t *)buf, len - 2);
+    cpu_to_be16wu(buf, len - 2);
     return len;
 }
 
@@ -884,7 +890,7 @@ static int cdrom_read_toc_raw(int nb_sectors, uint8_t *buf, int msf, int session
         lba_to_msf(q, nb_sectors);
         q += 3;
     } else {
-        cpu_to_be32wu((uint32_t *)q, nb_sectors);
+        cpu_to_be32wu(q, nb_sectors);
         q += 4;
     }
 
@@ -907,7 +913,7 @@ static int cdrom_read_toc_raw(int nb_sectors, uint8_t *buf, int msf, int session
     }
 
     len = q - buf;
-    cpu_to_be16wu((uint16_t *)buf, len - 2);
+    cpu_to_be16wu(buf, len - 2);
     return len;
 }
 
