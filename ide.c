@@ -783,14 +783,22 @@ static void lba_to_msf(uint8_t *buf, int lba)
     buf[2] = lba % 75;
 }
 
+/* a byte at a time: the TOC's fields are at any address (the raw TOC's
+   lead-out at buf + 33), and these are big-endian on any host */
 static void cpu_to_be32wu(uint32_t *o, uint32_t v)
 {
-    *o = __builtin_bswap32(v);
+    uint8_t *p = (uint8_t *) o;
+    p[0] = v >> 24;
+    p[1] = v >> 16;
+    p[2] = v >> 8;
+    p[3] = v;
 }
 
 static void cpu_to_be16wu(uint16_t *o, uint16_t v)
 {
-    *o = __builtin_bswap16(v);
+    uint8_t *p = (uint8_t *) o;
+    p[0] = v >> 8;
+    p[1] = v;
 }
 
 /* same toc as bochs. Return -1 if error or the toc length */
