@@ -569,6 +569,20 @@ static int pte_lookup[2][4][2][2] = { //[wp != 0][(pte >> 1) & 3][cpl > 0][rwm >
 	}
 };
 
+/* A page directory or page table entry tlb_refill() may load and store:
+   one in the guest's memory.  On the ESP32 port not in 0xA0000 to
+   0xBFFFF either, where pcmalloc() keeps the devices' state. */
+static inline bool pt_addr_ok(CPUI386 *cpu, uword addr)
+{
+	if (addr > (uword) (cpu->phys_mem_size - 4))
+		return false;
+#ifdef BUILD_ESP32
+	if (addr >= 0xa0000 && addr < 0xc0000)
+		return false;
+#endif
+	return true;
+}
+
 static bool IRAM_ATTR tlb_refill(CPUI386 *cpu, struct tlb_entry *ent, uword lpgno)
 {
 	if (unlikely(GET_LM_EFER(cpu))) {
@@ -584,13 +598,21 @@ static bool IRAM_ATTR tlb_refill(CPUI386 *cpu, struct tlb_entry *ent, uword lpgn
 	uword i = lpgno >> 10;
 	uword j = lpgno & 1023;
 
+	/* a directory or table outside the guest's memory (a bad CR3 or
+	   directory entry) is taken as not present: a page fault for the
+	   guest, not a load from, or accessed and dirty bits stored into,
+	   the host's memory past phys_mem */
 	u8 *mem = (u8 *) cpu->phys_mem;
+	if (unlikely(!pt_addr_ok(cpu, base_addr + i * 4)))
+		return false;
 	uword pde = pload32(cpu, base_addr + i * 4);
 	if (!(pde & 1))
 		return false;
 	mem[base_addr + i * 4] |= 1 << 5; // accessed
 
 	uword base_addr2 = pde & ~0xfff;
+	if (unlikely(!pt_addr_ok(cpu, base_addr2 + j * 4)))
+		return false;
 	uword pte = pload32(cpu, base_addr2 + j * 4);
 	if (!(pte & 1))
 		return false;
