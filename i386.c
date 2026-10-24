@@ -574,7 +574,8 @@ static int pte_lookup[2][4][2][2] = { //[wp != 0][(pte >> 1) & 3][cpl > 0][rwm >
    0xBFFFF either, where pcmalloc() keeps the devices' state. */
 static inline bool pt_addr_ok(CPUI386 *cpu, uword addr)
 {
-	if (addr > (uword) (cpu->phys_mem_size - 4))
+	/* at full width: phys_mem_size is a long, and may be 4 GiB or more */
+	if ((uint64_t) addr + 4 > (uint64_t) cpu->phys_mem_size)
 		return false;
 #ifdef BUILD_ESP32
 	if (addr >= 0xa0000 && addr < 0xc0000)
