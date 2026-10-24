@@ -24,6 +24,7 @@ idf_component_register(SRCS "esp_main.c"
 "sdmmc_crc_wrap.c"
 "i2s.c"
 "storage.c"
+"fatfs_image.c"
 "usb_hid.c"
 "usb_input.c"
 INCLUDE_DIRS "")
