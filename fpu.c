@@ -212,6 +212,49 @@ static void fppush(FPU *fpu, double val)
 	fpset(fpu, 0, val);
 }
 
+/* FILD m64 keeps the integer's exact 80 bits in rawst (as FRSTOR does), and FISTP m64 stores the integer from
+ * there while no instruction has written the register since: through a double (53 bits) 64-bit integers lost
+ * their low bits, and memory moved 8 bytes at a time with FILD/FISTP came out changed. */
+static void fppushi64(FPU *fpu, int64_t v)
+{
+	F80 r = { 0, 0, 0 };
+	if (v != 0) {
+		uint64_t m = v < 0 ? -(uint64_t) v : (uint64_t) v;
+		int lz = __builtin_clzll(m);
+		m <<= lz;
+		r.high = (v < 0 ? 0x8000 : 0) | (16383 + 63 - lz);
+		r.mant1 = m >> 32;
+		r.mant0 = m;
+	}
+	fpu->top = (fpu->top - 1) & 7;
+	fpu->rawst[fpu->top] = r;
+	fpu->rawtagr &= ~(1 << fpu->top);
+	fpu->rawtagw &= ~(1 << fpu->top);
+}
+
+static bool fpgeti64(FPU *fpu, int64_t *res)
+{
+	if (fpu->rawtagw & (1 << fpu->top))
+		return false;
+	F80 f = fpu->rawst[fpu->top];
+	int exp = f.high & 0x7fff, neg = f.high >> 15;
+	uint64_t m = (uint64_t) f.mant1 << 32 | f.mant0;
+	if (m == 0 && exp == 0) {
+		*res = 0;
+		return true;
+	}
+	if (!(m >> 63) || exp < 16383 || exp > 16383 + 63)
+		return false;
+	int shift = 16383 + 63 - exp;
+	if (shift && (m << (64 - shift)))	/* not an integer */
+		return false;
+	uint64_t u = m >> shift;
+	if (u >> 63 && (!neg || u != (uint64_t) 1 << 63))	/* beyond the range */
+		return false;
+	*res = neg ? (int64_t) -u : (int64_t) u;
+	return true;
+}
+
 static void fppop(FPU *fpu)
 {
 	fpu->top = (fpu->top + 1) & 7;
@@ -269,19 +312,6 @@ static bool fploadi32(void *cpu, int seg, uword addr, double *res)
 	if(!cpu_load32(cpu, seg, addr, &v))
 		return false;
 	*res = (s32) v;
-	return true;
-}
-
-static bool fploadi64(void *cpu, int seg, uword addr, double *res)
-{
-	u32 v1, v2;
-	if(!cpu_load32(cpu, seg, addr, &v1))
-		return false;
-	if(!cpu_load32(cpu, seg, addr + 4, &v2))
-		return false;
-	int64_t v = v2;
-	v = (v << 32) | v1;
-	*res = v;
 	return true;
 }
 
@@ -791,10 +821,10 @@ bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uwo
 			break;
 		}
 		case 5: { // FILD int64
-			if (!fploadi64(cpu, seg, addr, &a)) {
+			u32 lo, hi;
+			if (!cpu_load32(cpu, seg, addr, &lo) || !cpu_load32(cpu, seg, addr + 4, &hi))
 				return false;
-			}
-			fppush(fpu, a);
+			fppushi64(fpu, (int64_t) ((uint64_t) hi << 32 | lo));
 			break;
 		}
 		case 6: { // FBSTP
@@ -808,6 +838,13 @@ bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uwo
 			break;
 		}
 		case 7: { // FISTP int64
+			int64_t v;
+			if (fpgeti64(fpu, &v)) {
+				if (!cpu_store32(cpu, seg, addr, v) || !cpu_store32(cpu, seg, addr + 4, (uint64_t) v >> 32))
+					return false;
+				fppop(fpu);
+				break;
+			}
 			int rc = (fpu->cw >> 10) & 3;
 			a = fpget(fpu, 0);
 			a = fpround(a, rc);
