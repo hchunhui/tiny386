@@ -20,6 +20,8 @@ To assemble a complete PC system, we have ported many peripherals from TinyEMU a
 
 For firmware, the BIOS/VGABIOS comes from seabios. Tiny386 also supports booting linux kernel directly, without traditional BIOS. The idea comes from JSLinux, and it uses a small stub code called linuxstart.
 
+By default the directly booted kernel gets an 80x25 text console. With `vga=<mode>` in its command line (VESA mode number + 0x200, as with other boot loaders, e.g. `vga=0x303` for 800x600 with 256 colours, `0x314` with 16-bit colour, `0x305`/`0x317` for 1024x768), linuxstart sets that graphics mode and describes the linear frame buffer to the kernel, for its VESA frame buffer driver (`CONFIG_FB_VESA`, with `CONFIG_FRAMEBUFFER_CONSOLE` for a console). The mode has to fit the `[display]` size and `vga_mem_size`; otherwise text mode stays.
+
 Tiny386 now supports i686, MMX, SSE (up to SSSE3) and amd64 (64bit long mode only). As these features are optional, they may be safely disregarded if not required.
 
 ## Demo
