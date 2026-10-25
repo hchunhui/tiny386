@@ -255,6 +255,30 @@ static bool fpgeti64(FPU *fpu, int64_t *res)
 	return true;
 }
 
+static int swapbits(int v, int i, int j)
+{
+	if (((v >> i) ^ (v >> j)) & 1) {
+		return v ^ ((1 << i) | (1 << j));
+	}
+	return v;
+}
+
+static void fpxch(FPU *fpu, int i, int j)
+{
+	unsigned int ii = (fpu->top + i) & 7;
+	unsigned int jj = (fpu->top + j) & 7;
+	F80 f80;
+	double f64;
+	f80 = fpu->rawst[ii];
+	f64 = fpu->st[ii];
+	fpu->rawst[ii] = fpu->rawst[jj];
+	fpu->st[ii] = fpu->st[jj];
+	fpu->rawst[jj] = f80;
+	fpu->st[jj] = f64;
+	fpu->rawtagr = swapbits(fpu->rawtagr, ii, jj);
+	fpu->rawtagw = swapbits(fpu->rawtagw, ii, jj);
+}
+
 static void fppop(FPU *fpu)
 {
 	fpu->top = (fpu->top + 1) & 7;
@@ -919,10 +943,7 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 			fppush(fpu, temp);
 			break;
 		case 1: // FXCH
-			temp = fpget(fpu, i);
-			temp2 = fpget(fpu, 0);
-			fpset(fpu, i, temp2);
-			fpset(fpu, 0, temp);
+			fpxch(fpu, i, 0);
 			break;
 		case 2: // FNOP
 			break;
@@ -1180,16 +1201,13 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 		break;
 	}
 	case 5: {
-		double temp, temp2;
+		double temp;
 		switch (group) {
 		case 0: // FFREE
 			// tw
 			break;
 		case 1: // FXCH
-			temp = fpget(fpu, i);
-			temp2 = fpget(fpu, 0);
-			fpset(fpu, i, temp2);
-			fpset(fpu, 0, temp);
+			fpxch(fpu, i, 0);
 			break;
 		case 2: // FST
 			temp = fpget(fpu, 0);
@@ -1241,10 +1259,7 @@ bool fpu_exec1(FPU *fpu, void *cpu, int op, int group, unsigned int i)
 			fppop(fpu);
 			break;
 		case 1: { // FXCH
-			double temp = fpget(fpu, i);
-			double temp2 = fpget(fpu, 0);
-			fpset(fpu, i, temp2);
-			fpset(fpu, 0, temp);
+			fpxch(fpu, i, 0);
 			break;
 		}
 		case 2: // FSTP
