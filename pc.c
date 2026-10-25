@@ -716,9 +716,8 @@ static u64 iomem_read64(void *iomem, uword addr)
 
 static void iomem_write64(void *iomem, uword addr, u64 val)
 {
-	PC *pc = iomem;
-	vga_mem_write32(pc->vga, addr - 0xa0000, val);
-	vga_mem_write32(pc->vga, addr + 4 - 0xa0000, val >> 32);
+	iomem_write32(iomem, addr, val);
+	iomem_write32(iomem, addr + 4, val >> 32);
 }
 #endif
 
