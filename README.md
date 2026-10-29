@@ -39,6 +39,13 @@ To build with display and sound:
 
 For details, please refer to `.github/workflows/build.yml` and `Makefile`.
 
+`make USE_FAST=y` builds the CPU with a fast path (in `fast/`): common instructions run there, and the rest goes to the interpreter one instruction at a time. `make USE_FAST=pd` also decodes hot code once into blocks, which is faster but needs more memory. It's portable C (GCC/clang: computed goto) for little-endian hosts, as `i386.c`; on hosts without unaligned loads, build with `-DI386_ALIGNED_ONLY` as for `i386.c`. For the ESP32 build, compile `fast/fast.c` instead of `i386.c` with `-DUSE_FAST`.
+
+Options (`CFLAGS`):
+- `-DFAST_PD`: pre-decoding (`USE_FAST=pd`).
+- `-DFAST_PD_SIZE=<bytes>`: memory for decoded blocks, default 2 MB. Pre-decoding also needs RAM/32 bytes (RAM/16 on 64-bit hosts) for its tables. If any of it can't be allocated, the fast path runs without pre-decoding.
+- `-DFAST_VERIFY`: redo every instruction in the interpreter and compare (slow; for testing).
+
 Pre-built binaries: [here](https://github.com/hchunhui/tiny386/releases)
 
 ## Usage
