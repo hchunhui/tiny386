@@ -102,14 +102,14 @@ CFLAGS += ${CFLAGS_${ENABLE_CISO}}
 LIBS += ${LIBS_${ENABLE_CISO}}
 SRCS += ${SRCS_${ENABLE_CISO}}
 
-#USE_FAST = n/y/pd: a fast path in front of i386.c's interpreter (fast.c; with USE_AMD64 = n), pd: with pre-decoding
+#USE_FAST = n/y/pd: a fast path in front of i386.c's interpreter (fast/; with USE_AMD64 = n), pd: with pre-decoding
 USE_FAST = n
 CFLAGS_FAST_y = -DUSE_FAST
 CFLAGS_FAST_pd = -DUSE_FAST -DFAST_PD
 CFLAGS += ${CFLAGS_FAST_${USE_FAST}}
 SRCS_I386_n = i386.c
-SRCS_I386_y = fast.c
-SRCS_I386_pd = fast.c
+SRCS_I386_y = fast/fast.c
+SRCS_I386_pd = fast/fast.c
 
 #USE_AMD64 = n/y/full
 USE_AMD64 = n
@@ -154,8 +154,8 @@ OBJS = ${SRCS:.c=.o}
 
 all: show ${PROGS}
 
-# the CPU's object (i386.o, or fast.o built for y or pd) is rebuilt when USE_FAST changes, and the programs relinked
-i386.o fast.o: .fast-${USE_FAST}
+# the CPU's object (i386.o, or fast/fast.o built for y or pd) is rebuilt when USE_FAST changes, and the programs relinked
+i386.o fast/fast.o: .fast-${USE_FAST}
 .fast-${USE_FAST}:
 	@rm -f .fast-*
 	@touch $@
@@ -164,7 +164,7 @@ win32:
 	make -C . PLAT=win32
 
 clean:
-	rm -f ${OBJS} i386.o fast.o .fast-* amd64.o fpu.o amd64-comb.o i386-comb.o fpu-leg32.o i386-leg32.o .depends ${PROGS}
+	rm -f ${OBJS} i386.o fast/fast.o .fast-* amd64.o fpu.o amd64-comb.o i386-comb.o fpu-leg32.o i386-leg32.o .depends ${PROGS}
 
 show:
 	@echo CC = ${CC}

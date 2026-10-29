@@ -3,7 +3,7 @@
 #ifdef USE_FAST
 #define cpui386_step tiny386_step
 #define cpui386_reset tiny386_reset
-#include "i386.c"
+#include "../i386.c"
 #undef cpui386_step
 #undef cpui386_reset
 #include "fast.h"

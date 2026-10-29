@@ -545,7 +545,7 @@ typedef struct {
 	uword addr2;
 } OptAddr;
 
-static unsigned tlb_gen; /* counts TLB clears (fast.h keeps a TLB of its own) */
+static unsigned tlb_gen; /* counts TLB clears (fast/fast.h keeps a TLB of its own) */
 
 static void tlb_clear(CPUI386 *cpu)
 {

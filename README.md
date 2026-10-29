@@ -39,7 +39,7 @@ To build with display and sound:
 
 For details, please refer to `.github/workflows/build.yml` and `Makefile`.
 
-`make USE_FAST=y` builds the CPU with a fast path (`fast.c`, `fast*.h`): common instructions run there, and the rest goes to the interpreter one instruction at a time. `make USE_FAST=pd` also decodes hot code once into blocks, which is faster but needs more memory. It's portable C (GCC/clang: computed goto) for little-endian hosts, as `i386.c`; on hosts without unaligned loads, build with `-DI386_ALIGNED_ONLY` as for `i386.c`. For the ESP32 build, compile `fast.c` instead of `i386.c` with `-DUSE_FAST`.
+`make USE_FAST=y` builds the CPU with a fast path (in `fast/`): common instructions run there, and the rest goes to the interpreter one instruction at a time. `make USE_FAST=pd` also decodes hot code once into blocks, which is faster but needs more memory. It's portable C (GCC/clang: computed goto) for little-endian hosts, as `i386.c`; on hosts without unaligned loads, build with `-DI386_ALIGNED_ONLY` as for `i386.c`. For the ESP32 build, compile `fast/fast.c` instead of `i386.c` with `-DUSE_FAST`.
 
 Options (`CFLAGS`):
 - `-DFAST_PD`: pre-decoding (`USE_FAST=pd`).
