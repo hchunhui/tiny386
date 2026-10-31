@@ -557,7 +557,7 @@ static void tlb_clear(CPUI386 *cpu)
 	cpu->ifetch.paddr = 0;
 }
 
-static int pte_lookup[2][4][2][2] = { //[wp != 0][(pte >> 1) & 3][cpl > 0][rwm > 1]
+static int pte_lookup[2][4][2][2] = { //[wp != 0][(pte >> 1) & 3][cpl == 3][rwm > 1]
 	{ // wp == 0
 		{ {0, 0}, {1, 1} }, // s,r
 		{ {0, 0}, {1, 1} }, // s,w
@@ -619,18 +619,18 @@ static bool IRAM_ATTR translate_lpgno(CPUI386 *cpu, int rwm, uword lpgno, uword 
 			cpu->excerr = 0;
 			if (rwm & 2)
 				cpu->excerr |= 2;
-			if (cpl)
+			if (cpl == 3)
 				cpu->excerr |= 4;
 			return false;
 		}
 	}
-	if (ent->pte_lookup[cpl > 0][rwm > 1]) {
+	if (ent->pte_lookup[cpl == 3][rwm > 1]) {
 		cpu->cr2 = laddr;
 		cpu->excno = EX_PF;
 		cpu->excerr = 1;
 		if (rwm & 2)
 			cpu->excerr |= 2;
-		if (cpl)
+		if (cpl == 3)
 			cpu->excerr |= 4;
 		ent->lpgno = -1;
 		return false;
@@ -714,16 +714,16 @@ static bool IRAM_ATTR translate8r(CPUI386 *cpu, OptAddr *res, int seg, uword add
 				cpu->cr2 = laddr;
 				cpu->excno = EX_PF;
 				cpu->excerr = 0;
-				if (cpu->cpl)
+				if (cpu->cpl == 3)
 					cpu->excerr |= 4;
 				return false;
 			}
 		}
-		if (ent->pte_lookup[cpu->cpl > 0][0]) {
+		if (ent->pte_lookup[cpu->cpl == 3][0]) {
 			cpu->cr2 = laddr;
 			cpu->excno = EX_PF;
 			cpu->excerr = 1;
-			if (cpu->cpl)
+			if (cpu->cpl == 3)
 				cpu->excerr |= 4;
 			ent->lpgno = -1;
 			return false;
