@@ -1886,11 +1886,19 @@ void vbe_write(VGAState *s, uint32_t offset, uint32_t val)
             vbe_fixup_regs(s);
             vbe_update_vgaregs(s);
             break;
-        case VBE_DISPI_INDEX_BANK:
-            val &= (s->vga_ram_size >> 16) - 1;
+        case VBE_DISPI_INDEX_BANK: {
+            /* The 64 KiB window at A0000h over bank val.  With video
+               memory not a power of two in size (320K, 768K) a mask of
+               the number of banks less one puts some banks over others
+               (at 320K banks 1 to 3 over bank 0); the remainder keeps
+               every bank where it is, and is the same as the mask for a
+               power of two. */
+            uint32_t banks = (uint32_t) s->vga_ram_size >> 16;
+            val = banks ? val % banks : 0;
             s->vbe_regs[s->vbe_index] = val;
             s->bank_offset = (val << 16);
             break;
+        }
         }
     }
 }
