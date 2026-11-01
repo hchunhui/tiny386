@@ -1943,6 +1943,8 @@ static int bf_read_async(BlockDevice *bs,
 #endif
     if (!bf->f)
         return -1;
+    if (sector_num + n > (uint64_t) bf->nb_sectors)
+        return -1;
     if (bf->mode == BF_MODE_SNAPSHOT) {
         int i;
         for(i = 0; i < n; i++) {
@@ -1970,6 +1972,8 @@ static int bf_write_async(BlockDevice *bs,
     BlockDeviceFile *bf = bs->opaque;
     int ret;
 
+    if (sector_num + n > (uint64_t) bf->nb_sectors)
+        return -1;
     switch(bf->mode) {
     case BF_MODE_RO:
         ret = -1; /* error */
@@ -1982,8 +1986,6 @@ static int bf_write_async(BlockDevice *bs,
     case BF_MODE_SNAPSHOT:
         {
             int i;
-            if ((sector_num + n) > bf->nb_sectors)
-                return -1;
             for(i = 0; i < n; i++) {
                 if (!bf->sector_table[sector_num]) {
                     bf->sector_table[sector_num] = pcmalloc(SECTOR_SIZE);
