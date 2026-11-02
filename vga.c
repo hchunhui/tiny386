@@ -1029,7 +1029,7 @@ static void vga_text_refresh(VGAState *s,
                     fgcol = textcol;
                 }
                 dup9 = 0;
-                if (cwidth == 9 && ch >= 0xb0 && ch <= 0xdf && (s->ar[0x10] & 0x04))
+                if (cwidth == 9 && ch >= 0xc0 && ch <= 0xdf && (s->ar[0x10] & 0x04))
                     dup9 = 1;
                 vga_draw_cell(dst, stride, font_ptr + 4 * first, last - first,
                               fgcol, bgcol, cwidth, dup9, dw);
