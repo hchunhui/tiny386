@@ -4648,7 +4648,7 @@ static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 		saddr16(&meml1, cpu->flags);
 		saddr16(&meml2, cpu->seg[SEG_CS].sel);
 		saddr16(&meml3, cpu->ip);
-		sreg32(4, (sp - 2 * 3) & sp_mask);
+		set_sp(sp - 2 * 3, sp_mask);
 
 		TRY1(set_seg(cpu, SEG_CS, newcs));
 		cpu->next_ip = newip;
