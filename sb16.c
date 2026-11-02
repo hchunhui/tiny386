@@ -1192,15 +1192,6 @@ static int write_audio (SB16State *s, int nchan, int dma_pos,
         int copied;
         size_t to_copy;
 
-        to_copy = temp;
-        if (left < temp)
-            to_copy = left;
-        if (to_copy > sizeof (tmpbuf)) {
-            to_copy = sizeof (tmpbuf);
-        }
-
-        copied = i8257_dma_read_memory(isa_dma, nchan, tmpbuf, dma_pos, to_copy);
-
         unsigned int limit = AUDIO_BUF_LIMIT;
         if (s->freq >= 44100 && s->fmt >= 2)
             limit = AUDIO_BUF_LIMIT_HIGH;
@@ -1209,6 +1200,19 @@ static int write_audio (SB16State *s, int nchan, int dma_pos,
         unsigned int len = limit - (s->audio_q - s->audio_p);
         if (len > AUDIO_BUF_LEN)
             len = 0;
+
+        to_copy = temp;
+        if (left < temp)
+            to_copy = left;
+        if (to_copy > sizeof (tmpbuf)) {
+            to_copy = sizeof (tmpbuf);
+        }
+        if (to_copy > len)   /* only what the buffer has room for */
+            to_copy = len;
+        if (!to_copy)
+            break;
+
+        copied = i8257_dma_read_memory(isa_dma, nchan, tmpbuf, dma_pos, to_copy);
         if (copied < len)
             len = copied;
         if (len) {
