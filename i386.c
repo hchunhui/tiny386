@@ -3480,7 +3480,7 @@ noinline static void __AAM_helper(CPUI386 *cpu, u8 i)
 	cpu->cc.dst = sext8(res); \
 	cpu->cc.mask = ZF | SF | PF;
 }
-#define AAM(i, li, _) __AAM_helper(cpu, li(i));
+#define AAM(i, li, _) if (li(i) == 0) THROW0(EX_DE); __AAM_helper(cpu, li(i));
 
 #define SALC() \
 	if (get_CF(cpu)) sreg8(0, 0xff); else sreg8(0, 0x00);
