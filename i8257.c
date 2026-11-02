@@ -414,16 +414,12 @@ int i8257_dma_read_memory(IsaDma *obj, int nchan, void *buf, int pos,
 
     uint8_t *p = buf;
     if (r->mode & 0x20) {
-        for (hwaddr i = 0;
-             addr - pos - len + i < d->phys_mem_size && i < len;
-             i++) {
-            p[i] = d->phys_mem[addr - pos - len + i];
-        }
-        //cpu_physical_memory_read (d->phys_mem + addr - pos - len, buf, len);
-        /* What about 16bit transfers? */
-        for (int i = 0; i < len >> 1; i++) {
-            uint8_t b = p[len - i - 1];
-            p[i] = b;
+        /* decrement mode: the controller fetches from the current address
+           downwards, so byte i is at addr - pos - i */
+        for (int i = 0; i < len; i++) {
+            hwaddr a = addr - pos - i;
+            if (a < d->phys_mem_size)
+                p[i] = d->phys_mem[a];
         }
     } else {
         for (hwaddr i = 0;
@@ -450,16 +446,11 @@ int i8257_dma_write_memory(IsaDma *obj, int nchan, void *buf, int pos,
 
     uint8_t *p = buf;
     if (r->mode & 0x20) {
-        for (hwaddr i = 0;
-             addr - pos - len + i < s->phys_mem_size && i < len;
-             i++) {
-            s->phys_mem[addr - pos - len + i] = p[i];
-        }
-        //cpu_physical_memory_write (addr - pos - len, buf, len);
-        /* What about 16bit transfers? */
+        /* decrement mode: byte i goes to addr - pos - i (see the read) */
         for (int i = 0; i < len; i++) {
-            uint8_t b = p[len - i - 1];
-            p[i] = b;
+            hwaddr a = addr - pos - i;
+            if (a < s->phys_mem_size)
+                s->phys_mem[a] = p[i];
         }
     } else {
         for (hwaddr i = 0;
