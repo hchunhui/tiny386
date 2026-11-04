@@ -416,7 +416,7 @@ static bool fast_exec(CPUI386 *cpu, int stepcount)
 	const bool pd_on = stepcount > PD_MAX && pd_init(cpu);
 	pd_ep++;                      /* devices may have written code since */
 #define PD_UNCALL do { if (pd_call) { pd_call = false; steps += pd_saved; } } while (0)
-#define PD_GO_ON (!cpu->halt && (cpu->flags & VM) == vm0 && !(cpu->intr && (cpu->flags & IF)))
+#define PD_GO_ON (!cpu->halt && (cpu->flags & VM) == vm0 && !(cpu->intr && (cpu->flags & IF)) && !(cpu->flags & TF))
 #define PD_ENTER do { if (pd_on) goto pd_enter; } while (0)
 #define PD_JUMPED do { if (pd_on) goto pd_jumped; } while (0)
 #else
@@ -504,7 +504,7 @@ static bool fast_exec(CPUI386 *cpu, int stepcount)
 		if (!(call)) goto fault; \
 		ftlb_check(cpu); \
 		eip = cpu->next_ip; \
-		if ((cpu->flags & VM) != vm0 || (cpu->intr && (cpu->flags & IF))) { FV_END(eip); goto out_ip; } \
+		if ((cpu->flags & VM) != vm0 || (cpu->intr && (cpu->flags & IF)) || (cpu->flags & TF)) { FV_END(eip); goto out_ip; } \
 		RELOAD; \
 	} while (0)
 	/* code window around eip, or the instruction goes to tiny386 */
@@ -640,7 +640,8 @@ slow_eip:
 		ftlb_check(cpu);
 	}
 	/* cpu_exec1 counted it: into nslow only with its step, or FAST_COUNT leaves it out twice when stopping here */
-	if (cpu->halt || (cpu->flags & VM) != vm0 || (cpu->intr && (cpu->flags & IF)) || (nslow++, --steps < 0)) {
+	if (cpu->halt || (cpu->flags & VM) != vm0 || (cpu->intr && (cpu->flags & IF)) || (cpu->flags & TF) ||
+	    (nslow++, --steps < 0)) {
 #ifdef FAST_PD
 		if (pd_call) {   /* pd_classic's instruction, by tiny386 */
 			PD_UNCALL;
@@ -691,19 +692,15 @@ void cpui386_step(CPUI386 *cpu, int stepcount)
 		return;
 	}
 
+	if (cpu->flags & TF) {   /* single steps, by tiny386 (fast_exec stops when an instruction sets TF) */
+		cpu_trace_step(cpu);
+		return;
+	}
+
 	if (cpu != ftlb_cpu || cpu->phys_mem != ftlb_mem)
 		ftlb_cr0 = -1;   /* another CPU or RAM: flush */
 	int ret = fast_exec(cpu, stepcount);
 	cpu->ifetch.paddr = 0;
-	if (!ret) {
-		bool pusherr = false;
-		switch (cpu->excno) {
-		case EX_DF: case EX_TS: case EX_NP: case EX_SS: case EX_GP:
-		case EX_PF:
-			pusherr = true;
-		}
-		cpu->next_ip = cpu->ip;
-
-		TRY1(call_isr(cpu, cpu->excno, pusherr, 1));
-	}
+	if (!ret)
+		cpu_exception(cpu);
 }

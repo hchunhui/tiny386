@@ -365,8 +365,8 @@ FL(op_popf): {
 	cpu->flags &= EFLAGS_MASK;
 	cpu->flags |= 0x2;
 	cpu->cc.mask = 0;
-	if (cpu->intr && (cpu->flags & IF)) {   // take the interrupt now, as tiny386
-		FV_END(EIP_OF(pc));
+	if ((cpu->intr && (cpu->flags & IF)) || (cpu->flags & TF)) {   // take the interrupt now, as tiny386 (or
+		FV_END(EIP_OF(pc));                                         // single steps from here: cpui386_step)
 		goto out;
 	}
 	NEXT; }
@@ -573,8 +573,8 @@ FL(op_iret): {   // protected mode by pmret
 	LOAD_CS(sel);
 	cpu->cc.mask = 0;
 	SP_ADD(6);
-	if (cpu->intr && (cpu->flags & IF)) {   // take the interrupt now, as tiny386
-		FV_END(eip);
+	if ((cpu->intr && (cpu->flags & IF)) || (cpu->flags & TF)) {   // take the interrupt now, as tiny386 (or
+		FV_END(eip);                                                // single steps from here: cpui386_step)
 		cpu->next_ip = eip;
 		goto out_ip;
 	}
