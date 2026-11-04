@@ -473,6 +473,7 @@ struct PS2MouseState {
     int mouse_dz;
     uint8_t mouse_buttons;
     uint8_t mouse_pending; /* a packet found no room: send with the next event */
+    uint32_t last_report; /* get_uticks() at the last packet sent */
 };
 
 void ps2_queue(void *opaque, int b)
@@ -904,21 +905,33 @@ void ps2_mouse_event(PS2MouseState *s,
     if (s->mouse_dx == 0 && s->mouse_dy == 0 && s->mouse_dz == 0 &&
         s->mouse_buttons == buttons_state && !s->mouse_pending)
         return;
+    int changed = s->mouse_buttons != buttons_state;
     s->mouse_buttons = buttons_state;
 
-    if (!(s->mouse_status & MOUSE_STATUS_REMOTE)) {
-        /* if not remote, send event. Multiple events are sent if
-           too big deltas, while more than 16 places are free (they
-           are kept for replies to commands); what is left, a change
-           of buttons too, is sent with the next event */
-        for (;;) {
-            if (!ps2_mouse_send_packet(s, 16)) {
-                s->mouse_pending = 1;
-                break;
-            }
+    /* As a mouse reports at its sample rate and adds up what it moved
+       meanwhile: a packet only when the last has been read and the rate
+       the guest set allows it (a tenth early, as events come at the host's
+       pace), or for a change of buttons; the rest kept for the next event.
+       A guest that reads slowly then gets the movement late, not a queue
+       of old packets. The rate matters to Windows 3.1: it asks for 40 a
+       second, and its 386 enhanced mode holds 32 bytes for the System VM;
+       at 30, it drops the last byte of one packet and the first two of
+       the next, so the VM gets one packet's status with the next's Y,
+       whose sign is then the other's: the pointer leapt up or down the
+       screen while the mouse moved sideways. More than 16 places are kept
+       free for replies to commands: a packet that found no room, a change
+       of buttons too, is sent with the next event. */
+    uint32_t now = get_uticks();
+    int rate = s->mouse_sample_rate ? s->mouse_sample_rate : 100;
+    if (!(s->mouse_status & MOUSE_STATUS_REMOTE) &&
+        ((s->common.queue.count == 0 &&
+          now - s->last_report >= 900000u / rate) ||
+         changed || s->mouse_pending)) {
+        if (ps2_mouse_send_packet(s, 16)) {
             s->mouse_pending = 0;
-            if (s->mouse_dx == 0 && s->mouse_dy == 0 && s->mouse_dz == 0)
-                break;
+            s->last_report = now;
+        } else {
+            s->mouse_pending = 1;
         }
     }
 }
