@@ -2328,8 +2328,27 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 #define IRET() \
 	if ((cpu->cr0 & 1) && (!(cpu->flags & VM) || get_IOPL(cpu) < 3)) { \
 		TRY(pmret(cpu, opsz16, 0, true)); \
+	} else if (!opsz16) { \
+		/* IRETD in real mode (V86 too): EIP, CS in a 32-bit slot, EFLAGS; real mode keeps VM, VIF and VIP, V86 IOPL \
+		   as well (the 386 manual's IRET) */ \
+		OptAddr meml1, meml2, meml3; \
+		uword sp = lreg32(4); \
+		/* ip */ TRY(translate32(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
+		uword newip = laddr32(&meml1); \
+		/* cs */ TRY(translate32(cpu, &meml2, 1, SEG_SS, (sp + 4) & sp_mask)); \
+		int newcs = laddr32(&meml2) & 0xffff; \
+		/* flags */ TRY(translate32(cpu, &meml3, 1, SEG_SS, (sp + 8) & sp_mask)); \
+		uword newflags = laddr32(&meml3); \
+		uword oldflags = cpu->flags; \
+		if (cpu->flags & VM) cpu->flags = (newflags & ~(IOPL | VM | 0x180000)) | (cpu->flags & (IOPL | VM | 0x180000)); \
+		else cpu->flags = (newflags & 0x257fd5) | (cpu->flags & 0x1a0000); \
+		cpu->flags &= EFLAGS_MASK; \
+		cpu->flags |= 0x2; \
+		if (!set_seg(cpu, SEG_CS, newcs)) { cpu->flags = oldflags; return false; } \
+		cpu->cc.mask = 0; \
+		set_sp(sp + 12, sp_mask); \
+		cpu->next_ip = newip; \
 	} else { \
-		if (!opsz16) cpu_abort(cpu, -201); \
 		OptAddr meml1, meml2, meml3; \
 		uword sp = lreg32(4); \
 		/* ip */ TRY(translate16(cpu, &meml1, 1, SEG_SS, sp & sp_mask)); \
