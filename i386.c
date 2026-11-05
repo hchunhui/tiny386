@@ -5124,6 +5124,14 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 	return true;
 }
 
+/* a triple fault: an interrupt or exception that could not be delivered shuts the 386 down, and a PC's chipset then
+   resets it: port 92h's fast reset, the CPU halted till then */
+static void cpu_shutdown(CPUI386 *cpu)
+{
+	cpu->halt = true;
+	cpu->cb.io_write8(cpu->cb.io, 0x92, cpu->cb.io_read8(cpu->cb.io, 0x92) | 1);
+}
+
 void cpui386_step(CPUI386 *cpu, int stepcount)
 {
 	if ((cpu->flags & IF) && cpu->intr) {
@@ -5131,7 +5139,7 @@ void cpui386_step(CPUI386 *cpu, int stepcount)
 		cpu->halt = false;
 		int no = cpu->cb.pic_read_irq(cpu->cb.pic);
 		cpu->ip = cpu->next_ip;
-		TRY1(call_isr(cpu, no, false, 1));
+		if (!call_isr(cpu, no, false, 1)) { cpu_shutdown(cpu); return; }
 	}
 
 	if (cpu->halt) {
@@ -5154,7 +5162,7 @@ void cpui386_step(CPUI386 *cpu, int stepcount)
 		}
 		cpu->next_ip = cpu->ip;
 
-		TRY1(call_isr(cpu, cpu->excno, pusherr, 1));
+		if (!call_isr(cpu, cpu->excno, pusherr, 1)) cpu_shutdown(cpu);
 	}
 }
 
