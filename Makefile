@@ -146,7 +146,7 @@ OBJS = ${SRCS:.c=.o}
 
 -include config.mk
 
-.PHONY: all clean dep prepare show
+.PHONY: all clean dep prepare show test
 .SUFFIXES: .c
 .c.o:
 	@/bin/echo -e " \e[1;32mCC\e[0m\t\e[1;37m$<\e[0m \e[1;32m->\e[0m \e[1;37m$@\e[0m"
@@ -164,7 +164,7 @@ win32:
 	make -C . PLAT=win32
 
 clean:
-	rm -f ${OBJS} i386.o fast/fast.o .fast-* amd64.o fpu.o amd64-comb.o i386-comb.o fpu-leg32.o i386-leg32.o .depends ${PROGS}
+	rm -f ${OBJS} i386.o fast/fast.o .fast-* amd64.o fpu.o amd64-comb.o i386-comb.o fpu-leg32.o i386-leg32.o .depends ${PROGS} ${TESTS}
 
 show:
 	@echo CC = ${CC}
@@ -230,6 +230,17 @@ wifikbd${SUFF_RAWDRAW}: rawdraw/wifikbd.c win32.c vgafont.o ${SRCS_GLIBC_FIX}
 initnet: tools/initnet.c ${SRCS_GLIBC_FIX}
 	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
 	${Q}${CC} ${CFLAGS_GLIBC_FIX} -o $@ $^$> ${LIBS_GLIBC_FIX}
+
+# tests/: programs that run the CPU through i386.h. They are built from the
+# interpreter (i386.c) whatever USE_FAST and USE_AMD64 are set to.
+TESTS = tests/rep_irq
+
+test: ${TESTS}
+	@for t in ${TESTS}; do ./$$t || exit 1; done
+
+tests/%: tests/%.c i386.c i386.h fpu.c fpu.h
+	@/bin/echo -e " \e[1;32mCCLD\e[0m\t\e[1;32m->\e[0m \e[1;37m$@\e[0m"
+	${Q}${CC} -I . -Wall -O2 -DI386_ENABLE_FPU -o $@ $< i386.c fpu.c -lm
 
 .depends: ${SRCS}
 	@/bin/echo -e " \e[1;32mDEP\e[0m\t\e[1;37m$^$>\e[0m \e[1;32m->\e[0m \e[1;37m$@\e[0m"
