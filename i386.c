@@ -2312,6 +2312,7 @@ noinline void IRAM_ATTR try_jcc8(CPUI386 *cpu)
 	}
 
 static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
+static bool cpu_isr_called;	/* call_isr ran: in a traced instruction, an INT or the like (cpu_trace_step) */
 
 #define INT(i, li, _) \
 	/*dolog("int %02x %08x %04x:%08x\n", li(i), REGi[0], SEGi(SEG_CS), cpu->ip);*/ \
@@ -2366,7 +2367,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		set_sp(sp + 6, sp_mask); \
 		cpu->next_ip = newip; \
 	} \
-	if (cpu->intr && (cpu->flags & IF)) return true;
+	if ((cpu->intr && (cpu->flags & IF)) || (cpu->flags & TF)) return true;   /* (TF: single steps, cpui386_step) */
 
 #define RETFARw(i, li, _) \
 	if ((cpu->cr0 & 1) && !(cpu->flags & VM)) { \
@@ -2554,7 +2555,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	cpu->flags &= EFLAGS_MASK; \
 	cpu->flags |= 0x2; \
 	cpu->cc.mask = 0; \
-	if (cpu->intr && (cpu->flags & IF)) return true;
+	if ((cpu->intr && (cpu->flags & IF)) || (cpu->flags & TF)) return true;   /* (TF: single steps, cpui386_step) */
 
 #define PUSHSeg(seg) \
 	if (opsz16) { \
@@ -4646,6 +4647,7 @@ static int __call_isr_check_cs(CPUI386 *cpu, int sel, int ext, int *csdpl)
 
 static bool IRAM_ATTR call_isr(CPUI386 *cpu, int no, bool pusherr, int ext)
 {
+	cpu_isr_called = true;
 	if (!(cpu->cr0 & 1)) {
 		/* REAL-ADDRESS-MODE */
 		uword sp_mask = cpu->seg[SEG_SS].flags & SEG_B_BIT ? 0xffffffff : 0xffff;
@@ -5143,6 +5145,44 @@ static bool pmret(CPUI386 *cpu, bool opsz16, int off, bool isiret)
 	return true;
 }
 
+/* the exception cpu_exec1 stopped at (cpu->excno), taken */
+static void cpu_exception(CPUI386 *cpu)
+{
+#ifdef AMD64_ENABLE_LEG32
+	if (cpu->excno == 0x8664)
+		return;
+#endif
+	bool pusherr = false;
+	switch (cpu->excno) {
+	case EX_DF: case EX_TS: case EX_NP: case EX_SS: case EX_GP:
+	case EX_PF:
+		pusherr = true;
+	}
+	cpu->next_ip = cpu->ip;
+
+	TRY1(call_isr(cpu, cpu->excno, pusherr, 1));
+}
+
+/* TF set: one instruction, then the single-step trap (INT 1) with the next
+   one's address, as a debugger uses it, and as programs of the time did to
+   decrypt their code an instruction at a time in their own INT 1 handler
+   (Lemmings' loader: without the trap it ran into code still encrypted).
+   None after an instruction that faulted (its exception is taken instead)
+   or that called an interrupt handler (traps are dropped in the new
+   context, its IRET bringing TF back), as Intel's manual and Bochs have it. */
+static void cpu_trace_step(CPUI386 *cpu)
+{
+	cpu_isr_called = false;
+	bool ok = cpu_exec1(cpu, 1);
+	cpu->ifetch.paddr = 0;
+	if (!ok) {
+		cpu_exception(cpu);
+	} else if (!cpu_isr_called) {
+		cpu->ip = cpu->next_ip;
+		TRY1(call_isr(cpu, EX_DB, false, 1));
+	}
+}
+
 void cpui386_step(CPUI386 *cpu, int stepcount)
 {
 	if ((cpu->flags & IF) && cpu->intr) {
@@ -5158,23 +5198,15 @@ void cpui386_step(CPUI386 *cpu, int stepcount)
 		return;
 	}
 
+	if (cpu->flags & TF) {
+		cpu_trace_step(cpu);
+		return;
+	}
+
 	int ret = cpu_exec1(cpu, stepcount);
 	cpu->ifetch.paddr = 0;
-	if (!ret) {
-#ifdef AMD64_ENABLE_LEG32
-		if (cpu->excno == 0x8664)
-			return;
-#endif
-		bool pusherr = false;
-		switch (cpu->excno) {
-		case EX_DF: case EX_TS: case EX_NP: case EX_SS: case EX_GP:
-		case EX_PF:
-			pusherr = true;
-		}
-		cpu->next_ip = cpu->ip;
-
-		TRY1(call_isr(cpu, cpu->excno, pusherr, 1));
-	}
+	if (!ret)
+		cpu_exception(cpu);
 }
 
 void cpu_setax(CPUI386 *cpu, u16 ax)
