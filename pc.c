@@ -889,17 +889,27 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data,
 
 void mixer_callback (void *opaque, uint8_t *stream, int free)
 {
-	uint8_t tmpbuf[MIXER_BUF_LEN];
 	PC *pc = opaque;
 	assert(free / 2 <= MIXER_BUF_LEN);
+#ifdef USE_NUKED_OPL3
+	uint8_t tmpbuf[MIXER_BUF_LEN * 2];
+	memset(tmpbuf, 0, MIXER_BUF_LEN * 2);
+	adlib_callback(pc->adlib, tmpbuf, free); // s16, stereo
+#else
+	uint8_t tmpbuf[MIXER_BUF_LEN];
 	memset(tmpbuf, 0, MIXER_BUF_LEN);
 	adlib_callback(pc->adlib, tmpbuf, free / 2); // s16, mono
+#endif
 	sb16_audio_callback(pc->sb16, stream, free); // s16, stereo
 
 	int16_t *d2 = (int16_t *) stream;
 	int16_t *d1 = (int16_t *) tmpbuf;
 	for (int i = 0; i < free / 2; i++) {
+#ifdef USE_NUKED_OPL3
+		int res = d2[i] + d1[i] * 2;
+#else
 		int res = d2[i] + d1[i / 2];
+#endif
 		if (res > 32767) res = 32767;
 		if (res < -32768) res = -32768;
 		d2[i] = res;
