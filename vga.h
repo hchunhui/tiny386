@@ -15,6 +15,10 @@ VGAState *vga_init(char *vga_ram, int vga_ram_size,
 void vga_set_force_8dm(VGAState *s, int v);
 
 int vga_step(VGAState *vga);
+/* In a build with BPP 16 and VGA_STORE_CHANGED: 0 draws the 16-colour modes
+   pixel by pixel like every other mode, 1 (which it starts as) the quick
+   way.  See vga_graphic_refresh(). */
+extern int vga_planar_fast;
 void vga_refresh(VGAState *s,
                  SimpleFBDrawFunc *redraw_func, void *opaque, int full_update);
 
