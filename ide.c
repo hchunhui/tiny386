@@ -1927,6 +1927,36 @@ static int bf_get_chs(BlockDevice *bs, int *cylinders, int *heads, int *sectors)
 
 //#define DUMP_BLOCK_READ
 
+/* Reading and writing an image file. On the ESP32 through read() and write(): with ESP-IDF 5.x's
+   stdio, an fread or fwrite reaches FatFs in small pieces (BUFSIZ is 128), and on an SD card the
+   sectors of a request then become card commands of their own. */
+#ifdef BUILD_ESP32
+#include <unistd.h>
+static void bf_pread(FILE *f, int64_t pos, void *buf, size_t len)
+{
+    lseek(fileno(f), pos, SEEK_SET);
+    read(fileno(f), buf, len);
+}
+
+static void bf_pwrite(FILE *f, int64_t pos, const void *buf, size_t len)
+{
+    lseek(fileno(f), pos, SEEK_SET);
+    write(fileno(f), buf, len);
+}
+#else
+static void bf_pread(FILE *f, int64_t pos, void *buf, size_t len)
+{
+    fseeko(f, pos, SEEK_SET);
+    fread(buf, 1, len, f);
+}
+
+static void bf_pwrite(FILE *f, int64_t pos, const void *buf, size_t len)
+{
+    fseeko(f, pos, SEEK_SET);
+    fwrite(buf, 1, len, f);
+}
+#endif
+
 static int bf_read_async(BlockDevice *bs,
                          uint64_t sector_num, uint8_t *buf, int n,
                          BlockDeviceCompletionFunc *cb, void *opaque)
@@ -1947,8 +1977,7 @@ static int bf_read_async(BlockDevice *bs,
         int i;
         for(i = 0; i < n; i++) {
             if (!bf->sector_table[sector_num]) {
-                fseeko(bf->f, sector_num * SECTOR_SIZE, SEEK_SET);
-                fread(buf, 1, SECTOR_SIZE, bf->f);
+                bf_pread(bf->f, sector_num * SECTOR_SIZE, buf, SECTOR_SIZE);
             } else {
                 memcpy(buf, bf->sector_table[sector_num], SECTOR_SIZE);
             }
@@ -1956,8 +1985,7 @@ static int bf_read_async(BlockDevice *bs,
             buf += SECTOR_SIZE;
         }
     } else {
-        fseeko(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, SEEK_SET);
-        fread(buf, 1, n * SECTOR_SIZE, bf->f);
+        bf_pread(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, buf, n * SECTOR_SIZE);
     }
     /* synchronous read */
     return 0;
@@ -1975,8 +2003,7 @@ static int bf_write_async(BlockDevice *bs,
         ret = -1; /* error */
         break;
     case BF_MODE_RW:
-        fseeko(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, SEEK_SET);
-        fwrite(buf, 1, n * SECTOR_SIZE, bf->f);
+        bf_pwrite(bf->f, bf->start_offset + sector_num * SECTOR_SIZE, buf, n * SECTOR_SIZE);
         ret = 0;
         break;
     case BF_MODE_SNAPSHOT:
