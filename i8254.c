@@ -294,6 +294,18 @@ void i8254_update_irq(PITState *pit)
 	case 3:
 		if (s->last_irq_count + s->count - d >= 0x80000000) {
 			if (s->irq != -1) {
+				/* Periods that ended while the emulator was held up
+				   (a slow disk, a long log line) are dropped, and
+				   one interrupt is raised for them: a real 8259
+				   holds one request, and ticks the processor was too
+				   busy to take are lost.  Raised one after another,
+				   one each step, they nest in the guest's timer
+				   handler; Windows 95's VMM takes them so until its
+				   ring 0 stack runs off its page.  last_irq_count is
+				   a whole number of periods from the load, so the
+				   next interrupt stays in step with the counter. */
+				if (d - s->last_irq_count >= 2 * s->count)
+					s->last_irq_count = d - d % s->count - s->count;
 				pit->set_irq(pit->pic, s->irq, 1);
 				pit->set_irq(pit->pic, s->irq, 0);
 				s->last_irq_count += s->count;
