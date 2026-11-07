@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <inttypes.h>
+#include <unistd.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -64,11 +65,16 @@ int load_rom(void *phys_mem, const char *file, uword addr, int backward)
 		fseek(fp, 0, SEEK_END);
 		int len = ftell(fp);
 		fprintf(stderr, "%s len %d\n", file, len);
-		rewind(fp);
-		if (backward)
-			fread(phys_mem + addr - len, 1, len, fp);
-		else
-			fread(phys_mem + addr, 1, len, fp);
+		/* read(), not fread: with ESP-IDF 5.x's stdio a big fread reaches FatFs in small pieces
+		   (a 2.9 MB kernel from an SD card took 2.1 s instead of 0.2 s) */
+		uint8_t *dst = (uint8_t *) phys_mem + addr - (backward ? len : 0);
+		lseek(fileno(fp), 0, SEEK_SET);
+		for (int done = 0; done < len;) {
+			int n = read(fileno(fp), dst + done, len - done);
+			if (n <= 0)
+				break;
+			done += n;
+		}
 		fclose(fp);
 		return len;
 	}
