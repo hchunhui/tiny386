@@ -2529,7 +2529,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	}
 
 #define EFLAGS_MASK_386 0x37fd7
-#define EFLAGS_MASK_486 0x77fd7
+#define EFLAGS_MASK_486 0x277fd7 /* ID: the 486s with CPUID let it be set */
 #define EFLAGS_MASK_586 0x277fd7
 #define EFLAGS_MASK (cpu->flags_mask)
 
@@ -3826,7 +3826,7 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 	case 1: \
 		REGi(0) = 0 | (0 << 4) | (cpu->gen << 8); \
 		REGi(3) = 0; \
-		REGi(2) = 0x110; \
+		REGi(2) = cpu->gen > 4 ? 0x110 : 0; /* TSC, CX8: 586+ */ \
 		REGi(1) = 0; \
 		if (cpu->fpu) REGi(2) |= 1; \
 		if (cpu->gen > 5) REGi(2) |= 0x8820; \
