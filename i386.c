@@ -2669,6 +2669,29 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	sreg ## ABIT(6, lreg ## ABIT(6) + dir); \
 	sreg ## ABIT(7, lreg ## ABIT(7) + dir);
 
+/* Elements of BIT bits from the 16-bit offset off, going in direction dir,
+   before the offset wraps at 64 KiB. */
+#define wrap16(off, BIT) (dir > 0 ? (0x10000 - (off)) / (BIT / 8) : (off) / (BIT / 8) + 1)
+
+/* A REP run stops at the end of a page.  With the segment's base off a page
+   boundary, a 16-bit SI or DI (registers r1 and r2) wraps inside a page, so
+   the run stops there as well. */
+#define wrap16_cap(r1, r2, BIT, ABIT) \
+		if (ABIT == 16) { \
+			uword countw = wrap16(lreg16(r1), BIT); \
+			uword countw2 = wrap16(lreg16(r2), BIT); \
+			if (countw2 < countw) \
+				countw = countw2; \
+			if (countw < count) \
+				count = countw; \
+		}
+
+/* An element going up across the wrap: the rest of the REP goes the slow
+   way, an element at a time, as a misaligned one does. */
+#define wrap16_across(r1, r2, BIT, ABIT) \
+	(ABIT == 16 && dir > 0 && \
+	 (lreg16(r1) > 0x10000 - BIT / 8 || lreg16(r2) > 0x10000 - BIT / 8))
+
 #define xdir8 int dir = (cpu->flags & DF) ? -1 : 1;
 #define xdir16 int dir = (cpu->flags & DF) ? -2 : 2;
 #define xdir32 int dir = (cpu->flags & DF) ? -4 : 4;
@@ -2678,7 +2701,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	uword cx = lreg ## ABIT(1); \
 	while (cx) { \
 		TRY(translate ## BIT(cpu, &memld, 2, SEG_ES, lreg ## ABIT(7))); \
-		if (memld.addr1 % (BIT / 8)) { \
+		if (memld.addr1 % (BIT / 8) || wrap16_across(7, 7, BIT, ABIT)) { \
 			/* slow path */ \
 			while (lreg ## ABIT(1)) { \
 				stdi(BIT, ABIT) \
@@ -2692,6 +2715,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		else countd = 1 + (memld.addr1 & 4095) / (BIT / 8); \
 		if (countd < count) \
 			count = countd; \
+		wrap16_cap(7, 7, BIT, ABIT) \
 		for (uword i = 0; i <= count - 1; i++) { \
 			saddr ## BIT(&memld, ax); \
 			memld.addr1 += dir; \
@@ -2780,7 +2804,8 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	while (cx) { \
 		TRY(translate ## BIT(cpu, &memls, 1, curr_seg, lreg ## ABIT(6))); \
 		TRY(translate ## BIT(cpu, &memld, 2, SEG_ES, lreg ## ABIT(7))); \
-		if (memls.addr1 % (BIT / 8) || memld.addr1 % (BIT / 8)) { \
+		if (memls.addr1 % (BIT / 8) || memld.addr1 % (BIT / 8) || \
+		    wrap16_across(6, 7, BIT, ABIT)) { \
 			/* slow path */ \
 			while (lreg ## ABIT(1)) { \
 				ldsistdi(BIT, ABIT) \
@@ -2801,6 +2826,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 			count = counts; \
 		if (countd < count) \
 			count = countd; \
+		wrap16_cap(6, 7, BIT, ABIT) \
 		if (cpu->cb.iomem_write_string && in_iomem(memld.addr1) && \
 		    dir > 0  && in_iomem(memld.addr1 + count - 1) && \
 		    (memls.addr1 | 4095) < cpu->phys_mem_size && \
@@ -2897,7 +2923,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	uword cx = lreg ## ABIT(1); \
 	while (cx) { \
 		TRY(translate ## BIT(cpu, &memld, 2, SEG_ES, lreg ## ABIT(7))); \
-		if (memld.addr1 % (BIT / 8)) { \
+		if (memld.addr1 % (BIT / 8) || wrap16_across(7, 7, BIT, ABIT)) { \
 			/* slow path */ \
 			while (lreg ## ABIT(1)) { \
 				indxstdi(BIT, ABIT) \
@@ -2911,6 +2937,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		else countd = 1 + (memld.addr1 & 4095) / (BIT / 8); \
 		if (countd < count) \
 			count = countd; \
+		wrap16_cap(7, 7, BIT, ABIT) \
 		if (cpu->cb.io_read_string && dir > 0 && \
 		    (memld.addr1 | 4095) < cpu->phys_mem_size && \
 		    !in_iomem(memld.addr1) && !in_iomem(memld.addr1 | 4095)) { \
@@ -2960,7 +2987,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 	uword cx = lreg ## ABIT(1); \
 	while (cx) { \
 		TRY(translate ## BIT(cpu, &memls, 1, curr_seg, lreg ## ABIT(6))); \
-		if (memls.addr1 % (BIT / 8)) { \
+		if (memls.addr1 % (BIT / 8) || wrap16_across(6, 6, BIT, ABIT)) { \
 			/* slow path */ \
 			while (lreg ## ABIT(1)) { \
 				ldsioutdx(BIT, ABIT) \
@@ -2974,6 +3001,7 @@ static bool call_isr(CPUI386 *cpu, int no, bool pusherr, int ext);
 		else counts = 1 + (memls.addr1 & 4095) / (BIT / 8); \
 		if (counts < count) \
 			count = counts; \
+		wrap16_cap(6, 6, BIT, ABIT) \
 		if (cpu->cb.io_write_string && dir > 0 && \
 		    (memls.addr1 | 4095) < cpu->phys_mem_size && \
 		    !in_iomem(memls.addr1) && !in_iomem(memls.addr1 | 4095)) { \
