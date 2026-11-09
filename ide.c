@@ -1916,6 +1916,14 @@ static int64_t bf_get_sector_count(BlockDevice *bs)
     return bf->nb_sectors;
 }
 
+/* sectors sector_num to sector_num + n - 1 all inside the image (a CHS
+   address with sector 0 comes here as sector -1, so the sum could wrap) */
+static int bf_in_range(BlockDeviceFile *bf, uint64_t sector_num, int n)
+{
+    return n >= 0 && sector_num <= (uint64_t) bf->nb_sectors &&
+           (uint64_t) n <= (uint64_t) bf->nb_sectors - sector_num;
+}
+
 static int bf_get_chs(BlockDevice *bs, int *cylinders, int *heads, int *sectors)
 {
     BlockDeviceFile *bf = bs->opaque;
@@ -1942,6 +1950,8 @@ static int bf_read_async(BlockDevice *bs,
     }
 #endif
     if (!bf->f)
+        return -1;
+    if (!bf_in_range(bf, sector_num, n))
         return -1;
     if (bf->mode == BF_MODE_SNAPSHOT) {
         int i;
@@ -1970,6 +1980,8 @@ static int bf_write_async(BlockDevice *bs,
     BlockDeviceFile *bf = bs->opaque;
     int ret;
 
+    if (!bf_in_range(bf, sector_num, n))
+        return -1;
     switch(bf->mode) {
     case BF_MODE_RO:
         ret = -1; /* error */
@@ -1982,8 +1994,6 @@ static int bf_write_async(BlockDevice *bs,
     case BF_MODE_SNAPSHOT:
         {
             int i;
-            if ((sector_num + n) > bf->nb_sectors)
-                return -1;
             for(i = 0; i < n; i++) {
                 if (!bf->sector_table[sector_num]) {
                     bf->sector_table[sector_num] = pcmalloc(SECTOR_SIZE);
