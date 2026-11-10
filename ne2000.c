@@ -245,6 +245,10 @@ static int ne2000_buffer_full(NE2000State *s)
 {
     int avail, index, boundary;
 
+    if (s->stop <= s->start) {
+        return 1;
+    }
+
     index = s->curpag << 8;
     boundary = s->boundary << 8;
     if (index < boundary)
@@ -271,7 +275,7 @@ void ne2000_receive(void *opaque, const uint8_t *buf, int size)
 {
     NE2000State *s = opaque;
     uint8_t *p;
-    unsigned int total_len, next, avail, len, index, mcast_idx;
+    unsigned int total_len, next, avail, len, index, mcast_idx, start, stop;
     uint8_t buf1[60];
     static const uint8_t broadcast_macaddr[6] =
         { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
@@ -321,13 +325,22 @@ void ne2000_receive(void *opaque, const uint8_t *buf, int size)
         size = MIN_BUF_SIZE;
     }
 
+    /* In the ESP32 builds this runs in the Wi-Fi task, and the guest can
+       change PSTART and PSTOP while the frame is copied in: read them once. */
+    start = s->start;
+    stop = s->stop;
+    if (stop <= start)
+        return;
     index = s->curpag << 8;
+    if (index >= NE2000_PMEM_END) {
+        index = start;
+    }
     /* 4 bytes for header */
     total_len = size + 4;
     /* address for next packet (4 bytes for CRC) */
     next = index + ((total_len + 4 + 255) & ~0xff);
-    if (next >= s->stop)
-        next -= (s->stop - s->start);
+    if (next >= stop)
+        next -= (stop - start);
     /* prepare packet header */
     p = s->mem + index;
     s->rsr = ENRSR_RXOK; /* receive status */
@@ -342,18 +355,18 @@ void ne2000_receive(void *opaque, const uint8_t *buf, int size)
 
     /* write packet data */
     while (size > 0) {
-        if (index <= s->stop)
-            avail = s->stop - index;
+        if (index <= stop)
+            avail = stop - index;
         else
-            avail = 0;
+            break;
         len = size;
         if (len > avail)
             len = avail;
         memcpy(s->mem + index, buf, len);
         buf += len;
         index += len;
-        if (index == s->stop)
-            index = s->start;
+        if (index == stop)
+            index = start;
         size -= len;
     }
     s->curpag = next >> 8;
@@ -872,13 +885,19 @@ void ne2000_ioport_write(void *opaque, uint32_t addr, uint32_t val)
         offset = addr | (page << 4);
         switch(offset) {
         case EN0_STARTPG:
-            s->start = val << 8;
+            if (val << 8 <= NE2000_PMEM_END) {
+                s->start = val << 8;
+            }
             break;
         case EN0_STOPPG:
-            s->stop = val << 8;
+            if (val << 8 <= NE2000_PMEM_END) {
+                s->stop = val << 8;
+            }
             break;
         case EN0_BOUNDARY:
-            s->boundary = val;
+            if (val << 8 < NE2000_PMEM_END) {
+                s->boundary = val;
+            }
             break;
         case EN0_IMR:
             s->imr = val;
@@ -919,7 +938,9 @@ void ne2000_ioport_write(void *opaque, uint32_t addr, uint32_t val)
             s->phys[offset - EN1_PHYS] = val;
             break;
         case EN1_CURPAG:
-            s->curpag = val;
+            if (val << 8 < NE2000_PMEM_END) {
+                s->curpag = val;
+            }
             break;
         case EN1_MULT ... EN1_MULT + 7:
             s->mult[offset - EN1_MULT] = val;
