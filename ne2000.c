@@ -251,7 +251,9 @@ static int ne2000_buffer_full(NE2000State *s)
         avail = boundary - index;
     else
         avail = (s->stop - s->start) - (index - boundary);
-    if (avail < (MAX_ETH_FRAME_SIZE + 4))
+    /* A full-sized frame, with its header and CRC, takes 6 pages.  It must
+       end before the boundary: CURR equal to BNRY reads as an empty ring. */
+    if (avail <= ((MAX_ETH_FRAME_SIZE + 4 + 4 + 255) & ~0xff))
         return 1;
     return 0;
 }
