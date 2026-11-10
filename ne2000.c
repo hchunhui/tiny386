@@ -1177,6 +1177,18 @@ typedef struct NICInfo {
 #ifdef BUILD_ESP32
 void *thene2000;
 
+/* the destination port of a TCP or UDP frame, which follows the IP header's
+   options; -1 when there is none: a later fragment, a bad IHL or a frame
+   cut short */
+static inline int dst_port(uint8_t *buf, int size)
+{
+    int ihl = (buf[14] & 0x0f) * 4;
+    int frag = ((buf[20] & 0x1f) << 8) | buf[21];
+    if (ihl < 20 || frag != 0 || size < 14 + ihl + 4)
+        return -1;
+    return (buf[14 + ihl + 2] << 8) | buf[14 + ihl + 3];
+}
+
 static inline int filter(uint8_t *buf, int size)
 {
     if (size >= 38) {
@@ -1185,13 +1197,13 @@ static inline int filter(uint8_t *buf, int size)
         case 0x0800: // ipv4
             switch (buf[23]) {
             case 0x06: // tcp
-                if (buf[36] == 0x27 && buf[37] == 0x0f) { // dst 9999
+                if (dst_port(buf, size) == 9999) { // dst 9999
                     return 0;
                 } else {
                     return 1;
                 }
             case 0x11: // udp
-                if (buf[36] == 0x00 && buf[37] == 0x44) { // dhcp
+                if (dst_port(buf, size) == 68) { // dhcp
                     return 2;
                 } else {
                     return 1;
