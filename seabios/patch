@@ -211,15 +211,27 @@ index fa663b99..48efda12 100644
  
  // Write a character to the special debugging port.
 diff --git a/src/misc.c b/src/misc.c
-index b5117304..9cdc6d08 100644
+index b5117304..e713f717 100644
 --- a/src/misc.c
 +++ b/src/misc.c
-@@ -63,7 +63,7 @@ mathcp_setup(void)
+@@ -8,6 +8,7 @@
+ #include "biosvar.h" // GET_BDA
+ #include "bregs.h" // struct bregs
+ #include "hw/pic.h" // enable_hwirq
++#include "hw/rtc.h" // rtc_read
+ #include "output.h" // debug_enter
+ #include "stacks.h" // call16_int
+ #include "string.h" // memset
+@@ -62,8 +63,10 @@ void
+ mathcp_setup(void)
  {
      dprintf(3, "math cp init\n");
-     // 80x87 coprocessor installed
+-    // 80x87 coprocessor installed
 -    set_equipment_flags(0x02, 0x02);
-+//    set_equipment_flags(0x02, 0x02);
++    // 80x87 coprocessor installed, when the emulator's CMOS says so
++    // (tiny386 sets bit 1 of the equipment byte with fpu = 1)
++    if (rtc_read(CMOS_EQUIPMENT_INFO) & 0x02)
++        set_equipment_flags(0x02, 0x02);
      enable_hwirq(13, FUNC16(entry_75));
  }
  
