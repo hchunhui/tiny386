@@ -3745,7 +3745,7 @@ static bool verrw_helper(CPUI386 *cpu, int sel, int wr, int *zf)
 	} \
 	cpu->cc.mask &= ~ZF;
 
-#define GvMa GvM
+#define GvMa GvMp
 #define BOUND_helper(BIT, a, b, la, sa, lb, sb) \
 	OptAddr meml1, meml2; \
 	s ## BIT idx = la(a); \
