@@ -355,6 +355,12 @@ void IRAM_ATTR i8257_dma_run(void *opaque)
     int ichan;
     int rearm = 0;
 
+    /* pc_step() calls this for both controllers at every step.  A
+       channel runs only when its request bit (status bits 4 to 7) is set
+       and its mask bit clear; with none such, and not called from inside
+       a transfer, the loop below would run nothing and change nothing. */
+    if (!d->running && !((d->status >> 4) & ~d->mask & 0xf))
+        return;
     if (d->running) {
         rearm = 1;
         goto out;
