@@ -304,6 +304,11 @@
 #define SENSE_UNIT_ATTENTION  6
 
 #define MAX_MULT_SECTORS 4 /* 512 * 4 == 2048 */
+#ifdef IDE_ENABLE_WRITE_GATHER
+/* a write command's blocks are gathered, up to this many sectors, and written together
+   (a buffer of that many sectors, 64 KB, allocated on the first write: not for small MCUs) */
+#define WRITE_GATHER_SECTORS 128
+#endif
 
 #ifdef BUILD_ESP32
 void *pcmalloc(long size);
@@ -366,6 +371,11 @@ struct IDEState {
     int data_index;
     int data_end;
     uint8_t io_buffer[MAX_MULT_SECTORS*512 + 4];
+#ifdef IDE_ENABLE_WRITE_GATHER
+    uint8_t *wbuf; /* WRITE_GATHER_SECTORS, allocated on the first write */
+    int wcount; /* sectors gathered in it, from wsector on */
+    int64_t wsector;
+#endif
 };
 
 struct IDEIFState {
@@ -641,6 +651,9 @@ static void ide_sector_write_cb1(IDEState *s)
 {
     int64_t sector_num;
     int ret;
+#ifdef IDE_ENABLE_WRITE_GATHER
+    int n = s->io_nb_sectors, gathered = 0;
+#endif
 
     ide_transfer_stop(s);
     sector_num = ide_get_sector(s);
@@ -648,10 +661,42 @@ static void ide_sector_write_cb1(IDEState *s)
     printf("write sector=%" PRId64 "  count=%d\n",
            sector_num, s->io_nb_sectors);
 #endif
+#ifdef IDE_ENABLE_WRITE_GATHER
+    /* The blocks of one command are gathered and written together when it ends (or
+       the buffer is full): many small writes take an SD card much longer than one
+       big one. The command still completes only once they are written. */
+    if (!s->wbuf)
+        s->wbuf = malloc(WRITE_GATHER_SECTORS * 512); /* (not pcmalloc: little room there) */
+    if (s->wbuf) {
+        gathered = 1;
+        if (!s->wcount)
+            s->wsector = sector_num;
+        memcpy(s->wbuf + s->wcount * 512, s->io_buffer, n * 512);
+        s->wcount += n;
+        if (((s->nsector - n) & 0xff) &&
+            s->wcount + s->req_nb_sectors <= WRITE_GATHER_SECTORS) {
+            ide_sector_write_cb2(s, 0); /* the next block */
+            return;
+        }
+        n = s->wcount;
+        s->wcount = 0;
+        ret = s->bs->write_async(s->bs, s->wsector, s->wbuf, n,
+                                 ide_sector_write_cb2, s);
+    } else
+#endif
     ret = s->bs->write_async(s->bs, sector_num, s->io_buffer, s->io_nb_sectors, 
                              ide_sector_write_cb2, s);
     if (ret < 0) {
         /* error */
+#ifdef IDE_ENABLE_WRITE_GATHER
+        if (gathered) {
+            /* the registers back at the first sector not written, as if
+               each block had been written on its own (the blocks gathered
+               before this one had moved them on) */
+            ide_set_sector(s, s->wsector);
+            s->nsector = (s->nsector + n - s->io_nb_sectors) & 0xff;
+        }
+#endif
         ide_abort_command(s);
         ide_set_irq(s);
     } else if (ret == 0) {
@@ -688,6 +733,9 @@ static void ide_sector_write_cb2(void *opaque, int ret)
 static void ide_sector_write(IDEState *s)
 {
     int n;
+#ifdef IDE_ENABLE_WRITE_GATHER
+    s->wcount = 0; /* (what an abandoned command gathered) */
+#endif
     n = s->nsector;
     if (n == 0)
         n = 256;
