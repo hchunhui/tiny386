@@ -223,6 +223,11 @@ uint32_t i8254_ioport_read(PITState *pit, uint32_t addr)
 	PITChannelState *s;
 
 	addr &= 3;
+	/* 43h, the control word, is write only: the 8254 leaves the bus
+	   alone, and there is no fourth channel (channels[3] would be the
+	   pic and set_irq pointers after the array) */
+	if (addr == 3)
+		return 0xff;
 	s = &pit->channels[addr];
 	if (s->status_latched) {
 		s->status_latched = 0;
