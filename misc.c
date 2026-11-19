@@ -152,15 +152,21 @@ CMOS *cmos_init(long mem_size, int irq, void *pic, void (*set_irq)(void *pic, in
 	c->data[11] = 0x02;
 	c->data[12] = 0x00;
 	c->data[13] = 0x80;
+	/* the base memory, in KB, and below the extended memory as an AT's
+	   CMOS holds them, for what reads them directly and not by the BIOS */
+	c->data[0x15] = 640 & 0xff;
+	c->data[0x16] = 640 >> 8;
 	if (mem_size >= 1024 * 1024) {
 		if (mem_size >= 64 * 1024 * 1024) {
+			c->data[0x17] = c->data[0x18] = 0xff;
+			c->data[0x30] = c->data[0x31] = 0xff;
 			mem_size -= 16 * 1024 * 1024;
 			c->data[0x35] = mem_size >> 24;
 			c->data[0x34] = mem_size >> 16;
 		} else {
 			mem_size -= 1024 * 1024;
-			c->data[0x31] = mem_size >> 18;
-			c->data[0x30] = mem_size >> 10;
+			c->data[0x18] = c->data[0x31] = mem_size >> 18;
+			c->data[0x17] = c->data[0x30] = mem_size >> 10;
 		}
 	}
 	return c;
