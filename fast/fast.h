@@ -683,7 +683,7 @@ void cpui386_step(CPUI386 *cpu, int stepcount)
 		cpu->halt = false;
 		int no = cpu->cb.pic_read_irq(cpu->cb.pic);
 		cpu->ip = cpu->next_ip;
-		TRY1(call_isr(cpu, no, false, 1));
+		if (!call_isr(cpu, no, false, 1)) { cpu_shutdown(cpu); return; }
 	}
 
 	if (cpu->halt) {
@@ -704,6 +704,6 @@ void cpui386_step(CPUI386 *cpu, int stepcount)
 		}
 		cpu->next_ip = cpu->ip;
 
-		TRY1(call_isr(cpu, cpu->excno, pusherr, 1));
+		if (!call_isr(cpu, cpu->excno, pusherr, 1)) cpu_shutdown(cpu);
 	}
 }
