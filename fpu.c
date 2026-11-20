@@ -532,6 +532,23 @@ static void fparith(FPU *fpu, int group, unsigned int d, double a, double b)
 	}
 }
 
+#ifdef PD_X87_ENABLED
+/* FLD, FST and FSTP on eight bytes already validated as ordinary guest RAM. */
+void fpu_move_real64(FPU *fpu, int group, void *p)
+{
+	double value;
+	if (group == 0) {
+		__builtin_memcpy(&value, p, sizeof(value));
+		fppush(fpu, value);
+	} else {
+		value = fpget(fpu, 0);
+		__builtin_memcpy(p, &value, sizeof(value));
+		if (group == 3)
+			fppop(fpu);
+	}
+}
+#endif
+
 bool fpu_exec2(FPU *fpu, void *cpu, bool opsz16, int op, int group, int seg, uword addr)
 {
 	double a;
