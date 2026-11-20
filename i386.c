@@ -1854,7 +1854,7 @@ noinline void IRAM_ATTR try_jcc8(CPUI386 *cpu)
 		res = sext ## BIT((x << y) | (x >> (BIT - y))); \
 		sa(a, res); \
 	} \
-	if (y0) { \
+	if (y0 & 0x1f) { \
 		int cf1 = res & 1; \
 		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
 		SET_BIT(cpu->flags, cf1, CF); \
@@ -1911,7 +1911,7 @@ noinline void IRAM_ATTR try_jcc8(CPUI386 *cpu)
 		res = sext ## BIT((x >> y) | (x << (BIT - y))); \
 		sa(a, res); \
 	} \
-	if (y0) { \
+	if (y0 & 0x1f) { \
 		int cf1 = (res >> (BIT - 1)) & 1; \
 		int of1 = ((res ^ (res << 1)) >> (BIT - 1)) & 1; \
 		SET_BIT(cpu->flags, cf1, CF); \
