@@ -1471,6 +1471,17 @@ static void vga_graphic_refresh(VGAState *s,
         }
 #endif
 
+#if BPP == 32 && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        /* Indexed VBE has one palette index per pixel and no pel panning. */
+        if (x0 == 0 && vbe && bpp == 8 && shift_control >= 2) {
+            uint8_t *dst = fb_dev->fb_data + i0 + 4 * y * fb_dev->width;
+            for (int x = 0; x < w; x++) {
+                uint32_t color = palette[vram[addr + x]];
+                __builtin_memcpy(dst + 4 * x, &color, sizeof(color));
+            }
+            x0 = w;
+        }
+#endif
         uint32_t color_comp = 0;
         for (int x = x0; x < w; x++) {
             int x1 = x / xdiv + pan;
