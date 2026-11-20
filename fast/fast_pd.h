@@ -69,6 +69,11 @@ static struct pd_block *pd_cur;    /* the block running (a global: no register f
 #define PD_SH(X, n) PD_S3(X, n##_ri) PD_S3(X, n##_rc) PD_S3(X, n##_mi) PD_S3(X, n##_mc)
 #define PD_J16(X, p) X(p##0) X(p##1) X(p##2) X(p##3) X(p##4) X(p##5) X(p##6) X(p##7) \
 	X(p##8) X(p##9) X(p##a) X(p##b) X(p##c) X(p##d) X(p##e) X(p##f)
+#ifdef PD_X87_ENABLED
+#define PD_X87(X) X(x87_reg) X(x87_mem)
+#else
+#define PD_X87(X)
+#endif
 #define PD_LIST(X) \
 	X(end) X(leave) X(classic) X(nop) \
 	PD_F5(X, mov) \
@@ -95,7 +100,7 @@ static struct pd_block *pd_cur;    /* the block running (a global: no register f
 	X(cbw) X(cwde) X(cwd) X(cdq) \
 	PD_J16(X, j16_) PD_J16(X, j32_) X(jmp16) X(jmp32) X(call16) X(call32) \
 	X(ret16) X(ret32) X(reti16) X(reti32) \
-	X(jmpi_rw) X(jmpi_rd) X(jmpi_mw) X(jmpi_md) X(calli_rw) X(calli_rd) X(calli_mw) X(calli_md)
+	X(jmpi_rw) X(jmpi_rd) X(jmpi_mw) X(jmpi_md) X(calli_rw) X(calli_rd) X(calli_mw) X(calli_md) PD_X87(X)
 #define PD_ENUM(n) PD_##n,
 enum { PD_LIST(PD_ENUM) PD_N };
 #undef PD_ENUM
@@ -265,6 +270,22 @@ static const u8 *pd_one(CPUI386 *cpu, const u8 *p, bool code16, struct pd_uop *u
 		return p;
 	}
 	switch (op) {
+#ifdef PD_X87_ENABLED
+	case 0xd8 ... 0xdf:
+		MODRM();
+		if (m >= 0xc0) {
+			u->i = op - 0xd8;
+			*hi = PD_x87_reg;
+			return p;
+		}
+		/* DD /0, /2 and /3 move a double to or from the x87 stack. */
+		if (op == 0xdd && (u->r == 0 || u->r == 2 || u->r == 3)) {
+			EA();
+			*hi = PD_x87_mem;
+			return p;
+		}
+		return NULL;
+#endif
 	case 0x0f:
 		op = *p++;
 		if (op >= 0x80 && op <= 0x8f) {   // Jcc rel16/32

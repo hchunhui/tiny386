@@ -367,6 +367,31 @@ pd_slow:   // the uop's instruction to tiny386
 	ins = bh + pu->ip;
 	goto slow;
 
+#ifdef PD_X87_ENABLED
+pd_x87_reg: {
+	if (unlikely(!cpu->fpu || (cpu->cr0 & 0xc))) goto pd_slow;
+	if (unlikely(!fpu_exec1(cpu->fpu, cpu, pu->i, pu->r, pu->rm))) goto pd_x87_fault;
+	PD_NEXT;
+}
+
+pd_x87_mem: {
+	if (unlikely(!cpu->fpu || (cpu->cr0 & 0xc))) goto pd_slow;
+	PD_EA(off);
+	bool store = pu->r != 0;
+	/* Keep stores spanning two code-tracking lines on the reference path. */
+	if (store && ((cpu->seg[pu->sg].base + off) & 127) > 120) goto pd_slow;
+	u8 *p;
+	PD_PTR(p, pu->sg, off, 8, store, pd_slow);
+	fpu_move_real64(cpu->fpu, pu->r, p);
+	PD_NEXT;
+}
+
+pd_x87_fault:
+	cpu->ip = EIP_OF(bh + pu->ip);
+	cpu->next_ip = EIP_OF(PD_NEXTIP);
+	goto fault;
+#endif
+
 #undef PD_BEGIN
 #undef PD_NEXTIP
 #undef PD_NEXT
