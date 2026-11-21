@@ -13,6 +13,7 @@ struct Term {
 #include <termios.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <ctype.h>
 
 #define KEY_NONE        0x00
 #define KEY_ESC         0x01
@@ -270,6 +271,13 @@ static const int cmap[16] = {
 	0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15
 };
 
+static const char *cp437gr_to_utf8[] = {
+	" ", "☺", "☻", "♥", "♦", "♣", "♠", "•", // 0x00 - 0x07
+	"◘", "○", "◙", "♂", "♀", "♪", "♫", "☼", // 0x08 - 0x0F
+	"►", "◄", "↕", "‼", "¶", "§", "▬", "↨", // 0x10 - 0x17
+	"↑", "↓", "→", "←", "∟", "↔", "▲", "▼"  // 0x18 - 0x1F
+};
+
 static const char *cp437_to_utf8[] = {
 	"Ç", "ü", "é", "â", "ä", "à", "å", "ç", // 80-87
 	"ê", "ë", "è", "ï", "î", "ì", "Ä", "Å", // 88-8F
@@ -289,7 +297,11 @@ static const char *cp437_to_utf8[] = {
 	"°", "∙", "·", "√", "ⁿ", "²", "■", "\xC2\xA0" // F8-FF
 };
 
-static void putchar_cp437(unsigned char cp437_char) {
+static void putchar_cp437gr(unsigned char cp437_char) {
+	if (cp437_char < 32) {
+		fputs(cp437gr_to_utf8[cp437_char], stdout);
+		return;
+	}
 	if (cp437_char < 0x80) {
 		putchar(cp437_char);
 		return;
@@ -310,7 +322,7 @@ static void put_char2(void *o, int y, int x, int ch, int t)
 	printf("\0337\033[?25l");
 	SET_CURSOR(y + 1, x + 1);
 	SET_ATTR(fg >= 8 ? 82 + fg : 30 + fg, bg >= 8 ? 92 + bg : 40 + bg);
-	putchar_cp437(ch);
+	putchar_cp437gr(ch);
 	printf("\033[?25h\0338");
 	FFLUSH();
 }
@@ -327,7 +339,7 @@ static void refresh(void *o, const uint8_t *ram, int width, int height)
 			int bg = cmap[(t >> 4) & 0xf];
 			SET_ATTR(fg >= 8 ? 82 + fg : 30 + fg,
 				 bg >= 8 ? 92 + bg : 40 + bg);
-			putchar_cp437(ram[a1 * 4]);
+			putchar_cp437gr(ram[a1 * 4]);
 		}
 	}
 	printf("\033[?25h\0338");
