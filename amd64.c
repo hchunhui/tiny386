@@ -1692,10 +1692,7 @@ static bool set_seg(CPUAMD64 *cpu, int seg, int sel)
 		INST ## d(imm32, limm, 0) \
 	}
 
-#define Jv(rwm, INST) \
-		u32 imm32; \
-		TRY(fetch32(cpu, &imm32)); \
-		INST ## d(imm32, limm, 0);
+#define Jv Iv
 #define Av Iv
 
 #define Ms(rwm, INST) \
@@ -1945,7 +1942,7 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 #define SHLd(...) SHL_helper(32, 0x1f, __VA_ARGS__)
 #define SHLq(...) SHL_helper(64, 0x3f, __VA_ARGS__)
 
-#define ROL_helper(BIT, a, b, la, sa, lb, sb) \
+#define ROL_helper(BIT, ymask, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
 	uword y0 = lb(b); \
 	uword y = y0 & (BIT - 1); \
@@ -1954,7 +1951,7 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 		res = sext ## BIT((x << y) | (x >> (BIT - y))); \
 		sa(a, res); \
 	} else { sa(a, la(a)); } \
-	if (y0) { \
+	if (y0 & ymask) { \
 		int cf1 = res & 1; \
 		int of1 = (res >> (sizeof(uword) * 8 - 1)) ^ cf1; \
 		SET_BIT(cpu->flags, cf1, CF); \
@@ -1962,10 +1959,10 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 		cpu->cc.mask &= ~(CF | OF); \
 	}
 
-#define ROLb(...) ROL_helper(8, __VA_ARGS__)
-#define ROLw(...) ROL_helper(16, __VA_ARGS__)
-#define ROLd(...) ROL_helper(32, __VA_ARGS__)
-#define ROLq(...) ROL_helper(64, __VA_ARGS__)
+#define ROLb(...) ROL_helper(8, 0x1f, __VA_ARGS__)
+#define ROLw(...) ROL_helper(16, 0x1f, __VA_ARGS__)
+#define ROLd(...) ROL_helper(32, 0x1f, __VA_ARGS__)
+#define ROLq(...) ROL_helper(64, 0x3f, __VA_ARGS__)
 
 #define RCL_helper(BIT, ymask, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
@@ -2005,7 +2002,7 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 #define RCRd(...) RCR_helper(32, 0x1f, __VA_ARGS__)
 #define RCRq(...) RCR_helper(64, 0x3f, __VA_ARGS__)
 
-#define ROR_helper(BIT, a, b, la, sa, lb, sb) \
+#define ROR_helper(BIT, ymask, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
 	uword y0 = lb(b); \
 	uword y = y0 & (BIT - 1); \
@@ -2014,7 +2011,7 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 		res = sext ## BIT((x >> y) | (x << (BIT - y))); \
 		sa(a, res); \
 	} else { sa(a, la(a)); } \
-	if (y) { \
+	if (y0 & ymask) { \
 		int cf1 = (res >> (BIT - 1)) & 1; \
 		int of1 = ((res ^ (res << 1)) >> (BIT - 1)) & 1; \
 		SET_BIT(cpu->flags, cf1, CF); \
@@ -2022,10 +2019,10 @@ noinline void IRAM_ATTR try_jcc8(CPUAMD64 *cpu)
 		cpu->cc.mask &= ~(CF | OF); \
 	}
 
-#define RORb(...) ROR_helper(8, __VA_ARGS__)
-#define RORw(...) ROR_helper(16, __VA_ARGS__)
-#define RORd(...) ROR_helper(32, __VA_ARGS__)
-#define RORq(...) ROR_helper(64, __VA_ARGS__)
+#define RORb(...) ROR_helper(8, 0x1f, __VA_ARGS__)
+#define RORw(...) ROR_helper(16, 0x1f, __VA_ARGS__)
+#define RORd(...) ROR_helper(32, 0x1f, __VA_ARGS__)
+#define RORq(...) ROR_helper(64, 0x3f, __VA_ARGS__)
 
 #define SHR_helper(BIT, ymask, a, b, la, sa, lb, sb) \
 	uword x = la(a); \
@@ -3379,7 +3376,7 @@ static bool check_ioperm(CPUAMD64 *cpu, int port, int bit)
 	TRY(translate8(cpu, &meml, 1, curr_seg, addr)); \
 	sreg8(0, laddr8(&meml));
 
-#define GvMa GvM
+#define GvMa GvMp
 #define BOUND_helper(BIT, a, b, la, sa, lb, sb) \
 	OptAddr meml1, meml2; \
 	s ## BIT idx = la(a); \
@@ -3394,12 +3391,12 @@ static bool check_ioperm(CPUAMD64 *cpu, int port, int bit)
 
 // 486...
 #define CMPXCH_helper(BIT, a, b, la, sa, lb, sb) \
-	cpu->cc.src1 = sext ## BIT(la(a)); \
-	cpu->cc.src2 = sext ## BIT(lreg ## BIT(0)); \
+	cpu->cc.src1 = sext ## BIT(lreg ## BIT(0)); \
+	cpu->cc.src2 = sext ## BIT(la(a)); \
 	cpu->cc.dst = sext ## BIT(cpu->cc.src1 - cpu->cc.src2); \
 	cpu->cc.op = CC_SUB; \
 	cpu->cc.mask = CF | PF | AF | ZF | SF | OF; \
-	if (cpu->cc.dst == 0) sa(a, lb(b)); else sreg ## BIT(0, cpu->cc.src1); 
+	if (cpu->cc.dst == 0) sa(a, lb(b)); else sreg ## BIT(0, cpu->cc.src2);
 
 #define XADD_helper(BIT, a, b, la, sa, lb, sb) \
 	u ## BIT dst = la(a); \
