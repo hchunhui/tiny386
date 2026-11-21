@@ -239,6 +239,8 @@ static int parse_ini(void* user, const char* section,
 				strcpy(conf->pass, value);
 		} else if (NAME("enable_usb")) {
 			conf->enable_usb = atoi(value);
+		} else if (NAME("fast_seek_kb")) {
+			fatfs_image_max_kb = atoi(value);
 		}
 	}
 #undef SEC
