@@ -63,6 +63,21 @@ struct PITState {
 
 uint32_t get_uticks();
 
+/* The PIT's count in t us, floor(t * PIT_FREQ / 1000000) to 32 bits, as
+   the 64-bit multiply and division gave it, for every 32-bit t, but with
+   32-bit multiplies.  As PIT_FREQ is 1000000 + 193182, it is t + q mod 2^32
+   with q = floor(t * 193182 / 1000000), below 2^32.  The multiply by
+   floor(2^32 * 0.193182) is at most 1 short of q, and the remainder,
+   t * 193182 - q * 1000000, below 2 * 1000000 and so exact in 32 bits,
+   says whether it was. */
+static inline uint32_t pit_ticks(uint32_t t)
+{
+	uint32_t q = (uint32_t) (((uint64_t) t * 829710372u) >> 32);
+	if (t * 193182u - q * 1000000u >= 1000000u)
+		q++;
+	return t + q;
+}
+
 /* Keep the programmed bits for status readback; aliases affect behavior only. */
 static int pit_mode(PITChannelState *s)
 {
@@ -76,7 +91,7 @@ static int pit_get_count(PITChannelState *s)
 
 	if (s->reload_pending)
 		return s->stopped_count;
-	d = ((uint64_t) (get_uticks() - s->count_load_time)) * PIT_FREQ / 1000000;
+	d = pit_ticks(get_uticks() - s->count_load_time);
 	switch(pit_mode(s)) {
 	case 0:
 	case 1:
@@ -103,7 +118,7 @@ static int pit_get_out1(PITChannelState *s, uint32_t current_time)
 
 	if (s->reload_pending)
 		return 0;
-	d = ((uint64_t) (current_time - s->count_load_time)) * PIT_FREQ / 1000000;
+	d = pit_ticks(current_time - s->count_load_time);
 	switch(pit_mode(s)) {
 	default:
 	case 0:
@@ -293,7 +308,7 @@ void i8254_update_irq(PITState *pit)
 {
 	uint32_t uticks = get_uticks();
 	PITChannelState *s = pit->channels;
-	uint32_t d = ((uint64_t) (uticks - s->count_load_time)) * PIT_FREQ / 1000000;
+	uint32_t d = pit_ticks(uticks - s->count_load_time);
 	switch(pit_mode(s)) {
 	case 2:
 	case 3:
