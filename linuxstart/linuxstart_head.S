@@ -61,5 +61,5 @@ _start:
         mov $KERNEL_PARAMS_ADDR, %esi
         push $KERNEL_CS
         push $KERNEL_STARTUP64_ADDR
-        lret
+        lretq
 #endif
