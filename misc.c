@@ -196,7 +196,17 @@ uint8_t u8250_reg_read(U8250 *uart, int off)
 		val = uart->ier;
 		break;
 	case 2:
-		val = (uart->ier & uart->ioready) ? 0 : 1;
+		/* what interrupts: received data first, then the transmitter,
+		   which reading this clears, as on an 8250 */
+		if (uart->ier & uart->ioready & 1) {
+			val = 4;
+		} else if (uart->ier & uart->ioready & 2) {
+			val = 2;
+			uart->ioready &= ~2;
+			u8250_update_interrupts(uart);
+		} else {
+			val = 1;
+		}
 		break;
 	case 3:
 		val = uart->lcr;
@@ -235,6 +245,11 @@ void u8250_reg_write(U8250 *uart, int off, uint8_t val)
 #else
 			putchar(val);
 #endif
+			/* sent at once: the transmitter is empty again */
+			if (uart->ier & 2) {
+				uart->ioready |= 2;
+				u8250_update_interrupts(uart);
+			}
 		}
 		break;
 	case 1:
