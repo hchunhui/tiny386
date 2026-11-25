@@ -11,6 +11,7 @@
 #include "esp_vfs_fat.h"
 #include "esp_system.h"
 #include "sdmmc_cmd.h"
+#include "diskio_sdmmc.h"
 #include "common.h"
 #ifdef SD_PWR_CTRL_LDO_IO_ID
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
@@ -115,6 +116,7 @@ void storage_init(void)
 	} else {
 		ESP_LOGI(TAG, "Filesystem mounted");
 		sd_mount_ok = true;
+		fatfs_image_set_volume("/sdcard", ff_diskio_get_pdrv_card(card));
 	}
 #else
 	esp_err_t ret;
@@ -254,6 +256,7 @@ void storage_init(void)
 			if (ret == ESP_OK) {
 				ESP_LOGI(TAG, "SD card mounted");
 				sd_mount_ok = true;
+				fatfs_image_set_volume("/sdcard", ff_diskio_get_pdrv_card(card));
 				rawsd = card;
 				break;
 			}
