@@ -791,7 +791,7 @@ PC *pc_new(SimpleFBDrawFunc *redraw, void *redraw_data,
 	pc->cmos = cmos_init(conf->mem_size, 8, pc->pic, set_irq);
 	/* the equipment byte's bit 1: a maths coprocessor, which the BIOS then
 	   puts in the equipment word (seabios/patch) */
-	if (conf->fpu)
+	if (conf->fpu && conf->fill_cmos)
 		cmos_set(pc->cmos, 0x14, 0x02);
 	pc->ide = ide_allocate(14, pc->pic, set_irq);
 	pc->ide2 = ide_allocate(15, pc->pic, set_irq);
