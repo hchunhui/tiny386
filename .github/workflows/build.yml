@@ -24,6 +24,9 @@ jobs:
     - name: build
       run: scripts/build.sh tiny386
 
+    - name: test
+      run: make test
+
     - name: esp-idf build
       uses: espressif/esp-idf-ci-action@v1
       with:
